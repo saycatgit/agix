@@ -256,8 +256,9 @@ class ToolExecutor:
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
         if self.logger:
             self.logger.log(f"\n🚀 启动任务模式: {task[:100]}", always=True)
-        result = self.agent.run(task, mode="task")
-        return result.get("content", str(result))
+
+        return  f"\n🚀 启动任务模式: {task[:100]}"
+
 
     def _tool_ask_user(self, args: dict) -> str:
         """向用户提问并获取输入，返回用户回答或错误信息。"""
