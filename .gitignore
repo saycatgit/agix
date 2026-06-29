@@ -1,0 +1,15 @@
+.agent_secrets.json
+.agent_approvals.json
+__pycache__/
+*.py[cod]
+*$py.class
+log/
+.vscode/
+.idea/
+.env
+venv/
+config.json
+workspace/
+git-server/
+spc/
+.agent_permissions.json

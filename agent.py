@@ -1,0 +1,878 @@
+"""核心 Agent
+
+四阶段任务流水线，驱动 LLM 从任务分类到文档生成再到代码执行。
+
+流程（run 方法）：
+  阶段0: 任务分类
+    └─ TaskClassifier.classify() / prompts.combined_classify → 分解归类
+  阶段1: 文档生成（按类型路由）
+    ├─ 开发类: _run_loop(comb_task) → LLM 自动生成需求文档
+    ├─ 文本类: _run_loop(impl_task) → 生成文案/报告
+    ├─ 调试类: _run_loop(impl_task) → 查阅 spc/ 后调试修复
+    └─ 其他类: _run_loop(impl_task) → 直接执行
+  阶段2: _run_loop(impl_task) [开发类]
+    └─ LLM 读取 docs/ 需求文档实现代码
+  阶段3: _run_loop(test_task) [开发类]
+    └─ 基础验证、单元测试、使用说明书
+
+每个阶段均有结果判断（judge）、日志记录、状态持久化。
+
+路径策略：
+  - 文件操作限定在 work_dir 内
+  - spc/ 只读，docs/ 写入
+  - work_dir 由 _resolve_subtask_dir 动态分配
+"""
+
+import os, time, sys , glob, json
+from datetime import datetime
+
+from llm_client import LLMClient
+from config import TRUNCATION
+from logger import Logger
+from task_manager import TaskManager, SubTaskStatus, MainTaskStatus
+from prompts import Prompts
+from tools import TOOLS, ToolExecutor
+from markdown_it import MarkdownIt
+
+from task_classifier import TaskClassifier
+
+
+class Agent:
+    """Agent 核心调度器
+
+    职责：任务分类与拆解（阶段0）、按类型路由到对应执行流程、
+    调用 _run_loop 进行多轮 LLM 交互执行、管理子任务生命周期。
+
+    依赖组件：LLMClient / TaskManager / Logger
+    """
+
+    def __init__(self, config: dict, auth_handler=None):
+        self.config = config
+        llm_cfg = config.get("llm", {})
+        mem_cfg = config.get("memory", {})
+        llm_cfg["memory_enabled"] = mem_cfg.get("enabled", True)
+        llm_cfg["memory_size"]    = mem_cfg.get("size", 20)
+  
+        self.auth       = auth_handler
+
+        exec_cfg = config.get("execution", {})
+        self.max_rounds   = exec_cfg.get("llm_rounds", 10)
+        log_cfg = config.get("log", {})
+        
+        self.logger    = Logger()
+        self.logger.log_to_terminal = log_cfg.get("log_to_terminal", False)
+        self.logger.enabled = log_cfg.get("log_to_file", True)
+
+        self.chat_llm  = LLMClient(llm_cfg, logger=self.logger)
+
+        self.task_llm  = LLMClient(llm_cfg, logger=self.logger)
+
+        self.project_root = os.path.dirname(os.path.abspath(__file__))
+        spc_cfg = exec_cfg.get("spc_dir", "./spc")
+        if not os.path.isabs(spc_cfg):
+            spc_cfg = os.path.join(self.project_root, spc_cfg)
+        self.spc_dir = os.path.abspath(spc_cfg)
+        self.prompts = Prompts(self.spc_dir)
+        wd = exec_cfg.get("work_dir", "./workspace")
+        if not os.path.isabs(wd):
+            wd = os.path.join(self.project_root, wd)
+        self.work_dir = os.path.abspath(wd)
+        self.proj_path = os.path.join(self.work_dir, "temp")
+        self.docs_dir = None
+        sd = exec_cfg.get("skills_dir", "./workspace/skills")
+        if not os.path.isabs(sd):
+            sd = os.path.join(self.project_root, sd)
+        self.skills_dir = os.path.abspath(sd)
+        self.log_dir = log_cfg.get("dir") or os.path.join(self.work_dir, "log")
+        self.task_manager = TaskManager()
+        self.enable_history_association = exec_cfg.get("enable_history_association", True)
+
+        # 初始化日志文件（所有模式都需要，不仅仅是 task 模式）
+        os.makedirs(self.log_dir, exist_ok=True)
+        if not self.logger.path:
+            self.logger.init(self.log_dir)
+        if log_cfg.get("history", True):
+            self.chat_llm.history_log_path = os.path.join(self.log_dir, "history_chat.log")
+            self.task_llm.history_log_path = os.path.join(self.log_dir, "history_task.log")
+
+    def _log(self, msg: str, always: bool = False):
+        self.logger.log(msg, always)
+
+    def run(self, user_task: str, mode: str = "chat") -> dict:
+        """主入口
+
+        mode="chat": 对话模式（默认），无任务分解，直接进入工具调用对话
+        mode="task": 任务模式，执行完整流水线（分类→分解→执行）
+
+        Returns: {"judge": str, "content": str}
+        """
+        if mode == "chat":
+            self._in_task_mode = False
+            self.llm       = self.chat_llm  # 默认使用对话实例
+            return self._run_chat(user_task)
+        else:
+            # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
+            self._in_task_mode = True
+            self.task_llm.history.clear()
+            self.llm = self.task_llm
+
+            try:
+                return self._run_task(user_task)
+            finally:
+                self.llm = self.chat_llm
+                self._in_task_mode = False
+
+    def _run_task(self, user_task: str) -> dict:
+        """任务模式：完整流水线"""
+        self._log(f"\n{'='*60}")
+        self._log(f"任务: {user_task}")
+        self._log(f"模型: {self.llm.provider_name} / {self.llm.model}")
+        self._log(f"{'='*60}\n")
+
+        self.llm.prepend_system_info()
+
+        os.makedirs(self.work_dir, exist_ok=True)
+        os.makedirs(self.skills_dir, exist_ok=True)
+        self._generate_skills_index()
+        self._generate_spc_index()
+        self._generate_workspace_index()
+        self._init_log()
+
+        # ================================================================
+        # 阶段 0: 任务分类与分解
+        # ================================================================
+        self._log("\n阶段 0：收到任务："+user_task+"\n")
+
+        enable_history = self.enable_history_association
+        if enable_history:
+            self._log("阶段 0: 任务分类与分解（含历史关联判断）")
+        else:
+            self._log("阶段 0: 任务分解（配置已禁用历史任务关联）")
+
+        classification = self._classify_with_history(user_task, enable_history=enable_history)
+        if classification is None:
+            self._log("\n❌ 任务分类失败，任务终止", always=True)
+            return {"judge": "false", "content": "阶段0：任务分类失败（LLM 返回解析错误）"}
+
+        is_continuation = classification.get("is_continuation", False)
+
+        if is_continuation:
+            hist_idx = classification.get("history_task_index", 0)
+            sub_idx = classification.get("subtask_index", 0)
+            reason = classification.get("reason", "")
+            orchestrate = classification.get("orchestrate", [])
+            if not orchestrate:
+                self._log("\n❌ 延续任务无子任务，终止", always=True)
+                return {"judge": "false", "content": "历史任务延续无有效子任务"}
+
+            history_tasks = TaskManager.scan_history_tasks(self.log_dir)
+            history_main_task = ""
+            hist_file = ""
+            if 0 <= hist_idx - 1 < len(history_tasks):
+                history_main_task = history_tasks[hist_idx - 1].get("main_task", "")
+                hist_file = history_tasks[hist_idx - 1].get("file", "")
+
+            if not hist_file or not os.path.exists(hist_file):
+                self._log(f"\n❌ 历史任务文件未找到: {hist_file}", always=True)
+                return {"judge": "false", "content": f"历史任务文件不存在: {hist_file}"}
+
+            self.task_manager = TaskManager.load(hist_file)
+            self.task_manager.reactivate()
+            self._task_state_path = hist_file
+
+            base_idx = self.task_manager.append_subtasks(orchestrate)
+            for j, sub in enumerate(orchestrate):
+                new_idx = base_idx + j
+                self.task_manager.set_subtask_extra(
+                    new_idx,
+                    f"延续自历史任务 [{hist_idx}] 主任务: {history_main_task}, 子任务: [{sub_idx}], "
+                    f"理由: {reason}"
+                )
+
+            self._log(f"\n📋 历史任务延续")
+            self._log(f"  历史主任务 [{hist_idx}]: {history_main_task}")
+            self._log(f"  关联子任务: [{sub_idx}]")
+            self._log(f"  判断理由: {reason}")
+            self._log(f"  新子任务 ({len(orchestrate)} 个，索引 {base_idx}-{base_idx+len(orchestrate)-1}):")
+            for sub in orchestrate:
+                self._log(f"    [{sub.get('type','')}] {sub.get('sub_task','')}")
+
+            self.task_manager.add_conversation_entry("user", user_task)
+            self.task_manager.add_conversation_entry(
+                "assistant",
+                f"识别为历史任务延续 → 追加 {len(orchestrate)} 个子任务 (主任务: {history_main_task})"
+            )
+            self.task_manager.add_conversation_entry(
+                "agent", f"历史任务延续: {history_main_task} → 子任务{sub_idx}，追加 {len(orchestrate)} 个新子任务"
+            )
+
+            hist_sub = self.task_manager.get_subtask(sub_idx)
+            hist_project_path = hist_sub.project_path if hist_sub and hist_sub.project_path else self.work_dir
+            hist_docs_dir = hist_sub.docs_dir if hist_sub and hist_sub.docs_dir else ""
+
+            _cont_subtask_content = hist_sub.content if hist_sub else ""
+            _cont_project_path = hist_project_path
+            subtask_start_idx = base_idx
+            main_task = history_main_task
+
+        else:
+            main_task = classification.get("main_task", user_task)
+            _cont_subtask_content = ""
+            _cont_project_path = ""
+            subtask_start_idx = 1
+            orchestrate = classification.get("orchestrate", [])
+            self._log(f"  总任务: {main_task}")
+            self._log(f"  拆解为 {len(orchestrate)} 个子任务：")
+            for sub in orchestrate:
+                st = sub.get("sub_task", "")
+                stype = sub.get("type", "")
+                sstype = sub.get("sub_type", "")
+                self._log(f"    [{stype}] {st} (sub_type={sstype})")
+
+            self.task_manager.start(main_task)
+            self.task_manager.add_subtasks_from_orchestrate(orchestrate)
+            self.task_manager.add_conversation_entry("user", user_task)
+            self.task_manager.add_conversation_entry(
+                "assistant", f"将任务分解为 {len(orchestrate)} 个子任务: {main_task}"
+            )
+            self._save_task_state()
+
+            # ================================================================
+            # 阶段 1: 任务分析及规划
+            # ================================================================
+            self._log("\n阶段 1: 任务分析及规划")
+
+        for i, sub in enumerate(orchestrate, subtask_start_idx):
+            task_type = str(sub.get("type", ""))
+            sub_task = str(sub.get("sub_task", ""))
+            sub_type = sub.get("sub_type", "")
+            dir_from = sub.get("dir_from", "temp")
+
+            self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
+
+            self.task_manager.add_conversation_entry(
+                "agent", f"开始执行子任务 [{i}/{len(orchestrate)}]: [{task_type}] {sub_task}",
+                subtask_index=i
+            )
+            self.task_manager.set_subtask_status(i, SubTaskStatus.IN_PROGRESS)
+
+            self._resolve_subtask_dir(
+                i, dir_from, subtask_content=sub_task,
+                is_continuation=is_continuation,
+                related_project_path=_cont_project_path if is_continuation else ""
+                )
+            
+          
+            # 子任务执行
+            result = self._run_phases(task_type, sub_task, sub_type, i,
+                             is_continuation, main_task,
+                             _cont_subtask_content, _cont_project_path)
+    
+            self.task_manager.set_subtask_result(i, result["judge"], result["content"])
+            self._save_task_state()
+            if result["judge"]!="true":
+                self.task_manager.finish(False)
+                self.task_manager.add_conversation_entry("agent", f"子任务{i}失败")
+                self._save_task_state()
+                return {"judge": "false", "content": f"子任务{i}失败"}
+
+
+        self.task_manager.finish(True)
+        summary = self.task_manager.summary()
+        self._log(f"\n{summary}")
+        self.task_manager.add_conversation_entry("agent", f"\n{summary}")
+
+        self._save_task_state()
+        return {"judge": "true", "content": f"\n{summary}"}
+
+
+    def _run_phases(self, sp_key: str, sub_task: str, sub_type: str,
+                    subtask_index: int, is_continuation: bool,
+                    main_task: str, cont_content: str, cont_path: str) -> bool:
+        """按 spec.md 阶段定义循环执行各阶段 run_loop
+
+        Returns: True=全部通过, False=某阶段失败
+        """
+        phases = self._get_phases(sp_key)
+        if not phases:
+            self._log(f"  ⚠️ spec.md 中未找到 {sp_key} 阶段定义，跳过", always=True)
+            return False
+
+        # 预构建所有阶段提示词，每次只给 _run_loop 当前阶段
+        pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
+
+        phase_msgs = []
+        for phase_idx, phase in enumerate(phases):
+            phase_name = phase['name']
+            config = phase['config']
+            lines_p = [pretask]
+            lines_p.append(f"当前任务: {sub_task}")
+            lines_p.append(f"任务类别: {sp_key}")
+            if sub_type:
+                lines_p.append(f"子类型: {sub_type}")
+            lines_p.append(f"当前阶段: {phase_name}")
+
+            for item in config:
+                lines_p.append(item)
+            phase_msg = '\n'.join(lines_p)
+            if is_continuation:
+                phase_msg = (
+                    f"[历史任务延续] 主任务: 「{main_task}」\n"
+                    f"关联子任务: {cont_content}\n"
+                    f"关联项目路径: {cont_path}\n"
+                ) + phase_msg
+            phase_msgs.append({"name": phase_name, "msg": phase_msg})
+            self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
+
+        result = self._run_loop(phase_msgs[0]['msg'], subtask_index, phases=phase_msgs)
+
+ 
+        self._log(f"\n{'='*60}")
+        self._log(f"LLM 交互次数: {self.llm.call_count}")
+        self._log(f"执行日志: {self.logger.path}")
+        self._log(f"任务状态: {self.log_dir}/task_state.json")
+ 
+        self._save_task_state()
+        return result
+
+    def _get_phases(self, task_type_key: str):
+        """从 spc/spec.md (markdown) 提取指定 task type 的阶段列表（全量缓存）
+
+        使用 markdown-it-py tokenizer 解析，替代手写状态机。
+        spec.md 格式 (YAML front matter + markdown body):
+            # <任务类别>
+            ## <阶段名>
+                config_line1
+                config_line2
+        """
+        if not hasattr(self, '_sp_phases_cache'):
+            self._sp_phases_cache = {}
+            sp_md = os.path.join(self.spc_dir, 'spec.md')
+            try:
+                md = MarkdownIt()
+                with open(sp_md, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                tokens = md.parse(text)
+
+                cur_type = None
+                cur_phase = None
+                cur_config = []
+                pending_h_level = None  # 当前 pending 的 heading 级别 (1=h1, 2=h2)
+
+                for tok in tokens:
+                    if tok.type == 'heading_open':
+                        pending_h_level = int(tok.tag[1])  # 'h1' → 1, 'h2' → 2
+                        continue
+
+                    if pending_h_level and tok.type == 'inline':
+                        name = tok.content.strip()
+                        if pending_h_level == 1:
+                            # h1 → 新类别, 保存上一个
+                            if cur_type and cur_phase is not None:
+                                self._sp_phases_cache.setdefault(cur_type, []).append(
+                                    {'name': cur_phase, 'config': cur_config})
+                            cur_type = name
+                            cur_phase = None
+                            cur_config = []
+                        elif pending_h_level == 2:
+                            # h2 → 新阶段
+                            if cur_type and cur_phase is not None:
+                                self._sp_phases_cache.setdefault(cur_type, []).append(
+                                    {'name': cur_phase, 'config': cur_config})
+                            cur_phase = name
+                            cur_config = []
+                        pending_h_level = None
+                        continue
+
+                    # 缩进块被 markdown-it 解析为 code_block，内容可能有换行
+                    if tok.type == 'code_block' and cur_type and cur_phase is not None:
+                        for line in tok.content.strip().split('\n'):
+                            stripped = line.strip()
+                            if stripped:
+                                cur_config.append(stripped)
+
+                # 保存最后一个
+                if cur_type and cur_phase is not None:
+                    self._sp_phases_cache.setdefault(cur_type, []).append(
+                        {'name': cur_phase, 'config': cur_config})
+
+            except Exception as e:
+                self._log(f"  ⚠️ 加载 spec.md 失败: {e}", always=True)
+
+        return self._sp_phases_cache.get(task_type_key, [])
+
+
+
+    def _scan_skills_dir(self) -> str:
+        """扫描 skills_dir 构建技能列表文本"""
+        if not self.skills_dir or not os.path.isdir(self.skills_dir):
+            return ""
+        lines = ["## 可用技能（优先查看是否有可用技能）："]
+        for skill_dir in sorted(glob.glob(os.path.join(self.skills_dir, "*"))):
+            if not os.path.isdir(skill_dir):
+                continue
+            name = os.path.basename(skill_dir)
+            md = os.path.join(skill_dir, "SKILL.md")
+            desc = ""
+            if os.path.isfile(md):
+                try:
+                    with open(md, "r", encoding="utf-8") as f:
+                        first = f.readline().strip().lstrip("#").strip()
+                        if first:
+                            desc = first
+                except Exception:
+                    pass
+            lines.append(f"- **{name}**: {desc or name}")
+            lines.append(f"  文档: {md}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    def _scan_docs_dir(self) -> str:
+        """扫描 docs_dir 构建项目文档列表文本"""
+        if not self.docs_dir or not os.path.isdir(self.docs_dir):
+            return ""
+        docs = sorted(glob.glob(os.path.join(self.docs_dir, "*.md")))
+        if not docs:
+            return ""
+        lines = ["\n## 当前子任务参考文档"]
+        for mdp in docs:
+            name = os.path.splitext(os.path.basename(mdp))[0]
+            desc = ""
+            try:
+                with open(mdp, "r", encoding="utf-8") as f:
+                    first = f.readline().strip().lstrip("#").strip()
+                    if first:
+                        desc = first
+            except Exception:
+                pass
+            lines.append(f"- **{name}**: {desc or name}")
+            lines.append(f"  文件: {mdp}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    def _build_pretask_skills(self) -> str:
+        """构建可用技能列表文本"""
+        return self._scan_skills_dir()
+
+    def _build_pretask_prjdocs(self) -> str:
+        """构建项目文档列表文本"""
+        return self._scan_docs_dir()
+
+    def _run_chat(self, user_message: str) -> dict:
+        """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
+
+        pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
+
+        prompt =  self.prompts.chat_prompt+ pretask 
+
+        msg=  user_message
+        rounds = 0
+        while True:
+            rounds += 1
+            if rounds > self.max_rounds:
+                return {"judge": "false", "content": "超过最大调用次数"}
+            
+            result = self.llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
+    
+            if result["type"] == "tool_calls":
+                executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
+                responses = []
+                for i, call in enumerate(result["calls"]):
+                    if call["name"] == "start_task":
+                        task_desc = call["args"].get("task", "")
+                        self.llm.submit_tool_result(call["id"], "任务执行中...")
+                        for j in range(i + 1, len(result["calls"])):
+                            rem = result["calls"][j]
+                            self.llm.submit_tool_result(rem["id"], "[跳过]")
+                        return {"type": "start_task", "task": task_desc, "call_id": call["id"]}
+
+                    if call["name"] == "ask_user":
+                        question = call["args"].get("question", "")
+                        exec_result = executor.execute(call["name"], call["args"])
+                        answer = str(exec_result)
+                        self.llm.submit_tool_result(call["id"], answer)
+                        if question:
+                            self.task_manager.add_conversation_entry("assistant", f"向用户提问: {question}")
+                        if answer:
+                            self.task_manager.add_conversation_entry("user", f"用户回答: {answer}")
+                        responses.append(answer)
+                        continue
+
+                    exec_result = executor.execute(call["name"], call["args"])
+                    self.llm.submit_tool_result(call["id"], str(exec_result))
+                    if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
+                        summary = exec_result["summary"]
+                        if summary:
+                            self._log(f"\n 🏆： {summary}",always=True)
+
+                        return summary
+                    responses.append(str(exec_result))
+                # 总结给用户
+                summary = "\n".join(responses) if isinstance(responses, list) else str(responses)
+                msg=summary
+                continue
+            else:
+                content_text = result.get("content", "")
+                if content_text:
+                    self._log(f"\n  🤖: {content_text}\n",always=True)
+
+                return {"judge": "true", "content": content_text}
+
+    def _run_loop(self, task_message: str, subtask_index: int | None = None,
+                  phases: list | None = None) -> dict:
+        """工具调用模式执行循环。
+        当前子任务的某个阶段在此处执行
+        用 chat_with_tools 替代 IMP_FORMAT JSON 流程。
+        LLM 通过 finish 工具标记完成/失败。
+        当 phases 传入时，finish 成功后自动切换到下一阶段提示词，
+        在同一对话中继续执行。
+
+        Returns: {"judge": str, "content": str}
+        """
+
+        executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
+
+        self._log(f"工作目录proj: {self.proj_path}")
+
+        max_rounds = self.max_rounds
+        task_tools = [t for t in TOOLS if t["function"]["name"] != "start_task"]
+        
+        prompt = (
+            self.prompts.task_prompt_exclude_tools
+            + "\n"
+            + json.dumps(task_tools, ensure_ascii=False)
+            + f"\n\n当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。"
+            + f"当前任务分为{len(phases)}个阶段，每个阶段完成后需要调用finish工具结束本阶段，会自动进入下一个阶段。"
+        )
+
+        self.task_manager.add_conversation_entry(
+            "user",
+            f"子任务 [{subtask_index}] user message:" + task_message,
+            subtask_index)
+
+        msg = task_message
+        phase_idx = 0
+        stat=0
+        for num in range(max_rounds):
+            result = self.llm.chat_with_tools(prompt, msg, task_tools)
+            content_text = result.get("content", "")
+            if content_text:
+                stat=stat+1
+                self._log(f"\n@@@@ {content_text}")
+
+            if result["type"] == "tool_calls":
+                phase_changed = False
+                for call in result["calls"]:
+                    self._log(f"共: {max_rounds}, 第 {num} 轮  🔧 {call['name']}({call['args']})")
+                    exec_result = executor.execute(call["name"], call["args"])
+
+                    # 记录 ask_user 问答到对话历史
+                    if call["name"] == "ask_user":
+                        question = call["args"].get("question", "")
+                        answer = str(exec_result)
+                        if question:
+                            self.task_manager.add_conversation_entry(
+                                "assistant", f"向用户提问: {question}",
+                                subtask_index)
+                        if answer:
+                            self.task_manager.add_conversation_entry(
+                                "user", f"用户回答: {answer}",
+                                subtask_index)
+
+                    if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
+                        # 提交 tool 响应，满足协议要求
+                        self.llm.submit_tool_result(call["id"], str(exec_result))
+
+                        if not exec_result["success"]:
+                            self.task_manager.set_subtask_result(
+                                subtask_index, "false", exec_result["summary"])
+                            self.task_manager.set_subtask_status(
+                                subtask_index, SubTaskStatus.FAILED)
+                            name = phases[phase_idx]['name'] if phases else ''
+                            self._log(f"\n  ❌ {name} 失败", always=True)
+                            self._update_task_list() 
+                            self._save_task_state()
+                            return {"judge": "false", "content": exec_result["summary"]}
+
+                        if phases and phase_idx < len(phases):
+                            self._log(f"\n  ✅ {phases[phase_idx]['name']}完成",always=True)
+                            self.task_manager.add_conversation_entry(
+                                "agent",
+                                f"子任务 [{subtask_index}] {phases[phase_idx]['name']} :{phases[phase_idx]['msg']} 完成",
+                                subtask_index=subtask_index)
+                            self._save_task_state()
+
+                        if phases and phase_idx + 1 < len(phases):
+                            phase_idx += 1
+                            self._log(f"  → 进入 {phases[phase_idx]['name']}")
+                            phase_changed = True
+                        else:
+                            self.task_manager.set_subtask_status(
+                                subtask_index, SubTaskStatus.COMPLETED)
+                            self._log(f"\n✅ 全部阶段完成，总结:\n {exec_result["summary"]}")
+                            self._log(f"\nLLM 交互次数: {self.llm.call_count}")
+                            self.task_manager.add_conversation_entry(
+                                "assistant", f"总结: {exec_result["summary"]}",
+                                subtask_index)
+                            self._save_task_state()
+                            return {"judge": "true", "content": exec_result["summary"]}
+                    else:
+                        self.llm.submit_tool_result(call["id"], str(exec_result))
+
+                    self._log(f"     → {str(exec_result)[:500]}")
+
+                # 收敛压力：根据已消耗轮次注入提示
+                rounds_used = num + 1
+                convergence = ''
+                if rounds_used >= max_rounds * 0.5:
+                    convergence = (
+                        f'\n[⚠ 已消耗 {rounds_used}/{max_rounds} 轮，'
+                        f'如当前任务无法在剩余轮次内完成，请调用 finish(success=False) 结束。]'
+                    )
+                elif rounds_used >= max_rounds * 0.25:
+                    convergence = (
+                        f'\n[{rounds_used}/{max_rounds} 轮，请精简操作、避免反复读写。]'
+                    )
+
+                if phase_changed:
+                    msg = phases[phase_idx]['msg']
+                    if convergence:
+                        msg += convergence
+                elif convergence:
+                    base = msg.split('\n[')[0] if '\n[' in msg else msg
+                    msg = base + convergence
+
+            elif result["type"] == "error":
+                self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
+                return {"judge": "false", "content": result.get("message", "API错误")}
+            else:
+                # 文本回复：记录并继续
+                if content_text and stat==1:
+                    msg =msg+ "\n 当前任务完成前，所有的交互的都用ask_user"
+            continue
+
+
+        return {"judge": "false", "content": f"达到最大轮次 ({max_rounds})，任务未完成"}
+
+    def _generate_skills_index(self):
+        """扫描 skills_dir，生成 skills_index.json"""
+
+
+        index = []
+        sd = self.skills_dir
+        if os.path.isdir(sd):
+            for name in sorted(os.listdir(sd)):
+                d = os.path.join(sd, name)
+                if os.path.isdir(d) and os.path.exists(os.path.join(d, "SKILL.md")):
+                    meta_path = os.path.join(d, "skill.json")
+                    meta = {}
+                    if os.path.exists(meta_path):
+                        try:
+                            meta = json.load(open(meta_path))
+                        except Exception:
+                            pass
+                    index.append({
+                        "name": name,
+                        "description": meta.get("description", ""),
+                        "md_path": os.path.join(d, "SKILL.md"),
+                        "schema": meta.get("schema", {}),
+                        "entrypoint": meta.get("entrypoint", ""),
+                        "invoke": meta.get("invoke", "cli"),
+                    })
+        idx_path = os.path.join(self.skills_dir, "skills_index.json")
+        with open(idx_path, 'w', encoding='utf-8') as f:
+            json.dump(index, f, ensure_ascii=False, indent=2)
+        self.logger.write(f"skills_index.json: {len(index)} 个技能")
+
+    @staticmethod
+    def _scan_md_dir(dir_path: str, source_label: str) -> list:
+        result = []
+        if not os.path.isdir(dir_path):
+            return result
+        for md_path in sorted(glob.glob(os.path.join(dir_path, "*.md"))):
+            desc = ""
+            try:
+                with open(md_path, 'r', encoding='utf-8') as f:
+                    first = f.readline().strip().lstrip("#").strip()
+                    if first:
+                        desc = first
+            except Exception:
+                pass
+            result.append({
+                "name": os.path.splitext(os.path.basename(md_path))[0],
+                "description": desc or os.path.basename(md_path),
+                "path": md_path,
+                "source": source_label,
+            })
+        return result
+
+    def _generate_spc_index(self):
+        """扫描 spc_dir，生成 spc_index.json"""
+
+        index = self._scan_md_dir(self.spc_dir, "spc")
+        idx_path = os.path.join(self.spc_dir, "spc_index.json")
+        with open(idx_path, 'w', encoding='utf-8') as f:
+            json.dump(index, f, ensure_ascii=False, indent=2)
+        self.logger.write(f"spc_index.json: {len(index)} 个文档")
+
+    def _generate_workspace_index(self):
+        """扫描 work_dir 全部文件，生成 workspace_index.json"""
+
+        index = []
+        wd = self.work_dir
+        if not os.path.isdir(wd):
+            return
+        for root, dirs, files in os.walk(wd):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d != "log"]
+            for fname in sorted(files):
+                if fname.startswith("."):
+                    continue
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, wd)
+                index.append({
+                    "name": fname,
+                    "path": fpath,
+                    "relpath": rel,
+                    "size": os.path.getsize(fpath),
+                })
+        idx_path = os.path.join(wd, "workspace_index.json")
+        with open(idx_path, 'w', encoding='utf-8') as f:
+            json.dump(index, f, ensure_ascii=False, indent=2)
+        self.logger.write(f"workspace_index.json: {len(index)} 个文件")
+
+    def _classify_with_history(self, user_task: str, enable_history: bool = True) -> dict | None:
+        """阶段0：任务分解（统一走 TaskClassifier.classify）
+
+        enable_history=True 时加载历史上下文并传给 TaskClassifier。
+        """
+      
+        tc = TaskClassifier(self.llm, self.prompts)
+
+        history_ctx = ""
+        if enable_history:
+            history_ctx = TaskManager.build_history_context(self.log_dir)
+
+        classification = tc.classify(user_task,
+                                     enable_history=enable_history,
+                                     history_ctx=history_ctx)
+        if classification is None:
+            return None
+
+  
+        return classification
+
+    def _save_task_state(self):
+        """将 task_manager 状态序列化到 task_state.json"""
+
+        try:
+            save_path = getattr(self, '_task_state_path',
+                                os.path.join(self.log_dir, "task_state.json"))
+            self.task_manager.save(save_path)
+        except Exception:
+            pass
+
+    def _resolve_subtask_dir(self, subtask_index: int, dir_from: str,
+                             subtask_content: str = "",
+                             is_continuation: bool = False,
+                             related_project_path: str = "") -> str:
+        """解析子任务工作目录
+
+        dir_from: new → 交互输入项目名 / temp → workspace/temp/ / reuse → 复用
+        """
+
+        if dir_from == "new":
+            default_name = "temp"
+            if sys.stdin.isatty():
+                try:
+                    user_input = input(
+                        f"\n📁 子任务 [{subtask_index}] 请输入项目目录名 "
+                        f"[默认: temp]: "
+                    ).strip()
+                    proj_name = user_input if user_input else default_name
+                except (EOFError, KeyboardInterrupt):
+                    proj_name = default_name
+            else:
+                proj_name = default_name
+
+            proj_path = os.path.join(self.project_root, "workspace", proj_name)
+            os.makedirs(proj_path, exist_ok=True)
+            docs_dir = os.path.join(proj_path, "docs")
+            os.makedirs(docs_dir, exist_ok=True)
+
+        elif dir_from == "reuse":
+            if is_continuation and related_project_path:
+                proj_name = os.path.basename(related_project_path.rstrip("/")) or "workspace"
+                proj_path = related_project_path
+            else:
+                proj_name = "workspace"
+                proj_path = self.work_dir
+            docs_dir = os.path.join(proj_path, "docs")
+            os.makedirs(docs_dir, exist_ok=True)
+
+        else:
+            proj_name = "temp"
+            proj_path = os.path.join(self.project_root, "workspace", "temp")
+            os.makedirs(proj_path, exist_ok=True)
+            docs_dir = os.path.join(proj_path, "docs")
+            os.makedirs(docs_dir, exist_ok=True)
+
+
+        self.task_manager.set_subtask_project(subtask_index, proj_name, proj_path, docs_dir)
+
+        self.proj_path = proj_path
+        self.work_dir = proj_path
+        self.docs_dir = docs_dir
+
+        self._log(f"   目录策略: {dir_from} → {proj_path}")
+        return proj_path
+
+    def _update_task_list(self):
+        """更新 task_list.json 任务索引，保留最近 50 条"""
+
+        try:
+            list_path = os.path.join(self.log_dir, "task_list.json")
+            task_list = []
+            if os.path.exists(list_path):
+                try:
+                    with open(list_path, 'r', encoding='utf-8') as f:
+                        task_list = json.load(f)
+                except Exception:
+                    task_list = []
+
+            state_path = getattr(self, '_task_state_path', '')
+            existing = None
+            for i, t in enumerate(task_list):
+                if t.get("state_file") == state_path:
+                    existing = i
+                    break
+
+            entry = {
+                "main_task": self.task_manager.main_task.task if self.task_manager.main_task else "",
+                "status": self.task_manager.main_task.status.value if self.task_manager.main_task else "",
+                "created_at": self.task_manager.main_task.created_at if self.task_manager.main_task else "",
+                "completed_at": self.task_manager.main_task.completed_at if self.task_manager.main_task else "",
+                "state_file": state_path,
+                "subtasks_count": len(self.task_manager.subtasks),
+                "completed_count": sum(1 for s in self.task_manager.subtasks
+                                      if s.status == SubTaskStatus.COMPLETED),
+            }
+            if existing is not None:
+                task_list[existing] = entry
+            else:
+                task_list.append(entry)
+
+            if len(task_list) > 50:
+                task_list = task_list[-50:]
+
+            with open(list_path, 'w', encoding='utf-8') as f:
+                json.dump(task_list, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _init_log(self):
+        """初始化日志文件、日志器注入、task_state 路径"""
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.logger.init(self.log_dir)
+        self.logger.write(f"模型: {self.llm.provider_name} / {self.llm.model}")
+        if self.auth:
+            self.auth.logger = self.logger
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._task_state_path = os.path.join(self.log_dir, f"task_{ts}_state.json")
