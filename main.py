@@ -280,36 +280,6 @@ def interactive_mode():
             traceback.print_exc()
             continue
 
-        # 如果返回的是 "start_task" 类型，则转入任务模式
-        if isinstance(result, dict) and result.get("type") == "start_task":
-            task_desc = result["task"]
-            call_id = result.get("call_id", "")
-            print(f"\n🚀 启动任务模式: {task_desc}")
-            try:
-                task_result = agent.run(task_desc, mode="task")
-                task_summary = task_result.get('content', '')
-                if call_id and task_summary:
-                    for msg in agent.chat_llm.history:
-                        if msg.get("tool_call_id") == call_id:
-                            msg["content"] = f"{task_summary} \n 任务已经结束，开启新会话"
-                            break
-
-                # 用自然语言总结
-                try:
-                    agent.run("总结一下", mode="chat")
-                except Exception as e:
-                    agent.logger.log(f"\n⚠️ 总结失败: {e}", always=True)
-
-            except Exception as e:
-                agent.logger.log(f"\n❌ 任务执行出错: {e}", always=True)
-                import traceback
-                traceback.print_exc()
-                if call_id:
-                    for msg in agent.chat_llm.history:
-                        if msg.get("tool_call_id") == call_id:
-                            msg["content"] = f"任务执行失败: {e}"
-                            break
-
 
 def single_run(goal: str):
     """命令行单次执行模式：python main.py <任务描述>。"""
@@ -319,17 +289,9 @@ def single_run(goal: str):
     print(f"\n🤖 执行任务: {goal}\n")
     try:
         result = agent.run(goal, mode="chat")
-        if isinstance(result, dict) and result.get("type") == "start_task":
-            task_desc = result["task"]
-            print(f"\n🚀 启动任务模式: {task_desc}")
-            task_result = agent.run(task_desc, mode="task")
-            # 输出最终结果
-            print("\n📋 任务结果:")
-            print(task_result.get('content', '(无内容)'))
-        else:
-            # 直接输出结果
-            print("\n📋 结果:")
-            print(result.get('content', '(无内容)'))
+        # 直接输出结果
+        print("\n📋 结果:")
+        print(result.get('content', '(无内容)'))
     except Exception as e:
         print(f"\n❌ 执行出错: {e}")
         import traceback

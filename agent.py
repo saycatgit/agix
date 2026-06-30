@@ -23,7 +23,7 @@
   - work_dir 由 _resolve_subtask_dir 动态分配
 """
 
-import os, time, sys , glob, json
+import os, time, sys, glob, json, threading
 from datetime import datetime
 
 from llm_client import LLMClient
@@ -33,6 +33,7 @@ from task_manager import TaskManager, SubTaskStatus, MainTaskStatus
 from prompts import Prompts
 from tools import TOOLS, ToolExecutor
 from markdown_it import MarkdownIt
+from scheduler import TaskScheduler
 
 from task_classifier import TaskClassifier
 
@@ -86,6 +87,13 @@ class Agent:
         self.log_dir = log_cfg.get("dir") or os.path.join(self.work_dir, "log")
         self.task_manager = TaskManager()
         self.enable_history_association = exec_cfg.get("enable_history_association", True)
+        self._exec_lock = threading.Lock()
+        self.scheduler = TaskScheduler(
+            os.path.join(self.work_dir, "pending_tasks.json"),
+            self
+        )
+        self.scheduler.start()
+        self._start_task_worker()
 
         # 初始化日志文件（所有模式都需要，不仅仅是 task 模式）
         os.makedirs(self.log_dir, exist_ok=True)
@@ -98,31 +106,62 @@ class Agent:
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg, always)
 
+    def _start_task_worker(self):
+        """启动后台工作线程：轮询调度器的到期任务队列并执行"""
+        import time as _time
+        def _worker():
+            while not self.scheduler._stopped.is_set():
+                ready = self.scheduler.pop_ready_tasks()
+                for rt in ready:
+                    task_name = rt.get("task_name", "")
+                    if task_name:
+                        if self.logger:
+                            self.logger.log(
+                                f"\n⏰ 定时任务触发: {task_name[:100]}", always=True)
+                        mode = rt.get("mode", "task")
+                        self._log(f"\n{"="*40}🚀 任务开始执行{"="*40}", always=True)
+                        self._log(f"\n任务: {task_name}", always=True)
+                        ret = self.run(task_name, mode=mode)
+                        self._log(f"\n任务执行结果: {ret["content"]}", always=True)
+                        self._log(f"\n{"="*40}✅ 任务执行结束{"="*40}", always=True)
+
+                _time.sleep(1)
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
     def run(self, user_task: str, mode: str = "chat") -> dict:
         """主入口
+
+        线程安全：通过 self._exec_lock 确保定时器线程与主线程不会并发执行。
 
         mode="chat": 对话模式（默认），无任务分解，直接进入工具调用对话
         mode="task": 任务模式，执行完整流水线（分类→分解→执行）
 
         Returns: {"judge": str, "content": str}
         """
-        if mode == "chat":
-            self._in_task_mode = False
-            self.llm       = self.chat_llm  # 默认使用对话实例
-            return self._run_chat(user_task)
-        else:
-            # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
-            self._in_task_mode = True
-            self.task_llm.history.clear()
-            self.llm = self.task_llm
-
-            try:
-                return self._run_task(user_task)
-            finally:
-                self.llm = self.chat_llm
+        with self._exec_lock:
+            if mode == "chat":
                 self._in_task_mode = False
+                self.llm       = self.chat_llm  # 默认使用对话实例
+                ret= self._run_chat(user_task)
+                self._log(f"\n  🤖: {ret["content"]}\n",always=True)
+                return ret
+            else:
+                # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
+                self._in_task_mode = True
+                self.task_llm.history.clear()
+                self.llm = self.task_llm
+
+                try:
+                    ret= self._run_task(user_task)
+                    self._log(f"\n  🤖: {ret["content"]}\n",always=True)
+                    return ret
+                finally:
+                    self.llm = self.chat_llm
+                    self._in_task_mode = False
 
     def _run_task(self, user_task: str) -> dict:
+
         """任务模式：完整流水线"""
         self._log(f"\n{'='*60}")
         self._log(f"任务: {user_task}")
@@ -150,6 +189,7 @@ class Agent:
             self._log("阶段 0: 任务分解（配置已禁用历史任务关联）")
 
         classification = self._classify_with_history(user_task, enable_history=enable_history)
+        self.task_llm.history.clear()  # 清掉分类阶段产生的历史，避免污染 _run_loop
         if classification is None:
             self._log("\n❌ 任务分类失败，任务终止", always=True)
             return {"judge": "false", "content": "阶段0：任务分类失败（LLM 返回解析错误）"}
@@ -476,34 +516,15 @@ class Agent:
                 executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
                 responses = []
                 for i, call in enumerate(result["calls"]):
-                    if call["name"] == "start_task":
-                        task_desc = call["args"].get("task", "")
-                        self.llm.submit_tool_result(call["id"], "任务执行中...")
-                        for j in range(i + 1, len(result["calls"])):
-                            rem = result["calls"][j]
-                            self.llm.submit_tool_result(rem["id"], "[跳过]")
-                        return {"type": "start_task", "task": task_desc, "call_id": call["id"]}
-
-                    if call["name"] == "ask_user":
-                        question = call["args"].get("question", "")
-                        exec_result = executor.execute(call["name"], call["args"])
-                        answer = str(exec_result)
-                        self.llm.submit_tool_result(call["id"], answer)
-                        if question:
-                            self.task_manager.add_conversation_entry("assistant", f"向用户提问: {question}")
-                        if answer:
-                            self.task_manager.add_conversation_entry("user", f"用户回答: {answer}")
-                        responses.append(answer)
-                        continue
 
                     exec_result = executor.execute(call["name"], call["args"])
                     self.llm.submit_tool_result(call["id"], str(exec_result))
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         summary = exec_result["summary"]
                         if summary:
-                            self._log(f"\n 🏆： {summary}",always=True)
+                            # self._log(f"\n 🏆： {summary}",always=True)
+                            return {"judge": "true", "content": summary}
 
-                        return summary
                     responses.append(str(exec_result))
                 # 总结给用户
                 summary = "\n".join(responses) if isinstance(responses, list) else str(responses)
@@ -511,9 +532,8 @@ class Agent:
                 continue
             else:
                 content_text = result.get("content", "")
-                if content_text:
-                    self._log(f"\n  🤖: {content_text}\n",always=True)
-
+                # if content_text:
+                #     self._log(f"\n  🤖: {content_text}\n",always=True)
                 return {"judge": "true", "content": content_text}
 
     def _run_loop(self, task_message: str, subtask_index: int | None = None,
@@ -564,18 +584,6 @@ class Agent:
                     self._log(f"共: {max_rounds}, 第 {num} 轮  🔧 {call['name']}({call['args']})")
                     exec_result = executor.execute(call["name"], call["args"])
 
-                    # 记录 ask_user 问答到对话历史
-                    if call["name"] == "ask_user":
-                        question = call["args"].get("question", "")
-                        answer = str(exec_result)
-                        if question:
-                            self.task_manager.add_conversation_entry(
-                                "assistant", f"向用户提问: {question}",
-                                subtask_index)
-                        if answer:
-                            self.task_manager.add_conversation_entry(
-                                "user", f"用户回答: {answer}",
-                                subtask_index)
 
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         # 提交 tool 响应，满足协议要求
@@ -775,22 +783,38 @@ class Agent:
                              related_project_path: str = "") -> str:
         """解析子任务工作目录
 
-        dir_from: new → 交互输入项目名 / temp → workspace/temp/ / reuse → 复用
+        dir_from: temp → workspace/temp/ / reuse → 复用 / [建议名] → 交互输入
         """
 
-        if dir_from == "new":
-            default_name = "temp"
-            if sys.stdin.isatty():
+        if dir_from.startswith("[") and dir_from.endswith("]"):
+            # 带建议名的新建：提示用户输入，10s 超时使用建议名
+            suggested = dir_from[1:-1].strip()
+            if not suggested:
+                self._log(f"\n❌ 子任务 [{subtask_index}] dir_from 建议名为空", always=True)
+                raise ValueError(f"dir_from 建议名为空: {dir_from}")
+
+            proj_name = suggested  # 默认值
+            if sys.stdin.isatty() and threading.current_thread() is threading.main_thread():
+                import signal
+                timed_out = [False]
+                def _alarm(signum, frame):
+                    timed_out[0] = True
+                old = signal.signal(signal.SIGALRM, _alarm)
+                signal.alarm(10)
                 try:
                     user_input = input(
                         f"\n📁 子任务 [{subtask_index}] 请输入项目目录名 "
-                        f"[默认: temp]: "
+                        f"[{suggested}]: "
                     ).strip()
-                    proj_name = user_input if user_input else default_name
+                    if user_input:
+                        proj_name = user_input
                 except (EOFError, KeyboardInterrupt):
-                    proj_name = default_name
-            else:
-                proj_name = default_name
+                    pass
+                finally:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, old)
+                if timed_out[0]:
+                    self._log(f"\n⏰ 超时，使用建议名称: {suggested}", always=True)
 
             proj_path = os.path.join(self.project_root, "workspace", proj_name)
             os.makedirs(proj_path, exist_ok=True)

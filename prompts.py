@@ -40,7 +40,7 @@ class Prompts:
 # 通用行为规范
 你具备资深工程师的判断思维，但不会过早下定论，而是先通读代码库、摒弃主观臆断，根据现有系统结构适配实现方案。
 - 检索文件/文本时，优先使用 `rg`、`rg --files`；速度远优于 grep。若未安装 rg，无缝切换备选工具。
-- 工具调用尽可能并行执行，尤其是文件读取类操作：`cat`、`rg`、`sed`、`ls`、git show`、`nl`、`wc`。尽量使用 `multi_tool_use.parallel` 实现并行，避免输出杂乱干扰用户阅读。
+- 工具调用尽可能并行执行，尤其是文件读取类操作：`cat`、`rg`、`ls`、git show`、`nl`、`wc`。尽量使用 `multi_tool_use.parallel` 实现并行，避免输出杂乱干扰用户阅读。
 
 # 工程判断准则
 若用户未指定实现细节，遵循保守原则，贴合现有代码库风格选型：
@@ -188,13 +188,20 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
 - 示例:ask_user("请输入任务名称")
                  
 # start_task 启动任务
-启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。
+启动任务模式：将对话中的需求转化为正式任务并提交到任务队列，进入完整的规划→分解→执行流程。
 当用户明确要求执行开发、调试、分析等具体任务时调用。
+调用完start_task后，必须调用finish工具结束任务。
 - "task": 必填"string", 要执行的任务描述，应清晰完整地表达任务目标。
+- "first_execution_time": 可选"string", 首次执行时间。不填或"now"/"立即"表示立即执行；ISO格式如"2026-07-01T08:00:00"定时执行；相对时间如"+10m""+2h""+1d"延迟执行。
+- "is_periodic": 可选"boolean", 是否为周期任务，默认false。
+- "period": 可选"string", 周期时间如"1d""2h""30m""1w"，仅is_periodic=true时有效。
 - 示例: start_task("请完成一个简单的计算器程序")
-
+- 定时示例: start_task(task="生成周报", first_execution_time="+1h")
+- 周期示例: start_task(task="每日数据备份", first_execution_time="2026-07-01T02:00:00", is_periodic=true, period="1d")
+- 如果是定时任务，只需要调用此tool，不需要其他定时唤醒机制或工具。
+                 
 # finish 结束对话或者任务
-标记会话或任务结束,结束任务或者会话必须调用此工具。
+会话结束,或者任务已经提交必须调用此工具。
 - "success": 必填"boolean"类型,任务或者会话是否成功完成,True表示成功完成,False表示失败。
 - "summary": 必填"string"类型, 任务或者会话完成情况全面总结。
 - 示例: finish_task(success=True, summary="xxxx")
@@ -339,7 +346,7 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
 - orchestrate: 按执行顺序排列的子任务数组。
 - sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
 - type: 精确{ntypes}选一 → 「{tenum}」。
-- dir_from: 精确二选一 → "new"、"temp"。 new 表示需要新建任务目录，。如果没有文档或代码类产出新用temp。
+- dir_from: "temp"、"[建议名字]"。如果没有文档或代码类产出新用temp，如果有则给出一个建议的文件名用[]包含，用拼音或英文。
 - sub_type: 按 type 从下表中选取。
 
 ## sub_type 对照表
@@ -359,7 +366,7 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
       "sub_task": "开发一个博客系统（含前端、后端、数据库），部署到服务器并完成测试",
       "type": "{t1}",
       "sub_type": "{s1}",
-      "dir_from": "new"
+      "dir_from": "[blog]"
     }},
     {{
       "sub_task": "撰写一篇营销主题文案并发布到博客",
@@ -391,7 +398,7 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
       "sub_task": "子任务描述",
       "type": "{tenum}",
       "sub_type": "详见下方 sub_type 对照表",
-      "dir_from": "new"|"temp"|"reuse"
+      "dir_from": "[建议名字]"|"temp"|"reuse"
     }}
   ],
   "history_task_index": 0,
@@ -406,7 +413,7 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
 - sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
 - type: 精确{ntypes}选一 → 「{tenum}」。
 - sub_type: 按 type 从下表中选取。
-- dir_from: 精确三选一 → "new"、"temp"、"reuse"。如果没有文档或代码类产出新用temp。
+- dir_from: "temp"、"reuse"、"[建议名字]"。如果没有文档或代码类产出新用temp，如果有则给出一个建议的文件名用[]包含(用pinyin或英文)，或者复用之前目录：reuse
 - history_task_index: 仅 is_continuation=true 时有效（1-based）。
 - subtask_index: 仅 is_continuation=true 时有效。
 - reason: 仅 is_continuation=true 时必填。
@@ -431,7 +438,7 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
       "sub_task": "开发一个博客系统（含前端、后端、数据库），部署到服务器并完成测试",
       "type": "{t1}",
       "sub_type": "{s1}",
-      "dir_from": "new"
+      "dir_from": "[blog]"
     }},
     {{
       "sub_task": "撰写一篇营销主题文案并发布到博客",

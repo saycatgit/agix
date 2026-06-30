@@ -1,6 +1,6 @@
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
 
-import os, sys , re, subprocess, json
+import os, sys, threading , re, subprocess, json
 from prompt_toolkit import prompt as _prompt
 
 
@@ -106,7 +106,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "start_task",
-            "description": "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。当用户明确要求执行开发、调试、分析等具体任务时调用。",
+            "description": "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。当用户明确要求执行开发、调试、分析等具体任务时调用。可设置立即执行或延期执行或定时执行",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -246,7 +246,7 @@ class ToolExecutor:
             return "命令超时"
 
     def _tool_start_task(self, args: dict) -> str:
-        """启动任务模式，使用当前 agent 实例执行完整任务流水线"""
+        """将任务提交到调度器，由工作线程统一执行（立即或定时）"""
         task = args.get("task", "")
         if not task:
             return "start_task 需要 task 参数"
@@ -254,10 +254,30 @@ class ToolExecutor:
             return "start_task 不可用：未关联 agent 实例"
         if getattr(self.agent, '_in_task_mode', False):
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
-        if self.logger:
-            self.logger.log(f"\n🚀 启动任务模式: {task[:100]}", always=True)
 
-        return  f"\n🚀 启动任务模式: {task[:100]}"
+        first_time = args.get("first_execution_time", "") or "now"
+        is_periodic = args.get("is_periodic", False)
+        period = args.get("period", "")
+
+        r = self.agent.scheduler.add_task(task, first_time, is_periodic=is_periodic, period=period)
+        if r["ok"]:
+            is_now = (not first_time or
+                      first_time.strip().lower() in ("now", "immediate", "立即"))
+            prefix = "任务已提交成功（立即执行）" if is_now else "任务已成功加入待执行列表"
+            msg = (f"{prefix}:\n"
+                   f"  ID: {r['task']['id']}\n"
+                   f"  任务: {task[:80]}\n"
+                   f"  下次执行: {r['task']['next_execution_time']}"
+                   f"{' (周期: ' + period + ')' if is_periodic else ''}"
+                   f"\n任务提交成功，任务结束，调用finish结束会话。")
+            if self.logger:
+                self.logger.log(msg, always=True)
+            return msg
+        else:
+            msg = f"添加任务失败: {r['error']}"
+            if self.logger:
+                self.logger.log(msg, always=True)
+            return msg
 
 
     def _tool_ask_user(self, args: dict) -> str:
@@ -265,6 +285,13 @@ class ToolExecutor:
         question = args.get("question", "")
         if not question:
             return "ask_user 需要 question 参数"
+
+        # 检查是否在 worker 线程（非主线程），拒绝读取 stdin
+        if threading.current_thread() is not threading.main_thread():
+            return (
+                f"无法获取用户输入: 后台任务不支持交互式输入。\n"
+                f"原问题: {question}"
+            )
 
         # 检查是否为交互式终端
         if not sys.stdin.isatty():

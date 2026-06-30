@@ -338,6 +338,23 @@ class LLMClient:
         return i
 
 
+    def dump_history(self, filepath: str = ""):
+        """导出当前历史记录到文件，方便调试。
+
+        Args:
+            filepath: 输出路径，默认 <log_dir>/history_dump_<timestamp>.json
+        """
+        import json
+        if not filepath:
+            import time
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            log_dir = os.path.dirname(self.history_log_path) if self.history_log_path else "."
+            filepath = os.path.join(log_dir, f"history_dump_{ts}.json")
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(self.history, f, ensure_ascii=False, indent=2)
+        return filepath
+
     def submit_tool_result(self, tool_call_id: str, result: str):
         """将函数执行结果追加到 hisry，供 LLM 下一轮使用"""
         self.history.append({
