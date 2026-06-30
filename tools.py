@@ -269,7 +269,7 @@ class ToolExecutor:
                    f"  任务: {task[:80]}\n"
                    f"  下次执行: {r['task']['next_execution_time']}"
                    f"{' (周期: ' + period + ')' if is_periodic else ''}"
-                   f"\n任务提交成功，任务结束，调用finish结束会话。")
+                   f"\n任务提交成功，任务结束，立刻调用finish结束会话。")
             if self.logger:
                 self.logger.log(msg, always=True)
             return msg

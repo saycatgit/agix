@@ -139,36 +139,32 @@ class Agent:
 
         Returns: {"judge": str, "content": str}
         """
-        with self._exec_lock:
-            if mode == "chat":
-                self._in_task_mode = False
-                self.llm       = self.chat_llm  # 默认使用对话实例
-                ret= self._run_chat(user_task)
-                self._log(f"\n  🤖: {ret["content"]}\n",always=True)
-                return ret
-            else:
-                # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
-                self._in_task_mode = True
-                self.task_llm.history.clear()
-                self.llm = self.task_llm
+        # with self._exec_lock:
+        if mode == "chat":
+            self._in_task_mode = False
+            ret= self._run_chat(user_task)
+            self._log(f"\n  🤖: {ret["content"]}\n",always=True)
+            return ret
+        else:
+            # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
+            self._in_task_mode = True
+            self.task_llm.history.clear()
 
-                try:
-                    ret= self._run_task(user_task)
-                    self._log(f"\n  🤖: {ret["content"]}\n",always=True)
-                    return ret
-                finally:
-                    self.llm = self.chat_llm
-                    self._in_task_mode = False
+            try:
+                ret= self._run_task(user_task)
+                return ret
+            finally:
+                self._in_task_mode = False
 
     def _run_task(self, user_task: str) -> dict:
 
         """任务模式：完整流水线"""
         self._log(f"\n{'='*60}")
         self._log(f"任务: {user_task}")
-        self._log(f"模型: {self.llm.provider_name} / {self.llm.model}")
+        self._log(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
         self._log(f"{'='*60}\n")
 
-        self.llm.prepend_system_info()
+        self.task_llm.prepend_system_info()
 
         os.makedirs(self.work_dir, exist_ok=True)
         os.makedirs(self.skills_dir, exist_ok=True)
@@ -368,7 +364,7 @@ class Agent:
 
  
         self._log(f"\n{'='*60}")
-        self._log(f"LLM 交互次数: {self.llm.call_count}")
+        self._log(f"LLM 交互次数: {self.task_llm.call_count}")
         self._log(f"执行日志: {self.logger.path}")
         self._log(f"任务状态: {self.log_dir}/task_state.json")
  
@@ -510,7 +506,7 @@ class Agent:
             if rounds > self.max_rounds:
                 return {"judge": "false", "content": "超过最大调用次数"}
             
-            result = self.llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
+            result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
     
             if result["type"] == "tool_calls":
                 executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
@@ -518,7 +514,7 @@ class Agent:
                 for i, call in enumerate(result["calls"]):
 
                     exec_result = executor.execute(call["name"], call["args"])
-                    self.llm.submit_tool_result(call["id"], str(exec_result))
+                    self.chat_llm.submit_tool_result(call["id"], str(exec_result))
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         summary = exec_result["summary"]
                         if summary:
@@ -572,7 +568,7 @@ class Agent:
         phase_idx = 0
         stat=0
         for num in range(max_rounds):
-            result = self.llm.chat_with_tools(prompt, msg, task_tools)
+            result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
             content_text = result.get("content", "")
             if content_text:
                 stat=stat+1
@@ -587,7 +583,7 @@ class Agent:
 
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         # 提交 tool 响应，满足协议要求
-                        self.llm.submit_tool_result(call["id"], str(exec_result))
+                        self.task_llm.submit_tool_result(call["id"], str(exec_result))
 
                         if not exec_result["success"]:
                             self.task_manager.set_subtask_result(
@@ -616,14 +612,14 @@ class Agent:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
                             self._log(f"\n✅ 全部阶段完成，总结:\n {exec_result["summary"]}")
-                            self._log(f"\nLLM 交互次数: {self.llm.call_count}")
+                            self._log(f"\nLLM 交互次数: {self.task_llm.call_count}")
                             self.task_manager.add_conversation_entry(
                                 "assistant", f"总结: {exec_result["summary"]}",
                                 subtask_index)
                             self._save_task_state()
                             return {"judge": "true", "content": exec_result["summary"]}
                     else:
-                        self.llm.submit_tool_result(call["id"], str(exec_result))
+                        self.task_llm.submit_tool_result(call["id"], str(exec_result))
 
                     self._log(f"     → {str(exec_result)[:500]}")
 
@@ -752,7 +748,7 @@ class Agent:
         enable_history=True 时加载历史上下文并传给 TaskClassifier。
         """
       
-        tc = TaskClassifier(self.llm, self.prompts)
+        tc = TaskClassifier(self.task_llm, self.prompts)
 
         history_ctx = ""
         if enable_history:
@@ -895,7 +891,7 @@ class Agent:
         """初始化日志文件、日志器注入、task_state 路径"""
         os.makedirs(self.log_dir, exist_ok=True)
         self.logger.init(self.log_dir)
-        self.logger.write(f"模型: {self.llm.provider_name} / {self.llm.model}")
+        self.logger.write(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
         if self.auth:
             self.auth.logger = self.logger
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
