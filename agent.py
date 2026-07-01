@@ -68,28 +68,43 @@ class Agent:
 
         self.task_llm  = LLMClient(llm_cfg, logger=self.logger)
 
+
+
         self.project_root = os.path.dirname(os.path.abspath(__file__))
-        spc_cfg = exec_cfg.get("spc_dir", "./spc")
-        if not os.path.isabs(spc_cfg):
-            spc_cfg = os.path.join(self.project_root, spc_cfg)
-        self.spc_dir = os.path.abspath(spc_cfg)
-        self.prompts = Prompts(self.spc_dir)
-        wd = exec_cfg.get("work_dir", "./workspace")
-        if not os.path.isabs(wd):
-            wd = os.path.join(self.project_root, wd)
-        self.work_dir = os.path.abspath(wd)
+        self.work_dir = os.getcwd()
+        # spc_dir
+        scd = exec_cfg.get("spc_dir", "./spc")
+        if not os.path.isabs(scd):
+            scd = os.path.join(self.project_root, scd)
+        self.spc_dir = os.path.abspath(scd)
+        
         self.proj_path = os.path.join(self.work_dir, "temp")
         self.docs_dir = None
-        sd = exec_cfg.get("skills_dir", "./workspace/skills")
+        # skills_dir
+        sd = exec_cfg.get("skills_dir", "./inner_space/skills")
         if not os.path.isabs(sd):
             sd = os.path.join(self.project_root, sd)
         self.skills_dir = os.path.abspath(sd)
-        self.log_dir = log_cfg.get("dir") or os.path.join(self.work_dir, "log")
+        # log_dir
+        ld = log_cfg.get("dir") or os.path.join(self.work_dir, "log")
+        if not os.path.isabs(ld):
+            ld = os.path.join(self.project_root, ld)
+        self.log_dir = os.path.abspath(ld)
+        # task_dir
+        td = exec_cfg.get("task_dir", "./task")
+        if not os.path.isabs(td):
+            td = os.path.join(self.project_root, td)
+        self.task_dir = os.path.abspath(td)
+
         self.task_manager = TaskManager()
         self.enable_history_association = exec_cfg.get("enable_history_association", True)
+
+        self.prompts = Prompts(self.spc_dir)
+
+        os.makedirs(self.task_dir, exist_ok=True)
         self._exec_lock = threading.Lock()
         self.scheduler = TaskScheduler(
-            os.path.join(self.work_dir, "pending_tasks.json"),
+            os.path.join(self.task_dir, "pending_tasks.json"),
             self
         )
         self.scheduler.start()
@@ -115,14 +130,10 @@ class Agent:
                 for rt in ready:
                     task_name = rt.get("task_name", "")
                     if task_name:
-                        if self.logger:
-                            self.logger.log(
-                                f"\n⏰ 定时任务触发: {task_name[:100]}", always=True)
                         mode = rt.get("mode", "task")
-                        self._log(f"\n{"="*40}🚀 任务开始执行{"="*40}", always=True)
-                        self._log(f"\n任务: {task_name}", always=True)
+                        self._log(f"\n{"="*30}⏰ 定时任务{task_name[:15]}.. 🚀{"="*30}", always=True)
                         ret = self.run(task_name, mode=mode)
-                        self._log(f"\n任务执行结果: {ret["content"]}", always=True)
+                        self._log(f"\n{ret["content"]}", always=True)
                         self._log(f"\n{"="*40}✅ 任务执行结束{"="*40}", always=True)
 
                 _time.sleep(1)
@@ -141,9 +152,10 @@ class Agent:
         """
         # with self._exec_lock:
         if mode == "chat":
+            # print(f"\n🤖: {self.chat_llm.dump_history()}")
             self._in_task_mode = False
             ret= self._run_chat(user_task)
-            self._log(f"\n  🤖: {ret["content"]}\n",always=True)
+            self._log(f"\n🤖: {ret["content"]}\n",always=True)
             return ret
         else:
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
@@ -201,7 +213,7 @@ class Agent:
                 self._log("\n❌ 延续任务无子任务，终止", always=True)
                 return {"judge": "false", "content": "历史任务延续无有效子任务"}
 
-            history_tasks = TaskManager.scan_history_tasks(self.log_dir)
+            history_tasks = TaskManager.scan_history_tasks(self.task_dir)
             history_main_task = ""
             hist_file = ""
             if 0 <= hist_idx - 1 < len(history_tasks):
@@ -495,6 +507,8 @@ class Agent:
     def _run_chat(self, user_message: str) -> dict:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
+        executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
+
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
         prompt =  self.prompts.chat_prompt+ pretask 
@@ -509,10 +523,8 @@ class Agent:
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
     
             if result["type"] == "tool_calls":
-                executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
                 responses = []
                 for i, call in enumerate(result["calls"]):
-
                     exec_result = executor.execute(call["name"], call["args"])
                     self.chat_llm.submit_tool_result(call["id"], str(exec_result))
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
@@ -752,7 +764,7 @@ class Agent:
 
         history_ctx = ""
         if enable_history:
-            history_ctx = TaskManager.build_history_context(self.log_dir)
+            history_ctx = TaskManager.build_history_context(self.task_dir)
 
         classification = tc.classify(user_task,
                                      enable_history=enable_history,
@@ -768,7 +780,7 @@ class Agent:
 
         try:
             save_path = getattr(self, '_task_state_path',
-                                os.path.join(self.log_dir, "task_state.json"))
+                                os.path.join(self.task_dir, "task_state.json"))
             self.task_manager.save(save_path)
         except Exception:
             pass
@@ -812,7 +824,7 @@ class Agent:
                 if timed_out[0]:
                     self._log(f"\n⏰ 超时，使用建议名称: {suggested}", always=True)
 
-            proj_path = os.path.join(self.project_root, "workspace", proj_name)
+            proj_path = os.path.join(self.work_dir, proj_name)
             os.makedirs(proj_path, exist_ok=True)
             docs_dir = os.path.join(proj_path, "docs")
             os.makedirs(docs_dir, exist_ok=True)
@@ -829,7 +841,7 @@ class Agent:
 
         else:
             proj_name = "temp"
-            proj_path = os.path.join(self.project_root, "workspace", "temp")
+            proj_path = os.path.join(self.work_dir, "temp")
             os.makedirs(proj_path, exist_ok=True)
             docs_dir = os.path.join(proj_path, "docs")
             os.makedirs(docs_dir, exist_ok=True)
@@ -848,7 +860,7 @@ class Agent:
         """更新 task_list.json 任务索引，保留最近 50 条"""
 
         try:
-            list_path = os.path.join(self.log_dir, "task_list.json")
+            list_path = os.path.join(self.task_dir, "task_list.json")
             task_list = []
             if os.path.exists(list_path):
                 try:
@@ -895,4 +907,4 @@ class Agent:
         if self.auth:
             self.auth.logger = self.logger
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._task_state_path = os.path.join(self.log_dir, f"task_{ts}_state.json")
+        self._task_state_path = os.path.join(self.task_dir, f"task_{ts}_state.json")

@@ -110,7 +110,10 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "task": {"type": "string", "description": "要执行的任务描述，应清晰完整地表达任务目标"}
+                    "task": {"type": "string", "description": "要执行的任务描述，应清晰完整地表达任务目标"},
+                    "first_execution_time": {"type": "string", "description": "首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行"},
+                    "is_periodic": {"type": "boolean", "description": "是否周期性任务，默认false"},
+                    "period": {"type": "string", "description": "周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要"}
                 },
                 "required": ["task"]
             }
@@ -172,7 +175,9 @@ class ToolExecutor:
 
         try:
             result = method(args)
-            # finish 返回 dict 供 _run_loop 判断，不能转字符串
+            self._log_message(
+                f"\033[90m 🔧  {name}:{str(args)[9:30].replace('\n',' ')}|| {str(result)[:30].replace('\n',' ')}\033[0m"
+            )            
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
             return str(result)
@@ -269,7 +274,7 @@ class ToolExecutor:
                    f"  任务: {task[:80]}\n"
                    f"  下次执行: {r['task']['next_execution_time']}"
                    f"{' (周期: ' + period + ')' if is_periodic else ''}"
-                   f"\n任务提交成功，任务结束，立刻调用finish结束会话。")
+                   f"\n任务提交成功，任务结束。")
             if self.logger:
                 self.logger.log(msg, always=True)
             return msg

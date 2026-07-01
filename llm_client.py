@@ -87,6 +87,7 @@ class LLMClient:
         self.memory_size = config.get("memory_size", 20)  # 最多保留 20 轮对话
         self.call_count = 0  # LLM 交互次数统计
         self.history_log_path = ""  # 历史日志路径
+        self.last_system_prompt = ""  # 最近一次系统提示词
 
     # ---- 核心聊天 ----
 
@@ -142,6 +143,7 @@ class LLMClient:
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "assistant", "content": content})
         # 写入独立历史日志
+        self.last_system_prompt = prompt
         if self.history_log_path:
             try:
                 self._write_history_log(
@@ -210,6 +212,7 @@ class LLMClient:
             "tool_choice": "auto",
         }
 
+        self.last_system_prompt = prompt
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:
@@ -339,7 +342,7 @@ class LLMClient:
 
 
     def dump_history(self, filepath: str = ""):
-        """导出当前历史记录到文件，方便调试。
+        """导出当前历史记录到文件，方便调试（包含系统提示词）。
 
         Args:
             filepath: 输出路径，默认 <log_dir>/history_dump_<timestamp>.json
@@ -351,8 +354,13 @@ class LLMClient:
             log_dir = os.path.dirname(self.history_log_path) if self.history_log_path else "."
             filepath = os.path.join(log_dir, f"history_dump_{ts}.json")
         os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        # 将系统提示词放在最前面
+        full_history = []
+        if self.last_system_prompt:
+            full_history.append({"role": "system", "content": self.last_system_prompt})
+        full_history.extend(self.history)
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.history, f, ensure_ascii=False, indent=2)
+            json.dump(full_history, f, ensure_ascii=False, indent=2)
         return filepath
 
     def submit_tool_result(self, tool_call_id: str, result: str):
