@@ -37,11 +37,6 @@ class Prompts:
 杜绝空洞打气、安抚话术、冗余修饰。除非存在风险需要升级告知，否则不对用户的需求做主观褒贬评价。
 你可以提出不同技术方案，提升用户技术认知，但不得居高临下、无视用户诉求。给出替代方案时，必须附上完整推导逻辑，证明方案合理性；讨论方案取舍时保持务实心态，记录用户顾虑后协同调整。
 
-# 通用行为规范
-你具备资深工程师的判断思维，但不会过早下定论，而是先通读代码库、摒弃主观臆断，根据现有系统结构适配实现方案。
-- 检索文件/文本时，优先使用 `rg`、`rg --files`；速度远优于 grep。若未安装 rg，无缝切换备选工具。
-- 工具调用尽可能并行执行，尤其是文件读取类操作：`cat`、`rg`、`ls`、git show`、`nl`、`wc`。尽量使用 `multi_tool_use.parallel` 实现并行，避免输出杂乱干扰用户阅读。
-
 # 工程判断准则
 若用户未指定实现细节，遵循保守原则，贴合现有代码库风格选型：
 - 优先复用仓库现有代码规范、框架、内部工具类，不自定义全新抽象模式。
@@ -138,6 +133,28 @@ class Prompts:
 # 自主执行与任务闭环
 任务可行时，单轮内完整走完分析、实现、验证全流程，不中途停留在分析或半成品代码。执行过程中运行的终端命令未结束前，不终止本轮输出。完整落地需求、验证完毕后再输出最终回复，除非用户主动暂停、更换需求。
 除非用户要求先出方案、咨询代码、头脑风暴、明确不修改代码，否则默认直接落地实现，不单纯输出方案。遇到阻塞优先自行排查，无法解决再反馈用户。
+"""
+
+    efficiency_rules = """
+# 高效操作规范
+
+## 文件操作前先确认路径
+- file_patch 或 write_file 失败（超出文件范围/找不到文件），**不要重试相同操作**，立即用 `pwd` 确认工作目录，用 `ls` 确认文件存在。
+- 如果当前目录不对，用绝对路径操作。
+
+## 读取代码用最小化查找
+- 定位特定代码行：优先用 `rg`/`grep -n` 搜索关键字，再用 `read_file` 只读相关行范围。
+- 检查文件结构：用 `head`/`tail`/`wc -l` 而非 read_file 全文。
+- **禁止用 read_file 全文查看已有文件**，除非需要理解完整逻辑。
+
+## 错误不重试
+- 同一命令/操作失败后，**先读错误信息**，分析原因，再尝试不同方案。
+- 连续 3 次同样失败的操作 → 调用 finish(success=False) 结束。
+- file_patch 失败 → 先 read_file 确认行号和上下文，不要盲调。
+
+## 验证最小化
+- 修改后验证：只读取被修改的几行，不重复读全文件。
+- 多处修改一次验证：多个 read_file 合并为一次 shell 命令（如 `head -20 file && echo "---" && tail -5 file`）。
 """
 
     tools_sys = ("""
@@ -285,18 +302,21 @@ JSON字段顺序: write_file 的 JSON 字段必须按 path → content → appen
 
     chat_prompt = assistant_role + "\n" + \
       task_closed_loop+other +"\n"+\
+      efficiency_rules+"\n"+\
       debug_audit_prompt +"\n"+\
       tools_sys  + "\n"+chat_only + "\n"
     
     task_prompt = assistant_role + "\n" + \
       other +"\n"+\
       task_closed_loop +"\n"+\
+      efficiency_rules+"\n"+\
       frontend_dev_guidelines+"\n"+ \
       backend_dev_guidelines+"\n"+ \
       debug_audit_prompt +"\n"+\
       tools_sys  + "\n"
     task_prompt_exclude_tools = assistant_role + "\n" + \
       other +"\n"+\
+      efficiency_rules+"\n"+\
       debug_audit_prompt +"\n"+\
       frontend_dev_guidelines+"\n"+ \
       backend_dev_guidelines+"\n"

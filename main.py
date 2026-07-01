@@ -4,7 +4,9 @@
 import sys, os, json
 from pathlib import Path
 from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.completion import WordCompleter, Completer
+from prompt_toolkit.styles import Style
 
 # 将当前目录加入模块搜索路径（便于导入本地模块）
 sys.path.insert(0, str(Path(__file__).parent))
@@ -247,9 +249,16 @@ def interactive_mode():
 
     while True:
         try:
-            raw = pt_prompt("🎯 ", completer=completer,
-                            complete_while_typing=True,
-                            reserve_space_for_menu=6).strip()
+            raw = pt_prompt(
+                        FormattedText([("", "🎯 ")]),
+                        completer=completer,
+                        complete_while_typing=True,
+                        reserve_space_for_menu=6,
+                        # 仅用户输入文字青色
+                        style=Style.from_dict({
+                            " ": "ansicyan"
+                        })
+                    ).strip()
         except (EOFError, KeyboardInterrupt):
             agent.logger.log("\n👋 再见！", always=True)
             break

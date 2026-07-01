@@ -306,7 +306,7 @@ class ToolExecutor:
         # 获取用户输入，优先使用 prompt_toolkit（提供更好的交互体验）
         try:
             # 尝试导入 prompt_toolkit（作为可选依赖）
-            answer = _prompt("   > ").strip()
+            answer = _prompt("  📝 ").strip()
         except ImportError:
             # fallback 到标准 input
             try:
