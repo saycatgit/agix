@@ -220,6 +220,7 @@ class LLMClient:
             return {"type": "error", "message": f"LLM API错误: {e}"}
 
         msg = response.choices[0].message
+        reasoning = getattr(msg, "reasoning_content", None) or ""
         self.call_count += 1
 
         # 记录用户消息
@@ -294,7 +295,7 @@ class LLMClient:
                             pass  # 非法的 JSON 参数保持原样
                 self.history.append(msg_dict)
 
-            return {"type": "tool_calls", "calls": calls}
+            return {"type": "tool_calls", "calls": calls, "reasoning_content": reasoning}
 
         # ---------- 普通文本回复 ----------
         content = msg.content or ""
@@ -311,7 +312,7 @@ class LLMClient:
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "assistant", "content": content})
 
-        return {"type": "text", "content": content}
+        return {"type": "text", "content": content, "reasoning_content": reasoning}
 
     def _write_history_log(self, content: str):
         """写入历史日志，自动创建目录"""

@@ -1,0 +1,21 @@
+{
+  "name": "skill-creator",
+  "version": "1.0.0",
+  "description": "创建新的 skill、技能：自动生成目录结构、SKILL.md、skill.json 和 Python 脚本模板",
+  "author": "agent",
+  "schema": {
+    "params": {
+      "name": {
+        "type": "string",
+        "description": "工具名: create_skill",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "JSON参数: {\"name\":\"skill名\",\"description\":\"描述\",\"author\":\"作者\",\"params\":\"{}\",\"mcp\":true}",
+        "default": "{}"
+      }
+    }
+  },
+  "entrypoint": "scripts/create_skill.py"
+}

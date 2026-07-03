@@ -1,0 +1,92 @@
+[
+  {
+    "name": "debug.md",
+    "path": "/home/agent_native/inner_space/spc/debug.md",
+    "relpath": "spc/debug.md",
+    "size": 2554
+  },
+  {
+    "name": "skill.md",
+    "path": "/home/agent_native/inner_space/spc/skill.md",
+    "relpath": "spc/skill.md",
+    "size": 676
+  },
+  {
+    "name": "spc_index.json",
+    "path": "/home/agent_native/inner_space/spc/spc_index.json",
+    "relpath": "spc/spc_index.json",
+    "size": 427
+  },
+  {
+    "name": "spec.md",
+    "path": "/home/agent_native/inner_space/spc/spec.md",
+    "relpath": "spc/spec.md",
+    "size": 1563
+  },
+  {
+    "name": "pending_tasks.json",
+    "path": "/home/agent_native/inner_space/task/pending_tasks.json",
+    "relpath": "task/pending_tasks.json",
+    "size": 2
+  },
+  {
+    "name": "skills_index.json",
+    "path": "/home/agent_native/inner_space/skills/skills_index.json",
+    "relpath": "skills/skills_index.json",
+    "size": 2466
+  },
+  {
+    "name": "SKILL.md",
+    "path": "/home/agent_native/inner_space/skills/skill-finder/SKILL.md",
+    "relpath": "skills/skill-finder/SKILL.md",
+    "size": 2653
+  },
+  {
+    "name": "skill.json",
+    "path": "/home/agent_native/inner_space/skills/skill-finder/skill.json",
+    "relpath": "skills/skill-finder/skill.json",
+    "size": 915
+  },
+  {
+    "name": "main.py",
+    "path": "/home/agent_native/inner_space/skills/skill-finder/scripts/main.py",
+    "relpath": "skills/skill-finder/scripts/main.py",
+    "size": 11468
+  },
+  {
+    "name": "SKILL.md",
+    "path": "/home/agent_native/inner_space/skills/bocha-searcher/SKILL.md",
+    "relpath": "skills/bocha-searcher/SKILL.md",
+    "size": 1592
+  },
+  {
+    "name": "skill.json",
+    "path": "/home/agent_native/inner_space/skills/bocha-searcher/skill.json",
+    "relpath": "skills/bocha-searcher/skill.json",
+    "size": 644
+  },
+  {
+    "name": "main.py",
+    "path": "/home/agent_native/inner_space/skills/bocha-searcher/scripts/main.py",
+    "relpath": "skills/bocha-searcher/scripts/main.py",
+    "size": 5079
+  },
+  {
+    "name": "SKILL.md",
+    "path": "/home/agent_native/inner_space/skills/skill-creator/SKILL.md",
+    "relpath": "skills/skill-creator/SKILL.md",
+    "size": 1869
+  },
+  {
+    "name": "skill.json",
+    "path": "/home/agent_native/inner_space/skills/skill-creator/skill.json",
+    "relpath": "skills/skill-creator/skill.json",
+    "size": 624
+  },
+  {
+    "name": "create_skill.py",
+    "path": "/home/agent_native/inner_space/skills/skill-creator/scripts/create_skill.py",
+    "relpath": "skills/skill-creator/scripts/create_skill.py",
+    "size": 14508
+  }
+]

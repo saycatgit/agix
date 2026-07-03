@@ -1,0 +1,32 @@
+{
+  "name": "skill-finder",
+  "version": "1.0.0",
+  "description": "搜索互联网上的skill仓库，根据用户需求匹配并展示skill列表，支持用户选择性拉取到本地",
+  "author": "agent",
+  "entrypoint": "scripts/main.py",
+  "invoke": "cli",
+  "schema": {
+    "params": {
+      "query": {
+        "type": "string",
+        "description": "搜索关键词，用于匹配skill",
+        "default": ""
+      },
+      "action": {
+        "type": "string",
+        "description": "操作类型：search（搜索）或 pull（拉取）",
+        "default": "search"
+      },
+      "source": {
+        "type": "string",
+        "description": "仓库URL（pull时必填，search时可选指定特定源）",
+        "default": ""
+      },
+      "name": {
+        "type": "string",
+        "description": "skill名称（pull时可选，默认从URL提取）",
+        "default": ""
+      }
+    }
+  }
+}

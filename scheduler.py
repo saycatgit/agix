@@ -20,7 +20,7 @@ class TaskScheduler:
 
     # ── 公共 API ──────────────────────────────────────────────
 
-    def add_task(self, task_name: str, first_time_str: str,
+    def add_task(self, task_name: str, first_time_str: str, is_interactive: bool = False,
                  mode: str = "task",
                  is_periodic: bool = False, period: str = "") -> dict:
         """添加定时任务并重新调度定时器。
@@ -47,6 +47,7 @@ class TaskScheduler:
             "period": period,
             "next_execution_time": next_time.isoformat(),
             "created_at": datetime.now().isoformat(),
+            "is_interactive": is_interactive,
         }
 
         with self._lock:

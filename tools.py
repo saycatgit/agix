@@ -9,15 +9,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "创建或覆写文件，支持追加模式分批写入大文件",
+            "description": "创建或覆写文件，支持追加模式分批写入大文件,先判断要写入内容大小再决定是否分批写",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "文件相对路径，必须填写"},
                     "content": {"type": "string", "description": "文件内容，必须填写，单次写入超过 10240 字符时应分批调用 write_file  append=true 追加写入"},
-                    "append": {"type": "boolean", "description": "是否追加模式，必须填写，true 时在文件末尾追加内容，false 时覆写"}
+                    "append": {"type": "boolean", "description": "是否追加模式，True 时在文件末尾追加内容，False 时覆写,默认False，,先判断要写入内容大小再决定是否分批写"},
+                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
                 },
-                "required": ["path", "content", "append"]
+                "required": ["path", "content","note"]
             }
         }
     },
@@ -32,9 +33,10 @@ TOOLS = [
                     "input": {
                         "type": "string",
                         "description": "unified diff 格式的 patch 文本"
-                    }
+                    },
+                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
                 },
-                "required": ["input"]
+                "required": ["input","note"]
             }
         }
     },
@@ -48,9 +50,11 @@ TOOLS = [
                 "properties": {
                     "path": {"type": "string", "description": "文件相对路径，必须填写"},
                     "offset": {"type": "integer", "description": "起始行号（从1开始）"},
-                    "limit": {"type": "integer", "description": "读取行数"}
+                    "limit": {"type": "integer", "description": "读取行数"},
+                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+
                 },
-                "required": ["path"]
+                "required": ["path","note"]
             }
         }
     },
@@ -73,9 +77,11 @@ TOOLS = [
                     "timeout": {
                         "type": "integer",
                         "description": "超时秒数，默认 30秒"
-                    }
+                    },
+                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+
                 },
-                "required": ["command"]
+                "required": ["command","note"]
             }
         }
     },
@@ -113,7 +119,8 @@ TOOLS = [
                     "task": {"type": "string", "description": "要执行的任务描述，应清晰完整地表达任务目标"},
                     "first_execution_time": {"type": "string", "description": "首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行"},
                     "is_periodic": {"type": "boolean", "description": "是否周期性任务，默认false"},
-                    "period": {"type": "string", "description": "周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要"}
+                    "period": {"type": "string", "description": "周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要"},
+                    "interactive": {"type": "boolean", "description": "是否为交互模式任务，默认false"}
                 },
                 "required": ["task"]
             }
@@ -149,7 +156,7 @@ class ToolExecutor:
     # 各工具必填参数
     _REQUIRED_ARGS = {
         "file_patch": ["input"],
-        "write_file": ["path", "content", "append"],
+        "write_file": ["path", "content"],
         "read_file": ["path"],
         "run_shell": ["command"],
         "ask_user": ["question"],
@@ -176,7 +183,7 @@ class ToolExecutor:
         try:
             result = method(args)
             self._log_message(
-                f"\033[90m 🔧  {name}:{str(args)[9:30].replace('\n',' ')}|| {str(result)[:30].replace('\n',' ')}\033[0m"
+                f"\033[90m 🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:30].replace('\n',' ')} )\033[0m"
             )            
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
@@ -195,12 +202,12 @@ class ToolExecutor:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         append_mode = args.get("append", False)
         content = args.get("content", "")
-        # 非追加模式单次写入不超过 10000 字符
+        # 单次写入不超过 10000 字符（append=true 也限制）
         MAX_WRITE_CHARS = 10000
-        if not append_mode and len(content) > MAX_WRITE_CHARS:
+        if len(content) > MAX_WRITE_CHARS:
             return (
-                f"write_file 单次写入内容超过 {MAX_WRITE_CHARS} 字符（当前 {len(content)} 字符）。"
-                f" 请分批写入：先用 write_file(append=false) 写入前半部分，再用 write_file(append=true) 分批追加剩余内容。"
+                f"write_file 单次写入内容超过 {MAX_WRITE_CHARS} 字符（当前 {len(content)} 字符），"
+                f"请分批写入：每次 write_file 的 content 不超过 {MAX_WRITE_CHARS} 字符，用 append=true 从第二批开始逐批追加。"
             )
         mode = "a" if append_mode else "w"
         with open(path, mode, encoding="utf-8") as f:
@@ -263,11 +270,13 @@ class ToolExecutor:
         first_time = args.get("first_execution_time", "") or "now"
         is_periodic = args.get("is_periodic", False)
         period = args.get("period", "")
+        is_now = (not first_time or
+                  first_time.strip().lower() in ("now", "immediate", "立即"))
+        # 立即执行的任务默认启用交互模式
+        is_interactive = args.get("interactive", False) or is_now
 
-        r = self.agent.scheduler.add_task(task, first_time, is_periodic=is_periodic, period=period)
+        r = self.agent.scheduler.add_task(task, first_time, is_periodic=is_periodic, period=period, is_interactive=is_interactive)
         if r["ok"]:
-            is_now = (not first_time or
-                      first_time.strip().lower() in ("now", "immediate", "立即"))
             prefix = "任务已提交成功（立即执行）" if is_now else "任务已成功加入待执行列表"
             msg = (f"{prefix}:\n"
                    f"  ID: {r['task']['id']}\n"
@@ -291,12 +300,16 @@ class ToolExecutor:
         if not question:
             return "ask_user 需要 question 参数"
 
+        # 非交互模式任务直接返回问题原文
+        if self.agent and not getattr(self.agent, "is_interactive", False):
+            return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
+
         # 检查是否在 worker 线程（非主线程），拒绝读取 stdin
-        if threading.current_thread() is not threading.main_thread():
-            return (
-                f"无法获取用户输入: 后台任务不支持交互式输入。\n"
-                f"原问题: {question}"
-            )
+        # if threading.current_thread() is not threading.main_thread():
+        #     return (
+        #         f"无法获取用户输入: 后台任务不支持交互式输入。\n"
+        #         f"原问题: {question}"
+        #     )
 
         # 检查是否为交互式终端
         if not sys.stdin.isatty():

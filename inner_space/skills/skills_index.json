@@ -1,0 +1,80 @@
+[
+  {
+    "name": "bocha-searcher",
+    "description": "使用博查(Bocha)API搜索互联网资料，返回网页标题、摘要和链接",
+    "md_path": "/home/agent_native/inner_space/skills/bocha-searcher/SKILL.md",
+    "schema": {
+      "params": {
+        "query": {
+          "type": "string",
+          "description": "搜索关键词",
+          "default": ""
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "最大结果数",
+          "default": 10
+        },
+        "format": {
+          "type": "string",
+          "description": "输出格式：json 或 text",
+          "default": "json"
+        }
+      }
+    },
+    "entrypoint": "scripts/main.py",
+    "invoke": "cli"
+  },
+  {
+    "name": "skill-creator",
+    "description": "创建新的 skill、技能：自动生成目录结构、SKILL.md、skill.json 和 Python 脚本模板",
+    "md_path": "/home/agent_native/inner_space/skills/skill-creator/SKILL.md",
+    "schema": {
+      "params": {
+        "name": {
+          "type": "string",
+          "description": "工具名: create_skill",
+          "default": ""
+        },
+        "arguments": {
+          "type": "string",
+          "description": "JSON参数: {\"name\":\"skill名\",\"description\":\"描述\",\"author\":\"作者\",\"params\":\"{}\",\"mcp\":true}",
+          "default": "{}"
+        }
+      }
+    },
+    "entrypoint": "scripts/create_skill.py",
+    "invoke": "cli"
+  },
+  {
+    "name": "skill-finder",
+    "description": "搜索互联网上的skill仓库，根据用户需求匹配并展示skill列表，支持用户选择性拉取到本地",
+    "md_path": "/home/agent_native/inner_space/skills/skill-finder/SKILL.md",
+    "schema": {
+      "params": {
+        "query": {
+          "type": "string",
+          "description": "搜索关键词，用于匹配skill",
+          "default": ""
+        },
+        "action": {
+          "type": "string",
+          "description": "操作类型：search（搜索）或 pull（拉取）",
+          "default": "search"
+        },
+        "source": {
+          "type": "string",
+          "description": "仓库URL（pull时必填，search时可选指定特定源）",
+          "default": ""
+        },
+        "name": {
+          "type": "string",
+          "description": "skill名称（pull时可选，默认从URL提取）",
+          "default": ""
+        }
+      }
+    },
+    "entrypoint": "scripts/main.py",
+    "invoke": "cli"
+  }
+]
