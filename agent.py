@@ -31,7 +31,7 @@ from config import TRUNCATION
 from logger import Logger
 from task_manager import TaskManager, SubTaskStatus, MainTaskStatus
 from prompts import Prompts
-from tools import TOOLS, ToolExecutor
+from tools import TOOLS, ToolExecutor, get_tools_excluding
 from markdown_it import MarkdownIt
 from scheduler import TaskScheduler
 
@@ -371,7 +371,7 @@ class Agent:
             )
       
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
-        task_tools = [t for t in TOOLS if t["function"]["name"] != "start_task"]
+        task_tools = get_tools_excluding("start_task")
         system_prompt = (
             self.prompts.task_prompt_exclude_tools
             + "\n"
@@ -536,29 +536,6 @@ class Agent:
                 #     self._log(f"\n  🤖: {content_text}\n",always=True)
                 return {"judge": "true", "content": content_text}
 
-    def _format_plan_progress(self, phases: list, current_idx: int,
-                               failed_idx: int | None = None) -> str:
-        """以 Updated Plan 格式展示阶段进度。
-
-        格式:
-        Updated Plan
-          └ ✅ phase1_name
-            ✅ phase2_name
-            □ phase3_name (pending)
-        """
-        lines = ["阶段进度"]
-        for i, ph in enumerate(phases):
-            name = ph.get("name", f"阶段{i+1}")
-            if failed_idx is not None and i == failed_idx:
-                marker = "❌"
-            elif i < current_idx:
-                marker = "✅"
-            else:
-                marker = "□"
-            prefix = "  └" if i == 0 else "   "
-            lines.append(f"{prefix} {marker} {name}")
-        return "\n".join(lines)
-
     def _run_loop(self, task_message: str, subtask_index: int | None = None,
                   phases: list | None = None,
                   extra_prompt: str = "") -> dict:
@@ -577,33 +554,41 @@ class Agent:
         self._log(f"工作目录proj: {self.proj_path}")
 
         max_rounds = self.max_rounds
-        task_tools = [t for t in TOOLS if t["function"]["name"] != "start_task"]
+        task_tools = get_tools_excluding("start_task")
         
         # system prompt 预构建完整，通过 extra_prompt 传入
         base_prompt = extra_prompt
 
         # 构建初始 prompt（含第一个 phase 的 phase_prompt）
-        def _build_phase_prompt(phase, phases=None, phase_idx=0):
+        def _build_phase_prompt(phase):
             pp = phase.get('phase_prompt', '')
 
-            plan = self._format_plan_progress(phases, phase_idx) if phases else ""
-
             if pp:
-                base = "\n## 当前阶段提示\n" + pp +"\n 每个阶段完成后需要调用finish工具结束本阶段，会自动进入下一个阶段。"
-                if plan:
-                    base = "\n\n" + plan + "\n" + base
-                return base
+                temp= f"\n## 当前阶段({phase.get('name', '')})提示\n" + pp
+            else:
+                temp=f"\n## 当前阶段({phase.get('name', '')})\n"   
+                
+            temp += ("\n- 开始前先调用 update_plan 规划本阶段执行步骤。"
+                    "\n- 每个步骤完成后及时更新状态。"
+                    "\n- 所有步骤完成后调用 finish 结束本阶段。")
 
-            if plan:
-                return "\n\n" + plan
-
-            return ""
+            return temp
 
 
         prompt = base_prompt
         if phases:
-            prompt += _build_phase_prompt(phases[0], phases, 0)
-            print(f"[DEBUG _run_loop] 初始 prompt 长度: {len(prompt)}, phase 0 config_prompt: '{phases[0].get('phase_prompt', '')[:100]}...'")
+            prompt += _build_phase_prompt(phases[0])
+            # 初始化 StageProgress
+            stage_names = [p["name"] for p in phases]
+            self._stage_progress = self.task_manager.load_stage_progress(stage_names)
+            # 将当前阶段计划作为 msg 传给 LLM
+            plan_msg = (
+                f"当前阶段: {phases[0]['name']}\n"
+                f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
+                f"请先调用 update_plan 规划「{phases[0]['name']}」阶段的详细步骤。"
+            )
+            msg = task_message + "\n\n" + plan_msg if task_message else plan_msg
+            self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}", always=True)
 
 
         self.task_manager.add_conversation_entry(
@@ -615,7 +600,6 @@ class Agent:
         phase_idx = 0
         stat=0
 
-        self._log(f"\n{"="*80} \n{self._format_plan_progress(phases, phase_idx)}\n{"="*80}", always=True)
 
         for num in range(max_rounds):
             result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
@@ -633,7 +617,6 @@ class Agent:
                     self._log(f"共: {max_rounds}, 第 {num} 轮  🔧 {call['name']}({call['args']})")
                     exec_result = executor.execute(call["name"], call["args"])
 
-
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         # 提交 tool 响应，满足协议要求
                         self.task_llm.submit_tool_result(call["id"], str(exec_result))
@@ -644,13 +627,12 @@ class Agent:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
                             name = phases[phase_idx]['name'] if phases else ''
-                            self._log(f"\n  {self._format_plan_progress(phases, phase_idx, failed_idx=phase_idx)}", always=True)
+                            self._log(f"\n  {self._stage_progress.format_status()}", always=True)
                             self._update_task_list() 
                             self._save_task_state()
                             return {"judge": "false", "content": exec_result["summary"]}
 
                         if phases and phase_idx < len(phases):
-                            self._log(f"\n{"="*80}\n{self._format_plan_progress(phases, phase_idx + 1)}\n{"="*80}", always=True)
                             self.task_manager.add_conversation_entry(
                                 "agent",
                                 f"子任务 [{subtask_index}] {phases[phase_idx]['name']} :{phases[phase_idx]['msg']} 完成",
@@ -661,8 +643,19 @@ class Agent:
                             phase_idx += 1
                             self._log(f"  → 进入 {phases[phase_idx]['name']}")
                             # 重建 prompt 以包含新 phase 的 config_prompt
-                            prompt = base_prompt + _build_phase_prompt(phases[phase_idx], phases, phase_idx)
-                            print(f"[DEBUG _run_loop] 切换 phase -> prompt 重建, 新 config_prompt: '{phases[phase_idx].get('phase_prompt', '')[:100]}...'")
+                            prompt = base_prompt + _build_phase_prompt(phases[phase_idx])
+                            # 更新 msg 以包含新阶段计划
+                            plan_msg = (
+                                f"进入新阶段: {phases[phase_idx]['name']}\n"
+                                f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
+                                f"请先调用 update_plan 规划「{phases[phase_idx]['name']}」阶段的详细步骤。"
+                            )
+                            msg = plan_msg
+
+                            self._save_task_state()
+                            self._log(f"[PHASE] 切换后 prompt={len(prompt)}chars | msg= {msg}", always=True)
+                            self._log(f"[PHASE] prompt= {prompt}", always=True)
+
                             phase_changed = True
                         else:
                             self.task_manager.set_subtask_status(

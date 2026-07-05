@@ -4,6 +4,11 @@ import os, sys, threading , re, subprocess, json
 from prompt_toolkit import prompt as _prompt
 
 
+def get_tools_excluding(*names: str) -> list:
+    """返回排除指定工具后的 TOOLS 列表。"""
+    return [t for t in TOOLS if t["function"]["name"] not in names]
+
+
 TOOLS = [
     {
         "type": "function",
@@ -150,6 +155,33 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_plan",
+            "description": "更新当前子任务的阶段执行计划。用于在每个阶段开始时规划详细步骤，或执行过程中更新步骤状态。stage 来源为 spec.json 中的 phase_name，step 来源为 LLM，status 取值为 pending/in_progress/completed/failed。同一阶段中同时只有一个步骤处于 in_progress。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "description": "步骤列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "step": {"type": "string", "description": "步骤描述"},
+                                "status": {"type": "string", "description": "步骤状态: pending|in_progress|completed|failed"}
+                            },
+                            "required": ["step", "status"]
+                        }
+                    },
+                    "stage": {"type": "string", "description": "指定更新哪个阶段（phase_name），如'需求分析'"},
+                    "explanation": {"type": "string", "description": "本次更新说明，选填"}
+                },
+                "required": ["steps", "stage"]
+            }
+        }
+    },
 ]
 
 
@@ -165,6 +197,7 @@ class ToolExecutor:
     # 各工具必填参数
     _REQUIRED_ARGS = {
         "file_patch": ["input"],
+        "update_plan": ["steps", "stage"],
         "write_file": ["path", "content"],
         "read_file": ["path"],
         "run_shell": ["command"],
@@ -192,7 +225,7 @@ class ToolExecutor:
         try:
             result = method(args)
             self._log_message(
-                f"\033[90m🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:50].replace('\n',' ')} )\033[0m"
+                f"\033[90m🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:100].replace('\n',' ')} )\033[0m"
             )            
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
@@ -640,6 +673,38 @@ class ToolExecutor:
             self.logger.log(msg, always=True)
         else:
             print(msg)
+
+    def _tool_update_plan(self, args: dict) -> str:
+        """更新阶段执行计划。"""
+        import json as _json
+        steps = args.get("steps", [])
+        stage = args.get("stage", "")
+        explanation = args.get("explanation", "")
+
+        agent = getattr(self, "agent", None)
+        if not agent:
+            return _json.dumps({"error": "agent not available"}, ensure_ascii=False)
+
+        progress = getattr(agent, "_stage_progress", None)
+        if not progress:
+            return _json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
+
+        progress.update_steps(stage, steps)
+        try:
+            agent.task_manager.save_stage_progress(progress)
+        except Exception:
+            pass
+
+        # 打印更新后的进度
+        if self.logger:
+            self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}", always=True)
+
+        result = {
+            "stage": stage,
+            "explanation": explanation,
+            "status": progress.format_status(),
+        }
+        return _json.dumps(result, ensure_ascii=False, indent=2)
 
     def _tool_finish(self, args: dict) -> dict:
         """特殊工具：返回 dict 而非 str，由调用方处理"""

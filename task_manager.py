@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json, os, glob
 from dataclasses import dataclass, field
+from stage_progress import StageProgress
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -67,6 +68,7 @@ class QAMessage:
     context:   str = ""
 
 
+
 @dataclass
 class SubTaskRecord:
     """子任务完整记录
@@ -90,6 +92,7 @@ class SubTaskRecord:
     messages:       list = field(default_factory=list)
     created_at:     str = ""
     completed_at:   str = ""
+    plan_steps:     dict = field(default_factory=dict)  # {phase_name: [{"step":..., "status":...}]}
 
     @staticmethod
     def from_orchestrate_item(index: int, item: dict) -> "SubTaskRecord":
@@ -291,6 +294,7 @@ class TaskManager:
                 "round_count": s.round_count,
                 "messages": [_msg_to_dict(m) for m in s.messages],
                 "created_at": s.created_at, "completed_at": s.completed_at,
+                "plan_steps": s.plan_steps,
             }
 
         main = self._main
@@ -351,6 +355,7 @@ class TaskManager:
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
+            rec.plan_steps = sd.get("plan_steps", {})
             tm._subtasks.append(rec)
 
         tm._conversation_log = data.get("conversation_log", [])
@@ -514,6 +519,36 @@ class TaskManager:
                 if total > max_chars:
                     break
         return "\n".join(lines)
+
+
+    # ── StageProgress (update_plan) ──
+
+    def create_stage_progress(self, stage_names: list[str]) -> StageProgress:
+        progress = StageProgress(stage_names)
+        sub = self._active_subtask()
+        if sub:
+            sub.plan_steps = progress.to_dict()
+        return progress
+
+    def load_stage_progress(self, stage_names: list[str]) -> StageProgress:
+        sub = self._active_subtask()
+        if sub and sub.plan_steps:
+            try:
+                return StageProgress.from_dict(sub.plan_steps)
+            except Exception:
+                pass
+        return StageProgress(stage_names)
+
+    def save_stage_progress(self, progress: StageProgress):
+        sub = self._active_subtask()
+        if sub:
+            sub.plan_steps = progress.to_dict()
+
+    def _active_subtask(self) -> SubTaskRecord | None:
+        for sub in self._subtasks:
+            if sub.status == SubTaskStatus.IN_PROGRESS:
+                return sub
+        return None
 
 
     def _get_sub(self, index: int) -> SubTaskRecord | None:
