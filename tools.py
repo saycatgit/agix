@@ -9,13 +9,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "创建或覆写文件，支持追加模式分批写入大文件,先判断要写入内容大小再决定是否分批写",
+            "description": "创建或覆写文件，支持追加模式分批写入大文件,先判断要写入内容大小再决定是否分批写,单次不超过10000字节",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "文件相对路径，必须填写"},
-                    "content": {"type": "string", "description": "文件内容，必须填写，单次写入超过 10240 字符时应分批调用 write_file  append=true 追加写入"},
-                    "append": {"type": "boolean", "description": "是否追加模式，True 时在文件末尾追加内容，False 时覆写,默认False，,先判断要写入内容大小再决定是否分批写"},
+                    "path": {"type": "string", "description": "文件相对路径，必须填写."},
+                    "content": {"type": "string", "description": "文件内容，必须填写."},
+                    "append": {"type": "boolean", "description": "是否追加模式，true 时在文件末尾追加内容，false 时覆写,默认false."},
                     "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
                 },
                 "required": ["path", "content","note"]
@@ -26,7 +26,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "file_patch",
-            "description": "通过 unified diff 格式的 patch 文本精确修改文件。使用 ---/+++ 和 @@ 标记定位文件与行号，空格行是上下文匹配锚点，- 开头删除，+ 开头新增。上下文精确匹配时才应用，否则返回错误提示。适合小范围精确代码编辑，比整文件覆写更安全。",
+            "description": ("通过 unified diff 格式的 patch 文本精确修改文件。"
+                            "使用 ---/+++ 和 @@ 标记定位文件与行号，空格行是上下文匹配锚点，- 开头删除，+ 开头新增。patch 头 `--- a/` 和 `+++ b/` 后的路径支持相对路径和绝对路径，建议始终使用绝对路径，避免工作目录不同导致相对路径解析到错误位置。上下文精确匹配时才应用，否则返回错误提示。适合小范围精确代码编辑，比整文件覆写更安全。"
+                            "关键规则：每行的第1列是指令前缀（空格=保持, -=删除, +=新增），第2列起是文件原文（缩进必须和 read_file 看到的一模一样）。"
+                            "例如 read_file 返回 `    home = '~'`（4空格缩进），diff 中应写作 `     home = '~'`（1前缀空格 + 4缩进空格 = 5空格）。"
+                            "常见错误：漏掉前缀列占的那一个空格，导致 diff 里的缩进比原文少1格，上下文匹配失败。"
+                        ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -112,7 +117,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "start_task",
-            "description": "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。当用户明确要求执行开发、调试、分析等具体任务时调用。可设置立即执行或延期执行或定时执行",
+            "description": (
+                "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。"
+                "可设置立即执行、延期执行、定时执行，也可以设置是否为交互模式，如果是立即执行的任务默认为交互。"
+                "调用完start_task后，必须调用finish工具结束任务，禁止继续执行。"
+                ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -130,7 +139,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "finish",
-            "description": "标记任务完成。任务执行完毕后必须调用此函数。",
+            "description": "标记任务完成。会话结束,或者任务已经提交必须调用此工具。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -183,7 +192,7 @@ class ToolExecutor:
         try:
             result = method(args)
             self._log_message(
-                f"\033[90m 🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:30].replace('\n',' ')} )\033[0m"
+                f"\033[90m🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:50].replace('\n',' ')} )\033[0m"
             )            
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
@@ -198,7 +207,12 @@ class ToolExecutor:
             return f"执行 {name} 失败: {e}"
 
     def _tool_write_file(self, args: dict) -> str:
-        path = os.path.join(self.work_dir, args["path"])
+
+        if os.path.isabs(args["path"]):
+            path = args["path"]
+        else:
+            path = os.path.join(self.work_dir, args["path"])
+
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         append_mode = args.get("append", False)
         content = args.get("content", "")
@@ -216,7 +230,12 @@ class ToolExecutor:
         return f"已{action} {path} ({len(args['content'])} 字符)"
 
     def _tool_read_file(self, args: dict) -> str:
-        path = os.path.join(self.work_dir, args["path"])
+
+        if os.path.isabs(args["path"]):
+            path = args["path"]
+        else:
+            path = os.path.join(self.work_dir, args["path"])
+
         if not os.path.exists(path):
             return f"文件不存在: {path}"
         offset = args.get("offset", 1)
@@ -319,12 +338,12 @@ class ToolExecutor:
             )
 
         # 输出问题（统一用 logger 或 print）
-        self._log_message(f"\033[96m❓ {question}\033[0m")
+        self._log_message(f"\033[96m🤔 {question}\033[0m")
 
         # 获取用户输入，优先使用 prompt_toolkit（提供更好的交互体验）
         try:
             # 尝试导入 prompt_toolkit（作为可选依赖）
-            answer = _prompt("  📝 ").strip()
+            answer = _prompt("📝 ").strip()
         except ImportError:
             # fallback 到标准 input
             try:
@@ -456,7 +475,13 @@ class ToolExecutor:
         """解析文件路径（相对于 work_dir）。"""
         if os.path.isabs(file_path):
             return file_path
-        return os.path.join(self.work_dir, file_path)
+        resolved = os.path.join(self.work_dir, file_path)
+        if os.path.exists(resolved):
+            return resolved
+        abs_try = "/" + file_path
+        if os.path.exists(abs_try):
+            return abs_try
+        return resolved
 
     def _apply_hunks_to_file(self, file_path: str, hunks: list) -> dict:
         """将 hunks 应用到文件，返回结果 dict。"""

@@ -328,3 +328,12 @@ heredoc/多行字符串命令不支持配置前缀规则。
 - `status`设为`blocked`：同一阻塞问题连续出现至少三次
 参数：
 - `status`（必填字符串）：`complete`完成 / `blocked`阻塞
+
+
+"可执行任务都应该按照规划->执行->总结的流程进行，将任务描述分为多个步骤，并逐个执行，每执行一个步骤，都记录下结果，并给出步骤总结，每一步完成后都要将任务执行进度汇报给用户，全部完成后要给出全面总结，",
+                 "如果用户自己规划了流程步骤，按照用户自己的规划进行，但要确保流程正确,每个步骤内部也要按照上述规划、执行、总结的步骤，参考格式:\n",
+                "• XX功能更新计划",
+                "  └ ✔ spec.json: 为5个大类添加 description 字段",
+                "    ✔ task_attribute_manager.py: add_category 支持 description 参数",
+                "    □ prompts.py: _build_dynamic_prompts 中的 chat_only 提示也带上描述",
+                "    □ 验证语法和结构完整性"

@@ -186,9 +186,9 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
         return None
 
     elif c == "/history":
-        wd = config.get("execution", {}).get("work_dir", "./workspace")
-        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), wd, "log")
-        history_ctx = TaskManager.build_history_context(log_dir)
+        wd = config.get("execution", {}).get("inner_space_dir", "./inner_space")
+        task_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), wd, "task")
+        history_ctx = TaskManager.build_history_context(task_dir)
         if history_ctx:
             print(f"\n{history_ctx}")
         else:

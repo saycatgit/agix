@@ -157,6 +157,8 @@ class Agent:
             # print(f"\n🤖: {self.chat_llm.dump_history()}")
             self._in_task_mode = False
             ret= self._run_chat(user_task)
+            print(self.chat_llm.dump_history())
+
             self._log(f"\n🤖: {ret["content"]}\n",always=True)
             return ret
         else:
@@ -340,7 +342,7 @@ class Agent:
     def _run_phases(self, sp_key: str, sub_task: str, sub_type: str,
                     subtask_index: int, is_continuation: bool,
                     main_task: str, cont_content: str, cont_path: str) -> bool:
-        """按 spec.md 阶段定义循环执行各阶段 run_loop
+        """按任务属性定义循环执行各阶段 run_loop
 
         Returns: 
         """
@@ -351,9 +353,11 @@ class Agent:
 
         phases = result['phases']
         extra_prompt = result.get('extra_prompt', '')
+        if isinstance(extra_prompt, list):
+            extra_prompt = "\n".join(extra_prompt)
 
         # 构建任务级别 extra_prompt：pretask + 任务元信息 + 历史延续信息（所有 phase 共享）
-        pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
+        pretask = self._build_pretask_skills()
         extra_prompt += "\n" + pretask
         extra_prompt += f"\n当前任务: {sub_task}"
         extra_prompt += f"\n任务类别: {sp_key}"
@@ -365,18 +369,18 @@ class Agent:
                 f"关联子任务: {cont_content}\n"
                 f"关联项目路径: {cont_path}"
             )
-        extra_prompt +=f"当前任务分为{len(phases)}个阶段，每个阶段完成后需要调用finish工具结束本阶段，会自动进入下一个阶段。"
-
+      
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
         task_tools = [t for t in TOOLS if t["function"]["name"] != "start_task"]
         system_prompt = (
             self.prompts.task_prompt_exclude_tools
             + "\n"
             + json.dumps(task_tools, ensure_ascii=False)
-            + f"\n\n当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。"
         )
         if extra_prompt:
             system_prompt += "\n" + extra_prompt
+
+        system_prompt+=f"\n\n当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。"
 
         # print(f"[DEBUG _run_landscape] system_prompt 长度: {len(system_prompt)}, system_prompt 部分: {system_prompt}")
     
@@ -413,294 +417,31 @@ class Agent:
         self._save_task_state()
         return result
 
-    @staticmethod
-    def _parse_heading(text: str):
-        """Parse h1 heading like '开发类[web应用:小游戏]' or 'skill[...]' or '文本类'
-
-        Returns (category, subtypes) where subtypes is:
-            None  → wildcard / all subtypes match (no brackets, or [...] form)
-            list  → specific subtypes to match
-        """
-        m = re.match(r'^(.+?)\[([^\]]*)\]$', text)
-        if m:
-            category = m.group(1).strip()
-            inner = m.group(2).strip()
-            if inner == '...':
-                return category, None  # wildcard
-            subtypes = [s.strip() for s in inner.split(':') if s.strip()]
-            return category, subtypes
-        # No brackets → empty list (sub_type must be empty to match)
-        return text.strip(), []
-
     def _get_phases(self, task_type_key: str, sub_type: str = ""):
-        """从 spc/spec.md (markdown) 提取指定 task type 的阶段列表（全量缓存）
-
-        使用 markdown-it-py tokenizer 解析。
-        spec.md 格式:
-            # <大类>[小类1:小类2]   或   # <大类>[...]   (所有小类适用)
-
-            [P]
-            分类级别提示词（可选，添加到 extra_prompt）
-            [/P]
-
-            ## <阶段名>
-            [P]
-            阶段提示词内容（注入 system prompt 的"当前阶段提示"段）
-            [/P]
-            [M]
-            阶段消息内容（作为 user message 传给 LLM）
-            [/M]
-
-        不在 [P]/[M] 标签内的内容会被忽略。
+        """从 TaskAttributeManager 获取指定 task type 的阶段列表
 
         Returns:
             {"phases": [{"name": ..., "phase_prompt": [...], "phase_msg": [...]}], "extra_prompt": "..."}
             或 None（未找到匹配项或 sub_type 不匹配）
         """
-        if not hasattr(self, '_sp_phases_cache'):
-            self._sp_phases_cache = {}
-            sp_md = os.path.join(self.spc_dir, 'spec.md')
-            try:
-                md = MarkdownIt()
-                with open(sp_md, 'r', encoding='utf-8') as f:
-                    text = f.read()
-                tokens = md.parse(text)
-
-                cur_type = None
-                cur_subtypes = None
-                cur_phases = []
-                cur_phase = None
-                cur_config = []
-                cur_prompt = ""
-                cur_phase_prompt = []
-                cur_phase_msg = []
-                pending_h_level = None
-                in_p_block = False
-                in_pp_block = False  # phase-level [P] block
-                in_pm_block = False  # phase-level [M] block
-
-                def _save_entry():
-                    """Save current category entry to cache."""
-                    nonlocal cur_type, cur_subtypes, cur_phases, cur_phase, cur_config, cur_prompt, cur_phase_prompt, cur_phase_msg, in_p_block, in_pp_block, in_pm_block
-                    if cur_type is None:
-                        return
-                    # Save last pending phase
-                    if cur_phase is not None:
-                        cur_phases.append({
-                            'name': cur_phase,
-                            'config': list(cur_config),
-                            'phase_prompt': list(cur_phase_prompt),
-                            'phase_msg': list(cur_phase_msg),
-                        })
-                        # print(f"[DEBUG _get_phases] 保存 phase '{cur_phase}': config={cur_config}, phase_prompt={cur_phase_prompt}, phase_msg={cur_phase_msg}")
-                        cur_phase = None
-                    entry = {
-                        'subtypes': cur_subtypes,
-                        'prompt': cur_prompt,
-                        'phases': cur_phases,
-                    }
-                    self._sp_phases_cache.setdefault(cur_type, []).append(entry)
-                    cur_type = None
-                    cur_subtypes = None
-                    cur_phases = []
-                    cur_phase = None
-                    cur_config = []
-                    cur_prompt = ""
-                    cur_phase_prompt = []
-                    cur_phase_msg = []
-                    in_pp_block = False
-                    in_p_block = False
-
-                for tok in tokens:
-                    if tok.type == 'heading_open':
-                        pending_h_level = int(tok.tag[1])
-                        continue
-
-                    if pending_h_level and tok.type == 'inline':
-                        content = tok.content.strip()
-                        if pending_h_level == 1:
-                            # h1 → new category, save previous
-                            _save_entry()
-                            cur_type, cur_subtypes = Agent._parse_heading(content)
-                            cur_phases = []
-                            cur_phase = None
-                            cur_config = []
-                            cur_prompt = ""
-                            cur_phase_prompt = []
-                            cur_phase_msg = []
-                            in_p_block = False
-                            in_pp_block = False
-                            in_pm_block = False
-                            # print(f"[DEBUG _get_phases] 进入 h1: type={cur_type}, subtypes={cur_subtypes}")
-                        elif pending_h_level == 2:
-                            # h2 → new phase
-                            if cur_type is not None and cur_phase is not None:
-                                cur_phases.append({
-                                    'name': cur_phase,
-                                    'config': list(cur_config),
-                                    'phase_prompt': list(cur_phase_prompt),
-                                    'phase_msg': list(cur_phase_msg),
-                                })
-                                # print(f"[DEBUG _get_phases] 保存 phase(h2切换) '{cur_phase}': config={cur_config}, phase_prompt={cur_phase_prompt}, phase_msg={cur_phase_msg}")
-                            cur_phase = content
-                            cur_config = []
-                            cur_phase_prompt = []
-                            cur_phase_msg = []
-                            in_pp_block = False
-                            in_pm_block = False
-                            # print(f"[DEBUG _get_phases] 进入 h2: phase='{cur_phase}'")
-                        pending_h_level = None
-                        continue
-
-                    # [P]...[/P]  blocks between h1 and first h2
-                    # markdown-it may merge [P]/content/[/P] into a single inline token
-                    if tok.type == 'inline' and cur_type is not None and cur_phase is None:
-                        text = tok.content
-                        # Single-token case: [P]\n...\n[/P] all in one inline
-                        m = re.search(r'\[P\]\n(.*?)\n\[/P\]', text, re.DOTALL)
-                        if m:
-                            cur_prompt += m.group(1).strip() + '\n'
-                            continue
-                        # Multi-token case (if [P] and [/P] are separate tokens)
-                        stripped = text.strip()
-                        if stripped == '[P]':
-                            in_p_block = True
-                            continue
-                        if stripped == '[/P]':
-                            in_p_block = False
-                            continue
-                        if in_p_block:
-                            cur_prompt += stripped + '\n'
-                        continue
-
-                    # phase-level [P]...[/P] and [M]...[/M] blocks within h2 sections
-                    # markdown-it 可能将 [P]\ncontent 或 [/P]\n[M]\ncontent 合并到同一个 inline token
-                    if tok.type == 'inline' and cur_type is not None and cur_phase is not None:
-                        text = tok.content
-                        # 逐行处理，支持 tag 和内容在同一 token 中的情况
-                        lines = text.split('\n')
-                        for line in lines:
-                            stripped = line.strip()
-                            if not stripped:
-                                continue
-                            # [P] 标签处理（可能带同行内容）
-                            if stripped == '[P]':
-                                in_pp_block = True
-                                in_pm_block = False
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [P] start")
-                                continue
-                            if stripped.startswith('[P] ') or stripped.startswith('[P]\t'):
-                                in_pp_block = True
-                                in_pm_block = False
-                                rest = stripped[4:].strip()
-                                if rest:
-                                    cur_phase_prompt.append(rest)
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [P]+content: '{rest}'")
-                                continue
-                            # [/P] 标签处理（可能后续是 [M]）
-                            if stripped == '[/P]':
-                                in_pp_block = False
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [P] end -> phase_prompt={cur_phase_prompt}")
-                                continue
-                            if stripped.startswith('[/P]'):
-                                in_pp_block = False
-                                # [/P] 后面可能直接跟 [M] 或其他内容
-                                rest = stripped[4:].strip()
-                                if rest.startswith('[M]'):
-                                    in_pm_block = True
-                                    in_pp_block = False
-                                    rest2 = rest[3:].strip()
-                                    if rest2:
-                                        cur_phase_msg.append(rest2)
-                                    # print(f"[DEBUG _get_phases] phase '{cur_phase}' [/P]+[M]+content: '{rest2}'")
-                                elif rest:
-                                    print(f"[DEBUG _get_phases] phase '{cur_phase}' [/P]+content ignored: '{rest}'")
-                                continue
-                            # [M] 标签处理
-                            if stripped == '[M]':
-                                in_pm_block = True
-                                in_pp_block = False
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [M] start")
-                                continue
-                            if stripped.startswith('[M] ') or stripped.startswith('[M]\t'):
-                                in_pm_block = True
-                                in_pp_block = False
-                                rest = stripped[4:].strip()
-                                if rest:
-                                    cur_phase_msg.append(rest)
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [M]+content: '{rest}'")
-                                continue
-                            # [/M] 标签处理
-                            if stripped == '[/M]':
-                                in_pm_block = False
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' [M] end -> phase_msg={cur_phase_msg}")
-                                continue
-                            # 当前状态下的内容收集
-                            if in_pp_block:
-                                cur_phase_prompt.append(stripped)
-                                continue
-                            if in_pm_block:
-                                cur_phase_msg.append(stripped)
-                                continue
-
-                    # code_blocks within phase sections → route to active accumulator
-                    if tok.type == 'code_block' and cur_type is not None and cur_phase is not None:
-                        for line in tok.content.strip().split('\n'):
-                            stripped = line.strip()
-                            if not stripped:
-                                continue
-                            if in_pp_block:
-                                cur_phase_prompt.append(stripped)
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' code_block -> config_prompt: '{stripped}'")
-                            elif in_pm_block:
-                                cur_phase_msg.append(stripped)
-                                # print(f"[DEBUG _get_phases] phase '{cur_phase}' code_block -> config_msg: '{stripped}'")
-                            else:
-                                cur_config.append(stripped)
-
-                # Save last entry
-                _save_entry()
-
-            except Exception as e:
-                self._log(f"  ⚠️ 加载 spec.md 失败: {e}", always=True)
-
-        # ── Lookup ──
-        entries = self._sp_phases_cache.get(task_type_key, [])
-
-        # Collect all subtypes declared for this category (for error reporting)
-        all_declared_subtypes = []
-        for e in entries:
-            st = e.get('subtypes')
-            if st is not None:
-                all_declared_subtypes.extend(st)
-
-        for entry in entries:
-            subtypes = entry.get('subtypes')
-            if subtypes is None:
-                # Wildcard — h1 uses [...]
-                return {"phases": entry['phases'], "extra_prompt": entry.get('prompt', '')}
-            if subtypes == []:
-                # No brackets — only matches empty sub_type
-                if not sub_type:
-                    return {"phases": entry['phases'], "extra_prompt": entry.get('prompt', '')}
-            elif sub_type and sub_type in subtypes:
-                return {"phases": entry['phases'], "extra_prompt": entry.get('prompt', '')}
-
-        # No match
-        if entries and all_declared_subtypes:
+        if not hasattr(self, '_attr_mgr'):
+            from task_attribute_manager import TaskAttributeManager
+            json_path = os.path.join(self.spc_dir, "spec.json")
+            self._attr_mgr = TaskAttributeManager(json_path)
+        result = self._attr_mgr.get_phases(task_type_key, sub_type)
+        if result is None:
             self._log(
-                f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' "
-                f"的可用子类型中: {all_declared_subtypes}",
+                f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
                 always=True,
             )
-        return None
-
-
+        return result
 
     def _scan_skills_dir(self) -> str:
         """扫描 skills_dir 构建技能列表文本"""
         if not self.skills_dir or not os.path.isdir(self.skills_dir):
             return ""
+
+
         lines = ["## 可用技能（优先查看是否有可用技能）："]
         for skill_dir in sorted(glob.glob(os.path.join(self.skills_dir, "*"))):
             if not os.path.isdir(skill_dir):
@@ -724,9 +465,13 @@ class Agent:
         """扫描 docs_dir 构建项目文档列表文本"""
         if not self.docs_dir or not os.path.isdir(self.docs_dir):
             return ""
+
+
         docs = sorted(glob.glob(os.path.join(self.docs_dir, "*.md")))
         if not docs:
             return ""
+
+
         lines = ["\n## 当前子任务参考文档"]
         for mdp in docs:
             name = os.path.splitext(os.path.basename(mdp))[0]
@@ -759,6 +504,7 @@ class Agent:
 
         prompt =  self.prompts.chat_prompt+ pretask 
 
+
         msg=  user_message
         rounds = 0
         while True:
@@ -790,6 +536,29 @@ class Agent:
                 #     self._log(f"\n  🤖: {content_text}\n",always=True)
                 return {"judge": "true", "content": content_text}
 
+    def _format_plan_progress(self, phases: list, current_idx: int,
+                               failed_idx: int | None = None) -> str:
+        """以 Updated Plan 格式展示阶段进度。
+
+        格式:
+        Updated Plan
+          └ ✅ phase1_name
+            ✅ phase2_name
+            □ phase3_name (pending)
+        """
+        lines = ["阶段进度"]
+        for i, ph in enumerate(phases):
+            name = ph.get("name", f"阶段{i+1}")
+            if failed_idx is not None and i == failed_idx:
+                marker = "❌"
+            elif i < current_idx:
+                marker = "✅"
+            else:
+                marker = "□"
+            prefix = "  └" if i == 0 else "   "
+            lines.append(f"{prefix} {marker} {name}")
+        return "\n".join(lines)
+
     def _run_loop(self, task_message: str, subtask_index: int | None = None,
                   phases: list | None = None,
                   extra_prompt: str = "") -> dict:
@@ -810,19 +579,30 @@ class Agent:
         max_rounds = self.max_rounds
         task_tools = [t for t in TOOLS if t["function"]["name"] != "start_task"]
         
-        # system prompt 已由 _run_landscape 预构建完整，通过 extra_prompt 传入
+        # system prompt 预构建完整，通过 extra_prompt 传入
         base_prompt = extra_prompt
 
         # 构建初始 prompt（含第一个 phase 的 phase_prompt）
-        def _build_phase_prompt(phase):
+        def _build_phase_prompt(phase, phases=None, phase_idx=0):
             pp = phase.get('phase_prompt', '')
+
+            plan = self._format_plan_progress(phases, phase_idx) if phases else ""
+
             if pp:
-                return "\n## 当前阶段提示\n" + pp
+                base = "\n## 当前阶段提示\n" + pp +"\n 每个阶段完成后需要调用finish工具结束本阶段，会自动进入下一个阶段。"
+                if plan:
+                    base = "\n\n" + plan + "\n" + base
+                return base
+
+            if plan:
+                return "\n\n" + plan
+
             return ""
+
 
         prompt = base_prompt
         if phases:
-            prompt += _build_phase_prompt(phases[0])
+            prompt += _build_phase_prompt(phases[0], phases, 0)
             print(f"[DEBUG _run_loop] 初始 prompt 长度: {len(prompt)}, phase 0 config_prompt: '{phases[0].get('phase_prompt', '')[:100]}...'")
 
 
@@ -834,6 +614,9 @@ class Agent:
         msg = task_message
         phase_idx = 0
         stat=0
+
+        self._log(f"\n{"="*80} \n{self._format_plan_progress(phases, phase_idx)}\n{"="*80}", always=True)
+
         for num in range(max_rounds):
             result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
             reasoning = result.get("reasoning_content", "")
@@ -842,7 +625,7 @@ class Agent:
             content_text = result.get("content", "")
             if content_text:
                 stat=stat+1
-                self._log(f"\n@@@@ {content_text}")
+                self._log(f"\n📩{content_text}")
 
             if result["type"] == "tool_calls":
                 phase_changed = False
@@ -861,13 +644,13 @@ class Agent:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
                             name = phases[phase_idx]['name'] if phases else ''
-                            self._log(f"\n  ❌ {name} 失败", always=True)
+                            self._log(f"\n  {self._format_plan_progress(phases, phase_idx, failed_idx=phase_idx)}", always=True)
                             self._update_task_list() 
                             self._save_task_state()
                             return {"judge": "false", "content": exec_result["summary"]}
 
                         if phases and phase_idx < len(phases):
-                            self._log(f"\n  ✅ {phases[phase_idx]['name']}完成",always=True)
+                            self._log(f"\n{"="*80}\n{self._format_plan_progress(phases, phase_idx + 1)}\n{"="*80}", always=True)
                             self.task_manager.add_conversation_entry(
                                 "agent",
                                 f"子任务 [{subtask_index}] {phases[phase_idx]['name']} :{phases[phase_idx]['msg']} 完成",
@@ -878,13 +661,13 @@ class Agent:
                             phase_idx += 1
                             self._log(f"  → 进入 {phases[phase_idx]['name']}")
                             # 重建 prompt 以包含新 phase 的 config_prompt
-                            prompt = base_prompt + _build_phase_prompt(phases[phase_idx])
+                            prompt = base_prompt + _build_phase_prompt(phases[phase_idx], phases, phase_idx)
                             print(f"[DEBUG _run_loop] 切换 phase -> prompt 重建, 新 config_prompt: '{phases[phase_idx].get('phase_prompt', '')[:100]}...'")
                             phase_changed = True
                         else:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
-                            self._log(f"\n✅ 全部阶段完成，总结:\n {exec_result["summary"]}")
+                            self._log(f"\n阶段总结: {exec_result['summary']}")
                             self._log(f"\nLLM 交互次数: {self.task_llm.call_count}")
                             self.task_manager.add_conversation_entry(
                                 "assistant", f"总结: {exec_result["summary"]}",
@@ -920,10 +703,7 @@ class Agent:
             elif result["type"] == "error":
                 self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
                 return {"judge": "false", "content": result.get("message", "API错误")}
-            else:
-                # 文本回复：记录并继续
-                if content_text and stat==1:
-                    msg =msg+ "\n 当前任务完成前，所有的交互的都用ask_user"
+            
             continue
 
 

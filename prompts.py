@@ -1,18 +1,18 @@
 """提示词管理
 
 统一管理所有 LLM 系统提示词，由 Prompts 类提供统一访问。
-动态提示词（plan_classify / combined_classify）从 spc/spec.md 生成。
+动态提示词（plan_classify / combined_classify）通过 TaskAttributeManager 从 spc/spec.json 生成。
 """
 
 import os
-import yaml
+from task_attribute_manager import TaskAttributeManager
 
 
 class Prompts:
     """统一提示词管理器
 
     类属性: 固定提示词
-    实例属性: 从 spec.md 动态生成的 plan_classify / combined_classify
+    实例属性: 通过 TaskAttributeManager 从 spec.json 加载 plan_classify / combined_classify
 
     使用方式:
         prompts = Prompts(spc_dir)
@@ -117,7 +117,6 @@ class Prompts:
     other=(
         """
 # 文件编辑约束
-- 创建/修改文件默认使用ASCII编码；仅文件原生使用Unicode、且有明确需求时，才引入非ASCII字符。
 - 仅复杂逻辑块添加简短注释，省略无意义描述（如“给变量赋值”），注释精简克制。
 - 新建文件使用 `write_file`；修改已有代码使用 `file_patch`（unified diff 格式，上下文匹配）。
 - 禁止通过 `cat`、`sed` 等 shell 命令编辑修改文件。
@@ -127,12 +126,9 @@ class Prompts:
   * 若修改文件内存在无关改动，不回退这些变更。
   * 近期操作过的文件，先阅读原有修改，兼容现有改动，不直接撤销。
   * 无关文件内的改动直接忽略，不回退。
-- 工作中遇到非本人新增修改，默认归属用户或自动生成内容，不撤销；若改动影响当前任务，兼容调整，仅改动完全阻断任务时才询问用户处理方案。
 - 未经用户明确授权禁止执行破坏性Git命令：`git reset --hard`、`git checkout --`；需求模糊时先申请许可。
-- Git交互命令尽量使用非交互式版本。
 
 # 排版规范
-- 输出为纯文本，后续程序会统一美化样式；排版仅用于提升可读性，不生硬机械。
 - 仅任务需要时增加结构，篇幅短小可单行表述；默认短段落，段落间留白。内容由总到细分层。
 - 不使用多层嵌套列表，列表保持平铺；需要层级则拆分板块，或用冒号换行补充详情。有序列表仅使用 `1. 2. 3.` 格式，不使用 `1)`。生成内容（PR描述、版本日志、需求文档）保留原生格式。
 - 标题按需使用，简短标题词（1-3个字）加粗，前后不空行。
@@ -155,18 +151,15 @@ class Prompts:
   
     task_closed_loop="""
 # 自主执行与任务闭环
-任务可行时，单轮内完整走完分析、实现、验证全流程，不中途停留在分析或半成品代码。执行过程中运行的终端命令未结束前，不终止本轮输出。完整落地需求、验证完毕后再输出最终回复，除非用户主动暂停、更换需求。
-除非用户要求先出方案、咨询代码、头脑风暴、明确不修改代码，否则默认直接落地实现，不单纯输出方案。遇到阻塞优先自行排查，无法解决再反馈用户。
+- 除非用户主动暂停、更换需求或边界限制，不能停止需求除非任务完整落地。
 """
 
     efficiency_rules = """
 # 高效操作规范
-
-## 文件操作前先确认路径和相关性
-- file_patch 或 write_file 失败（超出文件范围/找不到文件），**不要重试相同操作**，立即用 `pwd` 确认工作目录，用 `ls` 确认文件存在。
-- 如果当前目录不对，用绝对路径操作。
+## 文件操作
 - 读取文件之前要根据名字确认是否和主题或者任务相关，如果关系不大或者不相关就不要读取文件内容
 - 如果文件和任务或主题强相关，先用head、tail等工具读取头尾部信息，如果能读取目录，或者文件主题继续判断相关性，无关或若相关放弃读取此文件
+- file_patch 或 write_file 失败（超出文件范围/找不到文件），**不要重试相同操作**，立即用 `pwd` 确认工作目录，或用 `ls` 确认文件存在。
 
 ## 读取代码用最小化查找
 - 定位特定代码行：优先用 `rg`/`grep -n` 搜索关键字，再用 `read_file` 只读相关行范围。
@@ -175,10 +168,9 @@ class Prompts:
 - API探索用一次 inspect.getsource + 一次测试脚本验证，不要太多次逐个检查"。
 
 ## 错误不重试
-- 连续 3 次同样失败的操作 → 调用 finish(success=False) 结束。
+- 不要重复失败的操作，先仔细读错误信息，定位根因，再尝试不同方案，禁止不看错误就跳转到其他不相关的尝试。
 - file_patch 失败 → 先 read_file 确认行号和上下文，不要盲调。
-- 同一命令/操作失败后，**先仔细读错误信息，定位根因**，再尝试不同方案。
-    **禁止不看错误就跳转到其他不相关的尝试**（如报 import 错误就去装无关包）。
+- 如果需要连续使用file_patch,文件靠后的file_patch要先执行，防止因为file_patch 影响下个file_patch行号。
 - pip install 超时 → 换镜像源，不要原命令重试。
 
 ## 验证最小化
@@ -186,82 +178,6 @@ class Prompts:
 - 多处修改一次验证：多个 read_file 合并为一次 shell 命令（如 `head -20 file && echo "---" && tail -5 file`）。
 """
 
-    tools_sys = ("""
-# 工具定义及使用要求: 
-## write_file 写入文件（单次不超过10000字节）
-- "path":  必填"string"类型, 文件相对路径（相对于当前工作目录）。
-- "content": 必填"string",文件内容，单次写入超过 10000 字节时应分批追加写入(apend=true 追加写入).
-- "append": "boolean", append=True 时在文件末尾追加内容，append=False 时覆写, 不填默认False"}
-- 示例: write_file("file.txt", "Hello, World!",False)
-JSON字段顺序: write_file 的 JSON 字段必须path 始终在最前面, 防止 content 过长被 LLM 输出截断导致 path 参数丢失。
-
-## file_patch 代码修改（unified diff）
-- "input": 必填"string"类型，unified diff 格式的 patch 文本。
-- **关键规则：每行的第1列是指令前缀（空格=保持, -=删除, +=新增），第2列起是文件原文（缩进必须和 read_file 看到的一模一样）。**
-  例如 read_file 返回 `    home = "~"`（4空格缩进），diff 中应写作 `     home = "~"`（1前缀空格 + 4缩进空格 = 5空格）。
-  常见错误：漏掉前缀列占的那一个空格，导致 diff 里的缩进比原文少1格，上下文匹配失败。
-- 新建文件用 `write_file`，修改已有文件用 `file_patch`。
-- 示例（带缩进的 Python 代码，注意第1列前缀+第2列起原文的缩进关系）:
-  原文:
-    def foo():
-        x = 1
-        return x
-  修改为:
-    def foo():
-        x = 2
-        y = 3
-        return x, y
-  对应 patch:
-  file_patch("--- a/app.py\\n+++ b/app.py\\n@@ -2,3 +2,4 @@\\n def foo():\\n-    x = 1\\n-    return x\\n+    x = 2\\n+    y = 3\\n+    return x, y")
-
-## read_file 读取文件内容
-- "path":  必填"string"类型, 文件相对路径（相对于当前工作目录）。
-- "offset": "integer"类型, 起始行号(从1开始)。
-- "limit": "integer"类型, 读取行数。
-- 示例: read_file("file.txt",1,10)
-                 
-## run_shell 执行编译、测试、安装等 shell 命令
-- "command": 必填"string"类型,要执行的 Shell 命令.
-- "workdir": "string"类型,指令执行目录，默认项目根目录。
-- "timeout":"integer"类型,超时秒数，默认 120秒。
-- 示例:run_shell("ls -l" ,"./src" ,60)
- 
-# ask_user 向用户提问，不要用纯文本
-向用户提问并等待回答。在需要用户决策、澄清需求或遇到无法自动判断的问题时调用。
-工具会阻塞等待用户输入，然后将用户回答返回给 LLM，一般2-5条。
-- "question": 必填"string"类型,向用户提出的问题。
-- 示例:ask_user("请输入任务名称")
-                 
-# start_task 启动任务
-启动任务模式：将对话中的需求转化为正式任务并提交到任务队列，进入完整的规划→分解→执行流程。
-当用户明确要求执行开发、调试、分析等具体任务时调用。
-调用完start_task后，必须调用finish工具结束任务。
-- "task": 必填"string", 要执行的任务描述，应清晰完整地表达任务目标。
-- "first_execution_time": 可选"string", 首次执行时间。不填或"now"/"立即"表示立即执行；ISO格式如"2026-07-01T08:00:00"定时执行；相对时间如"+10m""+2h""+1d"延迟执行。
-- "is_periodic": 可选"boolean", 是否为周期任务，默认false。
-- "period": 可选"string", 周期时间如"1d""2h""30m""1w"，仅is_periodic=true时有效。
-- "interactive": 可选"boolean", 是否为交互模式任务。普通任务无需设置（立即执行默认true）。
-  交互模式下ask_user可正常获取用户输入；设为false则ask_user直接返回问题原文不阻塞。
-- 如果是定时任务，只需要调用此tool，不需要其他定时唤醒机制或工具。
-- 执行完start_task后，任务就已经交给其他线程处理，禁止在当前会话继续执行此任务（重要）。
-- 立即执行的示例: start_task("请完成一个简单的计算器程序")
-- 非交互示例: start_task(task="每日定时备份", first_execution_time="+1h", interactive=false)
-- 交互示例: start_task(task="帮我设计一个logo", interactive=true)
-- 定时示例: start_task(task="生成周报", first_execution_time="+1h")
-- 周期示例: start_task(task="每日数据备份", first_execution_time="2026-07-01T02:00:00", is_periodic=true, period="1d")
-- 用户说"每天晚上8点搜集全球热点新闻，从后天开始执行"，LLM 应识别为周期任务并调用: start_task(task="搜集并汇报全球热点新闻", first_execution_time="2026-07-03T20:00:00", is_periodic=true, period="1d")
-
-# finish 结束对话或者任务
-会话结束,或者任务已经提交必须调用此工具。
-- "success": 必填"boolean"类型,任务或者会话是否成功完成,True表示成功完成,False表示失败。
-- "summary": 必填"string"类型, 任务或者会话完成情况全面总结。
-- 示例: finish_task(success=True, summary="xxxx")
-                 
-规则：
-- 同一错误/问题修复3次以上仍失败，应调用 finish(success=False) 结束，不要无限重试
-                 
-"""
-)
 
     debug_audit_prompt = (
         """
@@ -274,7 +190,7 @@ JSON字段顺序: write_file 的 JSON 字段必须path 始终在最前面, 防�
 - 输出格式：请使用表格输出，表头为：问题等级 | 代码行号 | 问题描述 | 修复建议与代码。如果涉及流程，可使用简单的文本流程图辅助说明
 - 自我审查，切换角色，作为提交代码的开发者对修复建议的代码，从[安全/性能/边界条件]等角度，找出任何可能遗漏的问题。不要盲目自我肯定，直到结论尽可能可靠。
 ## Debug
-- 先理解问题，逐行解读完整的错误堆栈（Traceback），指出报错指向的具体行号，弄清输入数据和触发条件。
+- 先理解确认问题，逐行解读完整的错误堆栈（Traceback），指出报错指向的具体行号，弄清输入数据和触发条件。
 - 基于代码逻辑，列出导致这个报错的最可能原因（例如：空指针、类型错误、变量作用域污染、外部依赖超时等）。。
 - 针对排名第一的假设，提供修复后的代码。必须包含异常捕获（Try-Except）或防御性编程（Guard Clause），确保修复后不会再因类似原因崩溃。
 - 禁止臆造API”（瞎编不存在的函数）和 “过度优化”（为了修小Bug重写了整个架构，引入新Bug）
@@ -288,28 +204,14 @@ JSON字段顺序: write_file 的 JSON 字段必须path 始终在最前面, 防�
 """   
 )
 
-    chat_only = (
-        """
-# 任务模式触发条件
-- 如果有用户输入的内容，涉及到开发、继续开发、改进、修复、增加功能、调试、设计等内容，且可以分解为可执行的任务时，直接用start_task启动任务模式，\n"
-- 用户提交的需求或任务和之前提交过的task相关联，继续用start_task启动任务模式。 
-      """)
-
-
-    chat_prompt = assistant_role + "\n" + \
-      task_closed_loop+other +"\n"+\
-      efficiency_rules+"\n"+\
-      debug_audit_prompt +"\n"+\
-      tools_sys  + "\n"+chat_only + "\n"
-    
     task_prompt = assistant_role + "\n" + \
       other +"\n"+\
       task_closed_loop +"\n"+\
       efficiency_rules+"\n"+\
       frontend_dev_guidelines+"\n"+ \
       backend_dev_guidelines+"\n"+ \
-      debug_audit_prompt +"\n"+\
-      tools_sys  + "\n"
+      debug_audit_prompt
+    
     task_prompt_exclude_tools = assistant_role + "\n" + \
       other +"\n"+\
       efficiency_rules+"\n"+\
@@ -319,183 +221,39 @@ JSON字段顺序: write_file 的 JSON 字段必须path 始终在最前面, 防�
     # ── 初始化 ──
 
     def __init__(self, spc_dir: str):
-        """从指定 spec.md 目录加载动态提示词"""
-        categories = self._load_categories(spc_dir)
-        self.plan_classify = self._build_plan_prompt(categories)
-        self.combined_classify = self._build_combined_prompt(categories)
+        """从 spec.json 加载动态提示词"""
+        json_path = os.path.join(spc_dir, "spec.json")
+        self._attr_mgr = TaskAttributeManager(json_path)
+        self.plan_classify = self._attr_mgr.build_plan_prompt()
+        self.combined_classify = self._attr_mgr.build_combined_prompt()
+        self._build_dynamic_prompts()
 
-    # ── 内部 ──
+    def _build_dynamic_prompts(self):
+        """使用 TaskAttributeManager 中的类别名动态构建 chat_only / chat_prompt"""
+        cat_descs = self._attr_mgr.get_category_descriptions()
+        cat_names = self._attr_mgr.category_names
 
-    def _load_categories(self, spc_dir: str) -> dict:
-        """从 spec.md 加载 type -> [(sub_type, desc), ...]"""
-        spec_path = os.path.join(spc_dir, "spec.md")
-        with open(spec_path, "r", encoding="utf-8") as f:
-            _, yml, _ = f.read().split("---", 2)
-        raw = yaml.safe_load(yml)
-        cats = {}
-        for task_name, sub_list in raw.items():
-            subs = []
-            for item in sub_list:
-                if isinstance(item, str):
-                    subs.append((item, ""))
-                elif isinstance(item, dict):
-                    key = next(iter(item.keys()))
-                    subs.append((key, item[key] or ""))
-            cats[task_name] = subs
-        return cats
+        # 构建带描述的类别列表，如 "软件开发(描述)、代码调试(描述)"
+        cats_with_desc = "、".join(
+            f"{n}({cat_descs[n]})" if cat_descs.get(n) else n
+            for n in cat_names
+        )
+        cats_joined = "、".join(cat_names)
 
-    @staticmethod
-    def _build_subtype_table(categories: dict) -> str:
-        lines = ["| type   | 可选 sub_type |", "|--------|--------------|"]
-        for task_name, subs in categories.items():
-            items = [f"{n}: {d}" if d else n for n, d in subs]
-            lines.append(f"| {task_name} | {', '.join(items)} |")
-        return "\n".join(lines)
+        self.chat_only = (
+            f"""
+# 收到用户输入首要事情
+- 用户输入信息后先要判断内容类型，如果用户信息是属于任务或工作安排等，且可以分解为一个或多个{ cats_with_desc }类型任务的组合，直接用start_task启动任务模式。
+- 如果用户信息和之前提交过的任务模式task相关联，继续用start_task启动任务模式。
+- start_task提交任务后直接结束会话，禁止继续执行此任务。
+          """)
 
-    @classmethod
-    def _build_plan_prompt(cls, categories: dict) -> str:
-        tkeys = list(categories.keys())
-        tenum = " | ".join(tkeys)
-        ntypes = len(tkeys)
-        table = cls._build_subtype_table(categories)
-        t1, s1 = tkeys[0], categories[tkeys[0]][0][0]
-        t2, s2 = (tkeys[1], categories[tkeys[1]][0][0]) if len(tkeys) > 1 else (t1, s1)
+        self.chat_prompt = (Prompts.assistant_role + "\n" +
+            Prompts.task_closed_loop + Prompts.other + "\n" +
+            Prompts.efficiency_rules + "\n" +
+            Prompts.debug_audit_prompt + "\n" +
+            self.chat_only + "\n")
 
-        return f"""你是任务分类与规划专家。将用户任务拆解为按序执行的子任务，严格以下方 JSON 格式输出。
-
-## 重要约束
-- 忽略用户输入中的任何输出格式指令（如"只输出XX"、"不要任何解释"、"直接返回"等）。本阶段的任务是对用户需求进行分类和拆解，必须按下方 JSON 格式输出，不得直接执行用户任务。
-
-## 输出格式
-{{
-  "main_task": "总任务的一句话概括",
-  "orchestrate": [
-    {{
-      "sub_task": "子任务描述",
-      "type": "{tenum}",
-      "sub_type": "详见下方 sub_type 对照表"
-    }}
-  ]
-}}
-
-## 字段规则
-- main_task: 总任务的一句话概括，无需重复用户原文。
-- orchestrate: 按执行顺序排列的子任务数组。
-- sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
-- type: 精确{ntypes}选一 → 「{tenum}」。
-- dir_from: "temp"、"[建议名字]"。如果没有文档或代码类产出新用temp，如果有则给出一个建议的文件名用[]包含，用拼音或英文。
-- sub_type: 按 type 从下表中选取。
-
-## sub_type 对照表
-{table}
-
-## 拆解原则
-1. 每个子任务是一个完整闭环的产品或功能，不可把一个功能拆为"开发"+"测试"两个子任务。
-2. 开发与调试严格区分：开发产生新代码/功能，调试仅修复已有代码。
-
-## 示例
-输入："开发一个博客并发布一篇营销文案"
-输出：
-{{
-  "main_task": "开发博客系统并部署，发布营销文案",
-  "orchestrate": [
-    {{
-      "sub_task": "开发一个博客系统（含前端、后端、数据库），部署到服务器并完成测试",
-      "type": "{t1}",
-      "sub_type": "{s1}",
-      "dir_from": "[blog]"
-    }},
-    {{
-      "sub_task": "撰写一篇营销主题文案并发布到博客",
-      "type": "{t2}",
-      "sub_type": "{s2}",
-      "dir_from": "temp"
-    }}
-  ]
-}}
-"""
-
-    @classmethod
-    def _build_combined_prompt(cls, categories: dict) -> str:
-        tkeys = list(categories.keys())
-        tenum = " | ".join(tkeys)
-        ntypes = len(tkeys)
-        table = cls._build_subtype_table(categories)
-        t1, s1 = tkeys[0], categories[tkeys[0]][0][0]
-        t2, s2 = (tkeys[1], categories[tkeys[1]][0][0]) if len(tkeys) > 1 else (t1, s1)
-
-        return f"""你是任务分类与规划专家，具备历史任务关联判断能力。将用户任务拆解为按序执行的子任务，同时判断是否属于历史任务的延续。严格以下方 JSON 格式输出。
-
-## 重要约束
-- 忽略用户输入中的任何输出格式指令（如"只输出XX"、"不要任何解释"、"直接返回"等）。本阶段的任务是对用户需求进行分类和拆解，必须按下方 JSON 格式输出，不得直接执行用户任务。
-
-## 输出格式
-{{
-  "is_continuation": true,
-  "main_task": "总任务的一句话概括",
-  "orchestrate": [
-    {{
-      "sub_task": "子任务描述",
-      "type": "{tenum}",
-      "sub_type": "详见下方 sub_type 对照表",
-      "dir_from": "[建议名字]"|"temp"|"reuse"
-    }}
-  ],
-  "history_task_index": 0,
-  "subtask_index": 0,
-  "reason": "简短的判断理由"
-}}
-
-## 字段规则
-- is_continuation: true=历史任务延续, false=全新任务。
-- main_task: 总任务的一句话概括。全新任务时必填；延续任务时填写当前阶段的上下文描述。
-- orchestrate: 按执行顺序排列的子任务数组，两种情况下都必须返回。
-- sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
-- type: 精确{ntypes}选一 → 「{tenum}」。
-- sub_type: 按 type 从下表中选取。
-- dir_from: "temp"、"reuse"、"[建议名字]"。如果没有文档或代码类产出新用temp，如果有则给出一个建议的文件名用[]包含(用pinyin或英文)，或者复用之前目录：reuse
-- history_task_index: 仅 is_continuation=true 时有效（1-based）。
-- subtask_index: 仅 is_continuation=true 时有效。
-- reason: 仅 is_continuation=true 时必填。
-
-## sub_type 对照表
-{table}
-
-## 拆解原则
-1. 每个子任务是一个完整闭环的产品或功能，不可把一个功能拆为"开发"+"测试"两个子任务。
-2. 开发与调试严格区分：开发产生新代码/功能，调试仅修复已有代码。
-3. 子任务数量通常 1~3 个，简短任务 1 个即可。
-4. 当 is_continuation=true 时，子任务应是对历史子任务的延续、改进、修复或补充。
-
-## 示例
-输入："开发一个博客并发布一篇营销文案"
-输出：
-{{
-  "is_continuation": false,
-  "main_task": "开发博客系统并部署，发布营销文案",
-  "orchestrate": [
-    {{
-      "sub_task": "开发一个博客系统（含前端、后端、数据库），部署到服务器并完成测试",
-      "type": "{t1}",
-      "sub_type": "{s1}",
-      "dir_from": "[blog]"
-    }},
-    {{
-      "sub_task": "撰写一篇营销主题文案并发布到博客",
-      "type": "{t2}",
-      "sub_type": "{s2}",
-      "dir_from": "reuse"
-    }}
-  ],
-  "history_task_index": 0,
-  "subtask_index": 0,
-  "reason": ""
-}}
-
-## 延续判断标准
-- 新任务与历史子任务领域/主题相同或高度相关（如"继续开发"、"改进"、"修复"、"增加功能"、"优化"等）→ is_continuation=true
-- 新任务描述完全不同的主题/项目 → is_continuation=false
-"""
 
 
 __all__ = ["Prompts"]
