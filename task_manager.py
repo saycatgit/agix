@@ -129,6 +129,7 @@ class TaskManager:
     """
 
     def __init__(self, save_path: str = ""):
+        """初始化任务管理器。save_path 用于 save() 持久化。"""
         self._main:     MainTaskRecord | None = None
         self._subtasks: list[SubTaskRecord]   = []
         self._global_messages: list[QAMessage] = []
@@ -157,10 +158,12 @@ class TaskManager:
 
     @property
     def main_task(self) -> MainTaskRecord | None:
+        """当前主任务记录。"""
         return self._main
 
     @property
     def status(self) -> MainTaskStatus:
+        """主任务整体状态。"""
         return self._main.status if self._main else MainTaskStatus.PENDING
 
     # ── 子任务管理 ──
@@ -172,6 +175,7 @@ class TaskManager:
         return rec
 
     def add_subtasks_from_orchestrate(self, orchestrate: list[dict]):
+        """从完整的 orchestrate 列表批量添加子任务。"""
         """从完整的 orchestrate 列表批量添加子任务"""
         for i, item in enumerate(orchestrate, 1):
             self.add_subtask(i, item)
@@ -185,6 +189,7 @@ class TaskManager:
                 rec.completed_at = _now_iso()
 
     def set_subtask_project(self, index: int, project_name: str, project_path: str, docs_dir: str):
+        """设置子任务的项目路径和文档目录信息。"""
         """设置子任务的项目名称、路径和文档目录"""
         rec = self._get_sub(index)
         if rec:
@@ -193,6 +198,7 @@ class TaskManager:
             rec.docs_dir = docs_dir
 
     def set_subtask_docs(self, index: int, docs: dict):
+        """设置子任务关联的文档路径和名称。"""
         """从 docs 字典提取路径保存（不保存文档内容）"""
         rec = self._get_sub(index)
         if rec:
@@ -203,6 +209,7 @@ class TaskManager:
             rec.docs_paths = "\n".join(paths)
 
     def set_subtask_result(self, index: int, judge: str, content: str, rounds: int = 0):
+        """记录子任务的执行结果（成功/失败判定 + 结果摘要 + 消耗轮次）。"""
         """记录子任务执行结果"""
         rec = self._get_sub(index)
         if rec:
@@ -212,6 +219,7 @@ class TaskManager:
 
 
     def append_subtasks(self, orchestrate: list[dict], start_index: int | None = None) -> int:
+        """向现有子任务列表追加新的子任务。返回第一个新子任务的 index。"""
         """为历史任务延续追加新子任务
 
         Returns:
@@ -225,29 +233,35 @@ class TaskManager:
         return start_index
 
     def reactivate(self):
+        """重新激活任务管理器（重置活跃状态位）。"""
         """将主任务状态重新设为 IN_PROGRESS（用于延续）"""
         if self._main:
             self._main.status = MainTaskStatus.IN_PROGRESS
 
     def set_subtask_extra(self, index: int, extra: str):
+        """设置子任务的额外元信息字段。"""
         """设置子任务附加信息"""
         rec = self._get_sub(index)
         if rec:
             rec.extra = extra
 
     def get_subtask(self, index: int) -> SubTaskRecord | None:
+        """按索引获取子任务记录。"""
         return self._get_sub(index)
 
     @property
     def subtasks(self) -> list[SubTaskRecord]:
+        """所有子任务列表。"""
         return list(self._subtasks)
 
     @property
     def pending_subtasks(self) -> list[SubTaskRecord]:
+        """状态为 PENDING 或 IN_PROGRESS 的子任务。"""
         return [s for s in self._subtasks if s.status == SubTaskStatus.PENDING]
 
     @property
     def current_subtask(self) -> SubTaskRecord | None:
+        """当前正在执行的子任务（首个 IN_PROGRESS）。"""
         """当前正在执行的子任务（第一个 IN_PROGRESS）"""
         for s in self._subtasks:
             if s.status == SubTaskStatus.IN_PROGRESS:
@@ -257,6 +271,7 @@ class TaskManager:
     # ── 问答记录 ──
 
     def add_qa(self, index: int | None, role: str, content: str, context: str = ""):
+        """向指定子任务添加一条问答记录。"""
         """记录一条问答消息"""
         msg = QAMessage(role=role, content=content, timestamp=_now_iso(), context=context)
         if index is None:
@@ -267,6 +282,7 @@ class TaskManager:
                 rec.messages.append(msg)
 
     def get_qa_history(self, index: int | None = None) -> list[QAMessage]:
+        """获取指定子任务（或全局）的问答历史列表。"""
         """获取指定子任务或全局的问答历史"""
         if index is None:
             return list(self._global_messages)
@@ -365,6 +381,7 @@ class TaskManager:
     # ── 汇总查询 ──
 
     def summary(self) -> str:
+        """人类可读的任务概要（主任务 + 各子任务状态 + 轮次）。"""
         """返回人类可读的任务状态汇总"""
         lines = []
         main = self._main
@@ -403,6 +420,7 @@ class TaskManager:
 
     def add_conversation_entry(self, role: str, content: str,
                                subtask_index: int | None = None):
+        """向当前会话的对话日志追加一条记录。"""
         """记录一条对话日志
 
         role 取值: "user" | "assistant" | "agent"
@@ -416,6 +434,7 @@ class TaskManager:
         })
 
     def get_conversation_context(self, max_chars: int = 8000) -> str:
+        """截取最近对话内容作为上下文，总量不超过 max_chars。"""
         """格式化为 LLM 可读的对话上下文"""
         if not self._conversation_log:
             return ""
@@ -524,6 +543,7 @@ class TaskManager:
     # ── StageProgress (update_plan) ──
 
     def create_stage_progress(self, stage_names: list[str]) -> StageProgress:
+        """为当前活动子任务创建新的 StageProgress 并写入 plan_steps。"""
         progress = StageProgress(stage_names)
         sub = self._active_subtask()
         if sub:
@@ -531,6 +551,7 @@ class TaskManager:
         return progress
 
     def load_stage_progress(self, stage_names: list[str]) -> StageProgress:
+        """从当前活动子任务的 plan_steps 加载 StageProgress，无数据则创建空实例。"""
         sub = self._active_subtask()
         if sub and sub.plan_steps:
             try:
@@ -540,11 +561,13 @@ class TaskManager:
         return StageProgress(stage_names)
 
     def save_stage_progress(self, progress: StageProgress):
+        """将 StageProgress 序列化回当前活动子任务的 plan_steps 字段。"""
         sub = self._active_subtask()
         if sub:
             sub.plan_steps = progress.to_dict()
 
     def _active_subtask(self) -> SubTaskRecord | None:
+        """获取当前 IN_PROGRESS 状态的子任务。"""
         for sub in self._subtasks:
             if sub.status == SubTaskStatus.IN_PROGRESS:
                 return sub
@@ -552,6 +575,7 @@ class TaskManager:
 
 
     def _get_sub(self, index: int) -> SubTaskRecord | None:
+        """按索引查找子任务记录（内部方法）。"""
         for s in self._subtasks:
             if s.index == index:
                 return s

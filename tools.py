@@ -676,18 +676,17 @@ class ToolExecutor:
 
     def _tool_update_plan(self, args: dict) -> str:
         """更新阶段执行计划。"""
-        import json as _json
         steps = args.get("steps", [])
         stage = args.get("stage", "")
         explanation = args.get("explanation", "")
 
         agent = getattr(self, "agent", None)
         if not agent:
-            return _json.dumps({"error": "agent not available"}, ensure_ascii=False)
+            return json.dumps({"error": "agent not available"}, ensure_ascii=False)
 
         progress = getattr(agent, "_stage_progress", None)
         if not progress:
-            return _json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
+            return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         progress.update_steps(stage, steps)
         try:
@@ -704,7 +703,7 @@ class ToolExecutor:
             "explanation": explanation,
             "status": progress.format_status(),
         }
-        return _json.dumps(result, ensure_ascii=False, indent=2)
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     def _tool_finish(self, args: dict) -> dict:
         """特殊工具：返回 dict 而非 str，由调用方处理"""

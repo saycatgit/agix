@@ -30,6 +30,7 @@ from llm_client import LLMClient
 from config import TRUNCATION
 from logger import Logger
 from task_manager import TaskManager, SubTaskStatus, MainTaskStatus
+from stage_progress import StageProgress
 from prompts import Prompts
 from tools import TOOLS, ToolExecutor, get_tools_excluding
 from markdown_it import MarkdownIt
@@ -119,12 +120,12 @@ class Agent:
             self.chat_llm.history_log_path = os.path.join(self.log_dir, "history_chat.log")
             self.task_llm.history_log_path = os.path.join(self.log_dir, "history_task.log")
 
+
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg, always)
 
     def _start_task_worker(self):
         """启动后台工作线程：轮询调度器的到期任务队列并执行"""
-        import time as _time
         def _worker():
             while not self.scheduler._stopped.is_set():
                 ready = self.scheduler.pop_ready_tasks()
@@ -138,7 +139,7 @@ class Agent:
                         self._log(f"\n{ret["content"]}", always=True)
                         self._log(f"\n{"="*40}✅ 任务执行结束{"="*40}", always=True)
 
-                _time.sleep(1)
+                time.sleep(1)
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
 
@@ -506,6 +507,8 @@ class Agent:
 
 
         msg=  user_message
+        # 初始化 StageProgress（chat 模式无预定义阶段，LLM 通过 update_plan 动态创建）
+        self._stage_progress = StageProgress()
         rounds = 0
         while True:
             rounds += 1

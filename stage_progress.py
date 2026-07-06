@@ -23,9 +23,9 @@ class StageProgress:
 
     VALID_STATUSES = {"pending", "in_progress", "completed", "failed"}
 
-    def __init__(self, stage_names: list[str]):
-        """初始化所有阶段，步骤初始为空。"""
-        self._stages: dict[str, list[dict]] = {name: [] for name in stage_names}
+    def __init__(self, stage_names: list[str] | None = None):
+        """初始化所有阶段。stage_names=None 时从空开始，LLM 通过 update_plan 动态添加阶段。"""
+        self._stages: dict[str, list[dict]] = {name: [] for name in stage_names} if stage_names else {}
 
     def init_stage(self, stage_name: str, steps: list[dict] | None = None):
         """初始化某个阶段的步骤列表。通常在每个 stage 开始执行前调用。"""
