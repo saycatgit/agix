@@ -158,7 +158,7 @@ class Agent:
             # print(f"\n🤖: {self.chat_llm.dump_history()}")
             self._in_task_mode = False
             ret= self._run_chat(user_task)
-            print(self.chat_llm.dump_history())
+            # print(self.chat_llm.dump_history())
 
             self._log(f"\n🤖: {ret["content"]}\n",always=True)
             return ret
@@ -168,188 +168,193 @@ class Agent:
 
             try:
                 ret= self._run_task(user_task)
+
+                self._in_task_mode = False
+                self._log(ret["content"],always=True)
+
+                ret= self._run_chat(f"任务模式返回结果："+ret["content"])
+
                 return ret
             finally:
                 self._in_task_mode = False
 
     def _run_task(self, user_task: str) -> dict:
+        """任务模式：以子任务为执行主体。
 
-        """任务模式：完整流水线"""
-        self._log(f"\n{'='*60}")
-        self._log(f"任务: {user_task}")
-        self._log(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
-        self._log(f"{'='*60}\n")
-
-        self.task_llm.history.clear()  # 清掉上一个task的历史记录
-
-        self.task_llm.prepend_system_info()
-
+        1. 分类拆解 → 得到 orchestrate 列表
+        2. 逐个执行子任务：
+           - 延续子任务：加载历史 TaskManager，追加当前子任务
+           - 全新子任务：以子任务名创建新 TaskManager
+           - 每个子任务独立日志、计数器、花费
+        """
+        # ── 前置准备 ──
         os.makedirs(self.work_dir, exist_ok=True)
         os.makedirs(self.skills_dir, exist_ok=True)
         self._generate_skills_index()
         self._generate_spc_index()
         self._generate_workspace_index()
-        self._init_log()
 
-        # ================================================================
-        # 阶段 0: 任务分类与分解
-        # ================================================================
-        self._log("\n阶段 0：收到任务："+user_task+"\n")
+        # ── 阶段 0: 任务分类与分解 ──
+        self._log(f"\n{'='*60}")
+        self._log(f"任务: {user_task}")
+        self._log(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
+        self._log(f"{'='*60}\n")
 
         enable_history = self.enable_history_association
-        if enable_history:
-            self._log("阶段 0: 任务分类与分解（含历史关联判断）")
-        else:
-            self._log("阶段 0: 任务分解（配置已禁用历史任务关联）")
+        self._log("阶段 0: " + ("任务分类与分解（含历史关联判断）" if enable_history else "任务分解"))
 
+        self.task_llm.prepend_system_info()
         classification = self._classify_with_history(user_task, enable_history=enable_history)
-        self.task_llm.history.clear()  # 清掉分类阶段产生的历史，避免污染 _run_loop
+        self.task_llm.history.clear()
         if classification is None:
-            self._log("\n❌ 任务分类失败，任务终止", always=True)
-            return {"judge": "false", "content": "阶段0：任务分类失败（LLM 返回解析错误）"}
+            self._log("\n❌ 任务分类失败", always=True)
+            return {f"任务:{user_task} 分类失败"}
 
-        is_continuation = classification.get("is_continuation", False)
+        main_task = classification.get("main_task", user_task)
+        orchestrate = classification.get("orchestrate", [])
 
-        if is_continuation:
-            hist_idx = classification.get("history_task_index", 0)
-            sub_idx = classification.get("subtask_index", 0)
-            reason = classification.get("reason", "")
-            orchestrate = classification.get("orchestrate", [])
-            if not orchestrate:
-                self._log("\n❌ 延续任务无子任务，终止", always=True)
-                return {"judge": "false", "content": "历史任务延续无有效子任务"}
-
-            history_tasks = TaskManager.scan_history_tasks(self.task_dir)
-            history_main_task = ""
-            hist_file = ""
-            if 0 <= hist_idx - 1 < len(history_tasks):
-                history_main_task = history_tasks[hist_idx - 1].get("main_task", "")
-                hist_file = history_tasks[hist_idx - 1].get("file", "")
-
-            if not hist_file or not os.path.exists(hist_file):
-                self._log(f"\n❌ 历史任务文件未找到: {hist_file}", always=True)
-                return {"judge": "false", "content": f"历史任务文件不存在: {hist_file}"}
-
-            self.task_manager = TaskManager.load(hist_file)
-            self.task_manager.reactivate()
-            self._task_state_path = hist_file
-
-            base_idx = self.task_manager.append_subtasks(orchestrate)
-            for j, sub in enumerate(orchestrate):
-                new_idx = base_idx + j
-                self.task_manager.set_subtask_extra(
-                    new_idx,
-                    f"延续自历史任务 [{hist_idx}] 主任务: {history_main_task}, 子任务: [{sub_idx}], "
-                    f"理由: {reason}"
-                )
-
-            self._log(f"\n📋 历史任务延续")
-            self._log(f"  历史主任务 [{hist_idx}]: {history_main_task}")
-            self._log(f"  关联子任务: [{sub_idx}]")
-            self._log(f"  判断理由: {reason}")
-            self._log(f"  新子任务 ({len(orchestrate)} 个，索引 {base_idx}-{base_idx+len(orchestrate)-1}):")
-            for sub in orchestrate:
-                self._log(f"    [{sub.get('type','')}] {sub.get('sub_task','')}")
-
-            self.task_manager.add_conversation_entry("user", user_task)
-            self.task_manager.add_conversation_entry(
-                "assistant",
-                f"识别为历史任务延续 → 追加 {len(orchestrate)} 个子任务 (主任务: {history_main_task})"
-            )
-            self.task_manager.add_conversation_entry(
-                "agent", f"历史任务延续: {history_main_task} → 子任务{sub_idx}，追加 {len(orchestrate)} 个新子任务"
-            )
-
-            hist_sub = self.task_manager.get_subtask(sub_idx)
-            hist_project_path = hist_sub.project_path if hist_sub and hist_sub.project_path else self.work_dir
-            hist_docs_dir = hist_sub.docs_dir if hist_sub and hist_sub.docs_dir else ""
-
-            _cont_subtask_content = hist_sub.content if hist_sub else ""
-            _cont_project_path = hist_project_path
-            subtask_start_idx = base_idx
-            main_task = history_main_task
-
-        else:
-            main_task = classification.get("main_task", user_task)
-            _cont_subtask_content = ""
-            _cont_project_path = ""
-            subtask_start_idx = 1
-            orchestrate = classification.get("orchestrate", [])
-            self._log(f"  总任务: {main_task}")
-            self._log(f"  拆解为 {len(orchestrate)} 个子任务：")
-            for sub in orchestrate:
-                st = sub.get("sub_task", "")
-                stype = sub.get("type", "")
-                sstype = sub.get("sub_type", "")
-                self._log(f"    [{stype}] {st} (sub_type={sstype})")
-
-            self.task_manager.start(main_task)
-            self.task_manager.add_subtasks_from_orchestrate(orchestrate)
-            self.task_manager.add_conversation_entry("user", user_task)
-            self.task_manager.add_conversation_entry(
-                "assistant", f"将任务分解为 {len(orchestrate)} 个子任务: {main_task}"
-            )
-            self._save_task_state()
-
-            # ================================================================
-            # 阶段 1: 任务分析及规划
-            # ================================================================
-            self._log("\n阶段 1: 任务分析及规划")
-
-        for i, sub in enumerate(orchestrate, subtask_start_idx):
-            task_type = str(sub.get("type", ""))
+        has_continuation = any(sub.get("history_task_index", 0) > 0 for sub in orchestrate)
+        self._log(f"  总任务: {main_task}")
+        self._log(f"  拆解为 {len(orchestrate)} 个子任务（{'含延续' if has_continuation else '全新任务'}）：")
+        
+        total_results = []
+        # ── 逐个执行子任务 ──
+        for i, sub in enumerate(orchestrate, 1):
             sub_task = str(sub.get("sub_task", ""))
+            task_type = str(sub.get("type", ""))
             sub_type = sub.get("sub_type", "")
             dir_from = sub.get("dir_from", "temp")
 
+            # 从子任务自身字段判断是否延续
+            sub_is_cont = bool(sub.get("history_task_index", 0))
+            cont_reason = sub.get("reason", "")
+            cont_hist_idx = sub.get("history_task_index", 0)
+            cont_sub_idx = sub.get("subtask_index", 0)
+
             self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
 
-            self.task_manager.add_conversation_entry(
-                "agent", f"开始执行子任务 [{i}/{len(orchestrate)}]: [{task_type}] {sub_task}",
-                subtask_index=i
-            )
-            self.task_manager.set_subtask_status(i, SubTaskStatus.IN_PROGRESS)
+            # ── 每个子任务独立的日志和计数器 ──
+            self._init_log()
+            self.task_llm.history.clear()
+            self.task_llm.init_task_counters()
 
-            self._resolve_subtask_dir(
-                i, dir_from, subtask_content=sub_task,
-                is_continuation=is_continuation,
-                related_project_path=_cont_project_path if is_continuation else ""
-                )
-            
-          
-            # 子任务执行
-            result = self._run_phases(task_type, sub_task, sub_type, i,
-                             is_continuation, main_task,
-                             _cont_subtask_content, _cont_project_path)
-    
-            self.task_manager.set_subtask_result(i, result["judge"], result["content"])
+            # ── 初始化/加载主任务（子任务为主体） ──
+            # 每个子任务独立决定归属哪个主任务：
+            #   - history_task_index > 0 → 加载历史主任务，把当前子任务挂上去
+            #   - history_task_index == 0 → 以当前子任务名创建新的主任务
+            _hist_subtask_content = ""
+            _hist_project_path = ""
+            if sub_is_cont:
+                # 【延续子任务】根据 history_task_index 找到历史主任务文件
+                # scan_history_tasks 扫描 task_dir 下所有 task_*_state.json
+                history_tasks = TaskManager.scan_history_tasks(self.task_dir)
+                hist_file = ""
+                if 0 <= cont_hist_idx - 1 < len(history_tasks):
+                    hist_file = history_tasks[cont_hist_idx - 1].get("file", "")
+
+                if hist_file and os.path.exists(hist_file):
+                    # 1. 加载历史主任务的所有子任务记录（含 plan_steps、对话等）
+                    self.task_manager = TaskManager.load(hist_file)
+                    self.task_manager.reactivate()           # 将 IN_PROGRESS 重置为 PENDING
+                    self._task_state_path = hist_file        # 之后 save 回同一文件
+                    # 2. 将当前子任务追加到历史主任务下（返回新子任务的索引）
+                    new_idx = self.task_manager.append_subtasks([sub])
+                    self.task_manager.set_subtask_extra(
+                        new_idx, f"延续自 [{cont_hist_idx}/{cont_sub_idx}], 理由: {cont_reason}"
+                    )
+                    # 3. 读历史子任务的项目路径和内容（传给 _run_phases 做上下文）
+                    hist_sub = self.task_manager.get_subtask(cont_sub_idx)
+                    if hist_sub:
+                        _hist_subtask_content = hist_sub.content
+                        _hist_project_path = hist_sub.project_path or self.work_dir
+                    self._log(f"  延续自历史任务 [{cont_hist_idx}/{cont_sub_idx}]: {hist_sub.content[:50] if hist_sub else '?'}")
+                    subtask_index = new_idx
+                else:
+                    # 历史文件不可用，退化为新任务
+                    self.task_manager.start(sub_task)
+                    self.task_manager.add_subtasks_from_orchestrate([sub])
+                    subtask_index = 1
+                    self._log(f"  ⚠️ 历史文件未找到，以新任务执行")
+            else:
+                # 【全新子任务】创建以子任务名命名的主任务，只含一个子任务
+                self.task_manager.start(sub_task)
+                self.task_manager.add_subtasks_from_orchestrate([sub])
+                subtask_index = 1
+
+            self.task_manager.add_conversation_entry("user", user_task)
             self._save_task_state()
-            if result["judge"]!="true":
-                self.task_manager.finish(False)
-                self.task_manager.add_conversation_entry("agent", f"子任务{i}失败")
+            self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.IN_PROGRESS)
+
+            # ── 解析项目目录 ──
+            self._resolve_subtask_dir(
+                subtask_index, dir_from, subtask_content=sub_task,
+                is_continuation=sub_is_cont,
+                related_project_path=_hist_project_path if sub_is_cont else ""
+            )
+
+            # ── 执行阶段 ──
+            result = self._run_phases(task_type, sub_task, sub_type, subtask_index,
+                             sub_is_cont, sub_task,
+                             _hist_subtask_content, _hist_project_path)
+
+            self.task_manager.set_subtask_result(subtask_index, result["judge"], result["content"],
+                                                 rounds=self.task_llm.call_count)
+            self._save_task_state()
+
+            cost_str=  self.task_llm.get_cost_summary() + self.task_llm.get_cost_from_balance()
+
+            total_results.append({
+                "judge": result["judge"],
+                "sub_task": sub_task,
+                "task_type": task_type,
+                "sub_type": sub_type,
+                "subtask_index": subtask_index,
+                "project_path": self.proj_path,
+                "log_path": self.logger.path,
+                "task_state": getattr(self, '_task_state_path', ''),
+                "cost": cost_str,
+                "content": result["content"],
+            })
+
+            # ── 子任务完成报告 ──
+            if result["judge"] == "true":
+                self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.COMPLETED)
+                self.task_manager.finish(True)
+                self._log(f"\n子任务{subtask_index}完成 — " +cost_str)
+                self._log(f"  日志: {self.logger.path}")
+            else:
+                self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.FAILED)
                 self._save_task_state()
-                return {"judge": "false", "content": f"子任务{i}失败"}
 
-
-        self.task_manager.finish(True)
-        summary = self.task_manager.summary()
+        # ── 全部子任务完成，汇总各子任务结果 ──
+        summary_lines = [f"✅ 全部 {len(total_results)} 个子任务完成"]
+        for r in total_results:
+            judge = r.get("judge", "false")
+            sub = r.get("sub_task", "")
+            icon = "✅" if judge == "true" else "❌"
+            project = r.get("project_path", "")
+            summary_lines.append(f"{icon} [{r.get('task_type','')}] {sub}")
+            if project:
+                summary_lines.append(f"     项目: {project}")
+            if r.get("log_path"):
+                summary_lines.append(f"     日志: {r["log_path"]}")
+            if r.get("cost"):
+                summary_lines.append(f"     {r["cost"]}")
+        summary = "\n".join(summary_lines)
         self._log(f"\n{summary}")
-        self.task_manager.add_conversation_entry("agent", f"\n{summary}")
-
         self._save_task_state()
-        return {"judge": "true", "content": f"\n{summary}"}
+        return {"judge": "true", "content": summary}
 
-
-    def _run_phases(self, sp_key: str, sub_task: str, sub_type: str,
+    def _run_phases(self, sub_task_type: str, sub_task: str, sub_type: str,
                     subtask_index: int, is_continuation: bool,
-                    main_task: str, cont_content: str, cont_path: str) -> bool:
+                    main_task: str, hist_subtask_content: str, hist_project_path: str) -> bool:
         """按任务属性定义循环执行各阶段 run_loop
 
         Returns: 
         """
-        result = self._get_phases(sp_key, sub_type)
+        result = self._get_phases(sub_task_type, sub_type)
         if result is None:
-            self._log(f"  ⚠️ spec.md 中未找到 {sp_key} (sub_type={sub_type}) 的阶段定义，跳过", always=True)
+            self._log(f"  ⚠️ spec.md 中未找到 {sub_task_type} (sub_type={sub_type}) 的阶段定义，跳过", always=True)
             return False
 
         phases = result['phases']
@@ -361,14 +366,14 @@ class Agent:
         pretask = self._build_pretask_skills()
         extra_prompt += "\n" + pretask
         extra_prompt += f"\n当前任务: {sub_task}"
-        extra_prompt += f"\n任务类别: {sp_key}"
+        extra_prompt += f"\n任务类别: {sub_task_type}"
         if sub_type:
             extra_prompt += f"\n子类型: {sub_type}"
         if is_continuation:
             extra_prompt += (
                 f"\n[历史任务延续] 主任务: 「{main_task}」\n"
-                f"关联子任务: {cont_content}\n"
-                f"关联项目路径: {cont_path}"
+                f"关联子任务: {hist_subtask_content}\n"
+                f"关联项目路径: {hist_project_path}"
             )
       
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
@@ -407,14 +412,9 @@ class Agent:
             print(f"[DEBUG _run_landscape] phase '{phase_name}': phase_prompt='{phase_msgs[-1]['phase_prompt']}', msg={full_msg[:100]}")
             self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
 
+        self._current_subtask = sub_task
         result = self._run_loop(phase_msgs[0]['msg'], subtask_index, phases=phase_msgs, extra_prompt=system_prompt)
 
-        print(self.task_llm.dump_history())
-        self._log(f"\n{'='*60}")
-        self._log(f"LLM 交互次数: {self.task_llm.call_count}")
-        self._log(f"执行日志: {self.logger.path}")
-        self._log(f"任务状态: {self.log_dir}/task_state.json")
- 
         self._save_task_state()
         return result
 
@@ -499,6 +499,7 @@ class Agent:
     def _run_chat(self, user_message: str) -> dict:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
+        self.is_interactive = True  # chat 模式默认为交互模式
         executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
 
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
@@ -566,11 +567,12 @@ class Agent:
         def _build_phase_prompt(phase):
             pp = phase.get('phase_prompt', '')
 
+            header = f"\n# 当前子任务: {getattr(self, '_current_subtask', task_message)} \n## 阶段: {phase.get('name', '')}"
             if pp:
-                temp= f"\n## 当前阶段({phase.get('name', '')})提示\n" + pp
+                temp = header + "\n" + pp
             else:
-                temp=f"\n## 当前阶段({phase.get('name', '')})\n"   
-                
+                temp = header
+
             temp += ("\n- 开始前先调用 update_plan 规划本阶段执行步骤。"
                     "\n- 每个步骤完成后及时更新状态。"
                     "\n- 所有步骤完成后调用 finish 结束本阶段。")
@@ -663,8 +665,7 @@ class Agent:
                         else:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
-                            self._log(f"\n阶段总结: {exec_result['summary']}")
-                            self._log(f"\nLLM 交互次数: {self.task_llm.call_count}")
+                            self._log(f"\n任务总结: {exec_result['summary']}")
                             self.task_manager.add_conversation_entry(
                                 "assistant", f"总结: {exec_result["summary"]}",
                                 subtask_index)
@@ -828,64 +829,43 @@ class Agent:
                              related_project_path: str = "") -> str:
         """解析子任务工作目录
 
-        dir_from: temp → workspace/temp/ / reuse → 复用 / [建议名] → 交互输入
+        优先级: reuse → [建议名]（交互询问）→ [建议名]（直接使用）→ temp
         """
 
-        if dir_from.startswith("[") and dir_from.endswith("]"):
-            # 带建议名的新建：提示用户输入，10s 超时使用建议名
-            suggested = dir_from[1:-1].strip()
-            if not suggested:
-                self._log(f"\n❌ 子任务 [{subtask_index}] dir_from 建议名为空", always=True)
-                raise ValueError(f"dir_from 建议名为空: {dir_from}")
+        # ── reuse: 复用历史目录或上一个子任务的目录 ──
+        if dir_from == "reuse":
+            # reuse 仅用于历史延续，非延续时回退到 workspace
+            if is_continuation and related_project_path:
+                proj_path = related_project_path
+            else:
+                proj_path = os.path.join(self.work_dir, "temp")
+            proj_name = os.path.basename(proj_path.rstrip("/")) or "temp"
 
-            proj_name = suggested  # 默认值
-            if sys.stdin.isatty() and threading.current_thread() is threading.main_thread():
-                import signal
-                timed_out = [False]
-                def _alarm(signum, frame):
-                    timed_out[0] = True
-                old = signal.signal(signal.SIGALRM, _alarm)
-                signal.alarm(10)
+        # ── [建议名]: 交互模式询问用户，非交互直接用建议名 ──
+        elif dir_from.startswith("[") and dir_from.endswith("]"):
+            suggested = dir_from[1:-1].strip() or "temp"
+            proj_name = suggested
+            if self.is_interactive and __import__("threading").current_thread() is __import__("threading").main_thread():
                 try:
                     user_input = input(
-                        f"\n📁 子任务 [{subtask_index}] 请输入项目目录名 "
-                        f"[{suggested}]: "
+                        f"\n📁 子任务 [{subtask_index}] 请输入项目目录名 [{suggested}]: "
                     ).strip()
                     if user_input:
                         proj_name = user_input
                 except (EOFError, KeyboardInterrupt):
                     pass
-                finally:
-                    signal.alarm(0)
-                    signal.signal(signal.SIGALRM, old)
-                if timed_out[0]:
-                    self._log(f"\n⏰ 超时，使用建议名称: {suggested}", always=True)
-
             proj_path = os.path.join(self.work_dir, proj_name)
-            os.makedirs(proj_path, exist_ok=True)
-            docs_dir = os.path.join(proj_path, "docs")
-            os.makedirs(docs_dir, exist_ok=True)
 
-        elif dir_from == "reuse":
-            if is_continuation and related_project_path:
-                proj_name = os.path.basename(related_project_path.rstrip("/")) or "workspace"
-                proj_path = related_project_path
-            else:
-                proj_name = "workspace"
-                proj_path = self.work_dir
-            docs_dir = os.path.join(proj_path, "docs")
-            os.makedirs(docs_dir, exist_ok=True)
-
+        # ── temp 或其他: 使用 temp 目录 ──
         else:
             proj_name = "temp"
             proj_path = os.path.join(self.work_dir, "temp")
-            os.makedirs(proj_path, exist_ok=True)
-            docs_dir = os.path.join(proj_path, "docs")
-            os.makedirs(docs_dir, exist_ok=True)
 
+        os.makedirs(proj_path, exist_ok=True)
+        docs_dir = os.path.join(proj_path, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
 
         self.task_manager.set_subtask_project(subtask_index, proj_name, proj_path, docs_dir)
-
         self.proj_path = proj_path
         self.work_dir = proj_path
         self.docs_dir = docs_dir

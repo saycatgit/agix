@@ -356,13 +356,6 @@ class ToolExecutor:
         if self.agent and not getattr(self.agent, "is_interactive", False):
             return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
 
-        # 检查是否在 worker 线程（非主线程），拒绝读取 stdin
-        # if threading.current_thread() is not threading.main_thread():
-        #     return (
-        #         f"无法获取用户输入: 后台任务不支持交互式输入。\n"
-        #         f"原问题: {question}"
-        #     )
-
         # 检查是否为交互式终端
         if not sys.stdin.isatty():
             return (
@@ -375,10 +368,8 @@ class ToolExecutor:
 
         # 获取用户输入，优先使用 prompt_toolkit（提供更好的交互体验）
         try:
-            # 尝试导入 prompt_toolkit（作为可选依赖）
             answer = _prompt("📝 ").strip()
         except ImportError:
-            # fallback 到标准 input
             try:
                 answer = input("   > ").strip()
             except (EOFError, KeyboardInterrupt):
@@ -386,7 +377,6 @@ class ToolExecutor:
         except (EOFError, KeyboardInterrupt):
             answer = None
         except Exception as e:
-            # 捕获其他意外异常（如 IOError）
             self._log_message(f"获取用户输入时发生异常: {e}")
             return f"获取用户输入失败: {e}"
 

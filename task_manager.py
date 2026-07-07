@@ -380,42 +380,6 @@ class TaskManager:
 
     # ── 汇总查询 ──
 
-    def summary(self) -> str:
-        """人类可读的任务概要（主任务 + 各子任务状态 + 轮次）。"""
-        """返回人类可读的任务状态汇总"""
-        lines = []
-        main = self._main
-        if main:
-            lines.append(f"主任务: {main.task}")
-            lines.append(f"状态: {main.status.value}  |  创建: {main.created_at}")
-            if main.completed_at:
-                lines.append(f"完成: {main.completed_at}")
-        else:
-            lines.append("(未开始)")
-
-        lines.append("")
-        completed = sum(1 for s in self._subtasks if s.status == SubTaskStatus.COMPLETED)
-        failed    = sum(1 for s in self._subtasks if s.status == SubTaskStatus.FAILED)
-        lines.append(f"子任务: {len(self._subtasks)} 个 (完成 {completed}, 失败 {failed})")
-
-        for s in self._subtasks:
-            icon = {SubTaskStatus.PENDING: "○", SubTaskStatus.IN_PROGRESS: "◉",
-                    SubTaskStatus.COMPLETED: "●", SubTaskStatus.FAILED: "✕",
-                    SubTaskStatus.SKIPPED: "—"}.get(s.status, "?")
-            text = s.content[:60] + ("..." if len(s.content) > 60 else "")
-            lines.append(f"  {icon} [{s.task_type}] {text}")
-            if s.project_name:
-                lines.append(f"     项目: {s.project_name}  ({s.project_path})")
-            if s.docs_paths:
-                lines.append(f"     文档: {s.docs_paths}")
-            if s.result_judge:
-                lines.append(f"     结果: {s.result_judge}  |  轮次: {s.round_count}")
-            if s.messages:
-                lines.append(f"     问答: {len(s.messages)} 条")
-        return "\n".join(lines)
-
-    # ── 内部 ──
-
     # ── 对话日志 ──
 
     def add_conversation_entry(self, role: str, content: str,

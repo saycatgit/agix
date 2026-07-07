@@ -19,31 +19,37 @@ PROVIDERS = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
+        "balance_url": "https://api.deepseek.com/user/balance",
         "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
     },
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "balance_url": "",
         "models": ["qwen3.7-max", "qwen3.7-plus"],
     },
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1",
+        "balance_url": "",
         "models": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
     },
     "zhipu": {
         "name": "智谱 GLM",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "balance_url": "https://open.bigmodel.cn/api/paas/v4/account/balance",
         "models": ["glm-5", "glm-5.1", "glm-5.2"],
     },
     "moonshot": {
         "name": "Moonshot",
         "base_url": "https://api.moonshot.cn/v1",
+        "balance_url": "",
         "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     },
     "custom": {
         "name": "自定义",
         "base_url": "",
+        "balance_url": "",
         "models": [],
     },
 }
@@ -78,6 +84,8 @@ class LLMClient:
                 print(f"   如果 API 返回 400 错误，请检查 config.json 中的 model 字段")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.provider = provider
+        self._api_key = api_key
         self.provider_name = provider_info["name"]
 
         # 会话记忆
@@ -86,10 +94,128 @@ class LLMClient:
         self.memory_enabled = config.get("memory_enabled", True)
         self.memory_size = config.get("memory_size", 20)  # 最多保留 20 轮对话
         self.call_count = 0  # LLM 交互次数统计
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_cost = 0.0
+        self._balance_before = None  # 任务前余额快照
         self.history_log_path = ""  # 历史日志路径
         self.last_system_prompt = ""  # 最近一次系统提示词
 
     # ---- 核心聊天 ----
+
+    def _query_balance(self) -> dict | None:
+        """查询当前账户余额，返回原始数据；失败返回 None。"""
+        import requests as req
+        provider = getattr(self, "provider", "deepseek")
+        provider_info = PROVIDERS.get(provider, {})
+        balance_url = provider_info.get("balance_url", "")
+        api_key = getattr(self, "_api_key", "")
+
+        if not balance_url:
+            return None
+
+        try:
+            resp = req.get(
+                balance_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            return resp.json()
+        except Exception:
+            return None
+
+    def _parse_balance(self, data: dict) -> float | None:
+        """从余额 API 返回中提取总余额（元），兼容 DeepSeek/Zhipu 格式。"""
+        if not data:
+            return None
+        # DeepSeek 格式
+        if data.get("is_available"):
+            infos = data.get("balance_infos", [])
+            total = 0.0
+            for info in infos:
+                try:
+                    total += float(info.get("total_balance", 0))
+                except (ValueError, TypeError):
+                    pass
+            return total if infos else None
+        # Zhipu 格式（假设返回 {"data": {"balance": ...}}）
+        if "data" in data:
+            try:
+                return float(data["data"].get("balance", 0))
+            except (ValueError, TypeError, AttributeError):
+                pass
+        return None
+    def init_task_counters(self):
+        """新任务开始时初始化：清零计数器 + 记录余额快照。"""
+        self.call_count = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_cost = 0.0
+        data = self._query_balance()
+        self._balance_before = self._parse_balance(data)
+    def get_cost_from_balance(self) -> str:
+        """查询当前余额并与快照对比，返回费用字符串。"""
+        if self._balance_before is None:
+            return ""
+        data = self._query_balance()
+        after = self._parse_balance(data)
+        if after is None:
+            return ""
+        delta = self._balance_before - after
+        if delta >= 0:
+            return f" | 账户余额差值 ¥{delta:.4f} (¥{self._balance_before:.2f} → ¥{after:.2f}) (同一Key可能有其他应用消耗)"
+        else:
+            return f" | 账户余额增加 ¥{abs(delta):.4f}"
+
+    def check_balance(self):
+        """查询并打印当前 LLM 账户余额（/balance 命令调用）。"""
+        data = self._query_balance()
+        if data is None:
+            provider = getattr(self, "provider", "deepseek")
+            print(f"  供应商 {provider} 未配置余额查询接口或查询失败。请登录官网控制台查看。")
+            return
+        total = self._parse_balance(data)
+        if total is not None:
+            print(f"  余额: ¥{total:.2f}")
+        else:
+            print(f"  余额查询结果: {data}")
+
+    MODEL_PRICES = {
+        # (prompt_price_per_M, completion_price_per_M) in RMB
+        "deepseek-v4-pro":       (2, 8),
+        "deepseek-v4-flash":     (2, 8),
+        "qwen3.7-max":           (3, 12),
+        "qwen3.7-plus":          (1.5, 6),
+        "gpt-4o":                (17, 68),
+        "gpt-4o-mini":           (1, 4),
+        "gpt-3.5-turbo":         (0.5, 1.5),
+        "glm-5":                 (1, 1),
+        "glm-5.1":               (1, 1),
+        "glm-5.2":               (1, 1),
+        "moonshot-v1-8k":        (12, 12),
+        "moonshot-v1-32k":       (24, 24),
+        "moonshot-v1-128k":      (60, 60),
+    }
+
+    def _track_usage(self, usage):
+        """从 API 返回的 usage 对象中累加 token 和费用。"""
+        if not usage:
+            return
+        p = usage.prompt_tokens or 0
+        c = usage.completion_tokens or 0
+        self.total_prompt_tokens += p
+        self.total_completion_tokens += c
+        price = self.MODEL_PRICES.get(self.model)
+        if price:
+            cost = (p / 1_000_000) * price[0] + (c / 1_000_000) * price[1]
+            self.total_cost += cost
+
+    def get_cost_summary(self) -> str:
+        """返回费用摘要字符串。"""
+        return (f"LLM 交互 {self.call_count} 轮 | "
+                f"输入 {self.total_prompt_tokens:,} tokens | "
+                f"输出 {self.total_completion_tokens:,} tokens | "
+                f"费用 ¥{self.total_cost:.4f}")
 
     def chat(self, prompt: str, user_message: str,
              json_mode: bool = False, use_memory: Optional[bool] = None) -> str:
@@ -138,6 +264,7 @@ class LLMClient:
         content = content_
         self.last_raw_response = content
         self.call_count += 1
+        self._track_usage(getattr(response, 'usage', None))
 
         if self.memory_enabled:
             self.history.append({"role": "user", "content": user_message})
@@ -223,6 +350,7 @@ class LLMClient:
         reasoning = getattr(msg, "reasoning_content", None) or ""
         self.call_count += 1
 
+        self._track_usage(getattr(response, 'usage', None))
         # 记录用户消息
         if self.history_log_path:
             self._write_history_log(

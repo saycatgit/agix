@@ -155,6 +155,7 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
 ├─────────────────────────────────────────────────────────┤
 │  /help          显示此帮助信息                             │
 │  /exit          退出程序                                  │
+│  /balance       查询当前 LLM 账户余额                     │
 │  /llm           重新配置 LLM 模型和 API Key                │
 │  /config        查看当前配置                               │
 │  /history       查看历史任务                               │
@@ -195,8 +196,13 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
             print("\n(无历史任务记录)")
         return None
 
+
+    elif c == "/balance":
+        agent.chat_llm.check_balance()
+        return None
+
     elif c == "/clear":
-        print("\033[2J\033[H", end="")
+        os.system("clear")
         return None
 
     else:
@@ -234,10 +240,11 @@ def interactive_mode():
 
     # 命令补全器
     completer = SlashCommandCompleter(
-        ['/help', '/exit', '/llm', '/config', '/history', '/clear'],
+        ['/help', '/exit', '/llm', '/config', '/history', '/clear', '/balance'],
         meta_dict={
             '/help':    '显示帮助信息',
             '/exit':    '退出程序',
+            '/balance': '查询当前 LLM 账户余额',
             '/llm':     '重新配置 LLM 模型和 API Key',
             '/config':  '查看当前 LLM 配置',
             '/history': '查看历史任务记录',
