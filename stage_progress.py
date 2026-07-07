@@ -69,7 +69,7 @@ class StageProgress:
         for name, steps in self._stages.items():
             lines.append(f"## {name}")
             if not steps:
-                lines.append("  (无步骤)")
+                lines.append("  (待规划)")
                 continue
             for i, s in enumerate(steps):
                 icon = STATUS_ICONS.get(s.get("status", "pending"), "□")

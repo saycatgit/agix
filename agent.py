@@ -38,7 +38,6 @@ from scheduler import TaskScheduler
 
 from task_classifier import TaskClassifier
 
-
 class Agent:
     """Agent 核心调度器
 
@@ -68,8 +67,6 @@ class Agent:
         self.chat_llm  = LLMClient(llm_cfg, logger=self.logger)
 
         self.task_llm  = LLMClient(llm_cfg, logger=self.logger)
-
-
 
         self.project_root = os.path.dirname(os.path.abspath(__file__))
         self.work_dir = os.getcwd()
@@ -119,7 +116,6 @@ class Agent:
         if log_cfg.get("history", True):
             self.chat_llm.history_log_path = os.path.join(self.log_dir, "history_chat.log")
             self.task_llm.history_log_path = os.path.join(self.log_dir, "history_task.log")
-
 
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg, always)
@@ -242,8 +238,8 @@ class Agent:
             # 每个子任务独立决定归属哪个主任务：
             #   - history_task_index > 0 → 加载历史主任务，把当前子任务挂上去
             #   - history_task_index == 0 → 以当前子任务名创建新的主任务
-            _hist_subtask_content = ""
-            _hist_project_path = ""
+            _related_subtask_task = ""
+            _related_project_path = ""
             if sub_is_cont:
                 # 【延续子任务】根据 history_task_index 找到历史主任务文件
                 # scan_history_tasks 扫描 task_dir 下所有 task_*_state.json
@@ -265,9 +261,9 @@ class Agent:
                     # 3. 读历史子任务的项目路径和内容（传给 _run_phases 做上下文）
                     hist_sub = self.task_manager.get_subtask(cont_sub_idx)
                     if hist_sub:
-                        _hist_subtask_content = hist_sub.content
-                        _hist_project_path = hist_sub.project_path or self.work_dir
-                    self._log(f"  延续自历史任务 [{cont_hist_idx}/{cont_sub_idx}]: {hist_sub.content[:50] if hist_sub else '?'}")
+                        _related_subtask_task = hist_sub.task
+                        _related_project_path = hist_sub.project_path or self.work_dir
+                    self._log(f"  延续自历史任务 [{cont_hist_idx}/{cont_sub_idx}]: {hist_sub.task[:50] if hist_sub else '?'}")
                     subtask_index = new_idx
                 else:
                     # 历史文件不可用，退化为新任务
@@ -289,13 +285,12 @@ class Agent:
             self._resolve_subtask_dir(
                 subtask_index, dir_from, subtask_content=sub_task,
                 is_continuation=sub_is_cont,
-                related_project_path=_hist_project_path if sub_is_cont else ""
+                related_project_path=_related_project_path if sub_is_cont else ""
             )
 
             # ── 执行阶段 ──
-            result = self._run_phases(task_type, sub_task, sub_type, subtask_index,
-                             sub_is_cont, sub_task,
-                             _hist_subtask_content, _hist_project_path)
+            self.task_manager.set_subtask_history_relation(subtask_index, sub_is_cont, _related_subtask_task, _related_project_path)
+            result = self._run_phases(subtask_index)
 
             self.task_manager.set_subtask_result(subtask_index, result["judge"], result["content"],
                                                  rounds=self.task_llm.call_count)
@@ -345,16 +340,19 @@ class Agent:
         self._save_task_state()
         return {"judge": "true", "content": summary}
 
-    def _run_phases(self, sub_task_type: str, sub_task: str, sub_type: str,
-                    subtask_index: int, is_continuation: bool,
-                    main_task: str, hist_subtask_content: str, hist_project_path: str) -> bool:
+    def _run_phases(self, subtask_index: int) -> bool:
         """按任务属性定义循环执行各阶段 run_loop
 
         Returns: 
         """
-        result = self._get_phases(sub_task_type, sub_type)
+        sub = self.task_manager.get_subtask(subtask_index)
+        if sub is None:
+            self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过", always=True)
+            return False
+        
+        result = self._get_phases(sub.task_type, sub.sub_type)
         if result is None:
-            self._log(f"  ⚠️ spec.md 中未找到 {sub_task_type} (sub_type={sub_type}) 的阶段定义，跳过", always=True)
+            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过", always=True)
             return False
 
         phases = result['phases']
@@ -365,15 +363,14 @@ class Agent:
         # 构建任务级别 extra_prompt：pretask + 任务元信息 + 历史延续信息（所有 phase 共享）
         pretask = self._build_pretask_skills()
         extra_prompt += "\n" + pretask
-        extra_prompt += f"\n当前任务: {sub_task}"
-        extra_prompt += f"\n任务类别: {sub_task_type}"
-        if sub_type:
-            extra_prompt += f"\n子类型: {sub_type}"
-        if is_continuation:
+        extra_prompt += f"\n当前任务: {sub.task}"
+        extra_prompt += f"\n任务类别: {sub.task_type}"
+        if sub.sub_type:
+            extra_prompt += f"\n子类型: {sub.sub_type}"
+        if sub.is_continuation:
             extra_prompt += (
-                f"\n[历史任务延续] 主任务: 「{main_task}」\n"
-                f"关联子任务: {hist_subtask_content}\n"
-                f"关联项目路径: {hist_project_path}"
+                f"关联子任务: {sub.related_subtask_task}\n"
+                f"关联项目路径: {sub.related_project_path}"
             )
       
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
@@ -399,7 +396,7 @@ class Agent:
             phase_msg_items = phase.get('phase_msg', [])
             phase_prompt_items = phase.get('phase_prompt', [])
 
-            lines_p = [f"当前阶段: {phase_name}"]
+            lines_p = []
             for item in phase_msg_items:
                 lines_p.append(item)
             full_msg = '\n'.join(lines_p)
@@ -412,8 +409,8 @@ class Agent:
             print(f"[DEBUG _run_landscape] phase '{phase_name}': phase_prompt='{phase_msgs[-1]['phase_prompt']}', msg={full_msg[:100]}")
             self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
 
-        self._current_subtask = sub_task
-        result = self._run_loop(phase_msgs[0]['msg'], subtask_index, phases=phase_msgs, extra_prompt=system_prompt)
+        self.task_manager.set_subtask_phase_msgs(subtask_index, phase_msgs)
+        result = self._run_loop(subtask_index, base_prompt=system_prompt)
 
         self._save_task_state()
         return result
@@ -432,7 +429,7 @@ class Agent:
         result = self._attr_mgr.get_phases(task_type_key, sub_type)
         if result is None:
             self._log(
-                f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
+                f"  ⚠️ 任务子类型 '{sub.sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
                 always=True,
             )
         return result
@@ -441,7 +438,6 @@ class Agent:
         """扫描 skills_dir 构建技能列表文本"""
         if not self.skills_dir or not os.path.isdir(self.skills_dir):
             return ""
-
 
         lines = ["## 可用技能（优先查看是否有可用技能）："]
         for skill_dir in sorted(glob.glob(os.path.join(self.skills_dir, "*"))):
@@ -467,11 +463,9 @@ class Agent:
         if not self.docs_dir or not os.path.isdir(self.docs_dir):
             return ""
 
-
         docs = sorted(glob.glob(os.path.join(self.docs_dir, "*.md")))
         if not docs:
             return ""
-
 
         lines = ["\n## 当前子任务参考文档"]
         for mdp in docs:
@@ -506,7 +500,6 @@ class Agent:
 
         prompt =  self.prompts.chat_prompt+ pretask 
 
-
         msg=  user_message
         # 初始化 StageProgress（chat 模式无预定义阶段，LLM 通过 update_plan 动态创建）
         self._stage_progress = StageProgress()
@@ -540,9 +533,31 @@ class Agent:
                 #     self._log(f"\n  🤖: {content_text}\n",always=True)
                 return {"judge": "true", "content": content_text}
 
-    def _run_loop(self, task_message: str, subtask_index: int | None = None,
-                  phases: list | None = None,
-                  extra_prompt: str = "") -> dict:
+    def _build_phase_msg(self, phase: dict, task_name: str,
+                         entering: bool = False) -> tuple[str, str]:
+        """构建阶段 prompt_add 和 msg，返回 (prompt_add, msg)"""
+        pp = phase.get('phase_prompt', '')
+        header = f"\n# 当前子任务: {task_name} \n## 阶段: {phase.get('name', '')}"
+        if pp:
+            prompt_add = header + "\n" + pp
+        else:
+            prompt_add = header
+        prompt_add += ("\n- 开始前先调用 update_plan 规划本阶段执行步骤。"
+                       "\n- 每个步骤完成后及时更新状态。"
+                       "\n- 所有步骤完成后调用 finish 结束本阶段。")
+
+        action = "进入新阶段" if entering else "当前阶段"
+        plan_msg = (
+            f"{action}: {phase['name']}\n"
+            f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
+            f"请先调用 update_plan 规划「{phase['name']}」阶段的详细步骤。"
+        )
+
+        phase_msg = phase.get('msg', '')
+        msg = (plan_msg +"\n" +phase_msg) if phase_msg else plan_msg
+        return prompt_add, msg
+
+    def _run_loop(self, subtask_index: int, base_prompt: str = "") -> dict:
         """工具调用模式执行循环。
         当前子任务的某个阶段在此处执行
         用 chat_with_tools 替代 IMP_FORMAT JSON 流程。
@@ -553,73 +568,40 @@ class Agent:
         Returns: {"judge": str, "content": str}
         """
 
-        executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
+        sub = self.task_manager.get_subtask(subtask_index)
+        phases = sub.phase_msgs if sub else []
 
-        self._log(f"工作目录proj: {self.proj_path}")
+        executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self)
 
-        max_rounds = self.max_rounds
+        self._log(f"工作目录proj: {sub.project_path}")
+
         task_tools = get_tools_excluding("start_task")
         
-        # system prompt 预构建完整，通过 extra_prompt 传入
-        base_prompt = extra_prompt
-
-        # 构建初始 prompt（含第一个 phase 的 phase_prompt）
-        def _build_phase_prompt(phase):
-            pp = phase.get('phase_prompt', '')
-
-            header = f"\n# 当前子任务: {getattr(self, '_current_subtask', task_message)} \n## 阶段: {phase.get('name', '')}"
-            if pp:
-                temp = header + "\n" + pp
-            else:
-                temp = header
-
-            temp += ("\n- 开始前先调用 update_plan 规划本阶段执行步骤。"
-                    "\n- 每个步骤完成后及时更新状态。"
-                    "\n- 所有步骤完成后调用 finish 结束本阶段。")
-
-            return temp
-
-
         prompt = base_prompt
         if phases:
-            prompt += _build_phase_prompt(phases[0])
-            # 初始化 StageProgress
             stage_names = [p["name"] for p in phases]
             self._stage_progress = self.task_manager.load_stage_progress(stage_names)
-            # 将当前阶段计划作为 msg 传给 LLM
-            plan_msg = (
-                f"当前阶段: {phases[0]['name']}\n"
-                f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
-                f"请先调用 update_plan 规划「{phases[0]['name']}」阶段的详细步骤。"
-            )
-            msg = task_message + "\n\n" + plan_msg if task_message else plan_msg
+            prompt_add, msg = self._build_phase_msg(phases[0], sub.task if sub else '')
+            prompt += prompt_add
+
             self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}", always=True)
 
-
-        self.task_manager.add_conversation_entry(
-            "user",
-            f"子任务 [{subtask_index}] user message:" + task_message,
-            subtask_index)
-
-        msg = task_message
         phase_idx = 0
-        stat=0
 
-
-        for num in range(max_rounds):
+        for num in range(self.max_rounds):
             result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
+            # 打印思考信息
             reasoning = result.get("reasoning_content", "")
             if reasoning:
                 self._log(f"\n\033[90m 💭 {reasoning[:500]}{'...(截断)' if len(reasoning) > 500 else ''}\033[0m", always=True)
+            # 获取非工具返回内容
             content_text = result.get("content", "")
             if content_text:
-                stat=stat+1
                 self._log(f"\n📩{content_text}")
 
             if result["type"] == "tool_calls":
-                phase_changed = False
                 for call in result["calls"]:
-                    self._log(f"共: {max_rounds}, 第 {num} 轮  🔧 {call['name']}({call['args']})")
+                    self._log(f"共: {self.max_rounds}, 第 {num} 轮  🔧 {call['name']}({call['args']})")
                     exec_result = executor.execute(call["name"], call["args"])
 
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
@@ -631,7 +613,6 @@ class Agent:
                                 subtask_index, "false", exec_result["summary"])
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
-                            name = phases[phase_idx]['name'] if phases else ''
                             self._log(f"\n  {self._stage_progress.format_status()}", always=True)
                             self._update_task_list() 
                             self._save_task_state()
@@ -647,21 +628,13 @@ class Agent:
                         if phases and phase_idx + 1 < len(phases):
                             phase_idx += 1
                             self._log(f"  → 进入 {phases[phase_idx]['name']}")
-                            # 重建 prompt 以包含新 phase 的 config_prompt
-                            prompt = base_prompt + _build_phase_prompt(phases[phase_idx])
-                            # 更新 msg 以包含新阶段计划
-                            plan_msg = (
-                                f"进入新阶段: {phases[phase_idx]['name']}\n"
-                                f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
-                                f"请先调用 update_plan 规划「{phases[phase_idx]['name']}」阶段的详细步骤。"
-                            )
-                            msg = plan_msg
+                            prompt_add, msg = self._build_phase_msg(phases[phase_idx], sub.task if sub else '', entering=True)
+                            prompt = base_prompt + prompt_add
 
                             self._save_task_state()
-                            self._log(f"[PHASE] 切换后 prompt={len(prompt)}chars | msg= {msg}", always=True)
-                            self._log(f"[PHASE] prompt= {prompt}", always=True)
+                            self._log(f"[PHASE] 切换后 prompt={len(prompt)}chars |\n msg= {msg}")
+                            self._log(f"[PHASE] prompt= {prompt}")
 
-                            phase_changed = True
                         else:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
@@ -679,21 +652,17 @@ class Agent:
                 # 收敛压力：根据已消耗轮次注入提示
                 rounds_used = num + 1
                 convergence = ''
-                if rounds_used >= max_rounds * 0.5:
+                if rounds_used >= self.max_rounds * 0.5:
                     convergence = (
-                        f'\n[⚠ 已消耗 {rounds_used}/{max_rounds} 轮，'
+                        f'\n[⚠ 已消耗 {rounds_used}/{self.max_rounds} 轮，'
                         f'如当前任务无法在剩余轮次内完成，请调用 finish(success=False) 结束。]'
                     )
-                elif rounds_used >= max_rounds * 0.25:
+                elif rounds_used >= self.max_rounds * 0.25:
                     convergence = (
-                        f'\n[{rounds_used}/{max_rounds} 轮，请精简操作、避免反复读写。]'
+                        f'\n[{rounds_used}/{self.max_rounds} 轮，请精简操作、避免反复读写。]'
                     )
 
-                if phase_changed:
-                    msg = phases[phase_idx]['msg']
-                    if convergence:
-                        msg += convergence
-                elif convergence:
+                if convergence:
                     base = msg.split('\n[')[0] if '\n[' in msg else msg
                     msg = base + convergence
 
@@ -703,12 +672,10 @@ class Agent:
             
             continue
 
-
-        return {"judge": "false", "content": f"达到最大轮次 ({max_rounds})，任务未完成"}
+        return {"judge": "false", "content": f"达到最大轮次 ({self.max_rounds})，任务未完成"}
 
     def _generate_skills_index(self):
         """扫描 skills_dir，生成 skills_index.json"""
-
 
         index = []
         sd = self.skills_dir
@@ -810,7 +777,6 @@ class Agent:
         if classification is None:
             return None
 
-  
         return classification
 
     def _save_task_state(self):

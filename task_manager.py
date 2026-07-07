@@ -76,9 +76,13 @@ class SubTaskRecord:
     每个 orchestrate 子任务对应一条记录，追踪从分类到执行完成的全部信息。
     """
     index:          int
-    content:        str
+    task:           str
     task_type:      str
     sub_type:       str = ""
+    is_continuation: bool = False
+    related_subtask_task: str = ""
+    related_project_path: str = ""
+    phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
     dir_from:       str = ""
     project_name:   str = ""
@@ -99,7 +103,7 @@ class SubTaskRecord:
         """从 orchestrate 列表项构造记录"""
         return SubTaskRecord(
             index=index,
-            content=item.get("sub_task", ""),
+            task=item.get("sub_task", ""),
             task_type=item.get("type", "其他"),
             sub_type=item.get("sub_type", ""),
             dir_from=item.get("dir_from", ""),
@@ -245,6 +249,21 @@ class TaskManager:
         if rec:
             rec.extra = extra
 
+    def set_subtask_history_relation(self, index: int, is_continuation: bool,
+                                     related_subtask_task: str, related_project_path: str):
+        """设置子任务的历史延续关系"""
+        rec = self._get_sub(index)
+        if rec:
+            rec.is_continuation = is_continuation
+            rec.related_subtask_task = related_subtask_task
+            rec.related_project_path = related_project_path
+
+    def set_subtask_phase_msgs(self, index: int, phase_msgs: list):
+        """设置子任务的阶段信息列表"""
+        rec = self._get_sub(index)
+        if rec:
+            rec.phase_msgs = phase_msgs
+
     def get_subtask(self, index: int) -> SubTaskRecord | None:
         """按索引获取子任务记录。"""
         return self._get_sub(index)
@@ -302,7 +321,7 @@ class TaskManager:
 
         def _sub_to_dict(s: SubTaskRecord) -> dict:
             return {
-                "index": s.index, "content": s.content, "task_type": s.task_type,
+                "index": s.index, "task": s.task, "task_type": s.task_type,
                 "sub_type": s.sub_type, "dir_from": s.dir_from, "status": s.status.value,
                 "project_name": s.project_name, "project_path": s.project_path,
                 "docs_dir": s.docs_dir, "docs_paths": s.docs_paths, "extra": s.extra,
@@ -311,6 +330,10 @@ class TaskManager:
                 "messages": [_msg_to_dict(m) for m in s.messages],
                 "created_at": s.created_at, "completed_at": s.completed_at,
                 "plan_steps": s.plan_steps,
+                "is_continuation": s.is_continuation,
+                "related_subtask_task": s.related_subtask_task,
+                "related_project_path": s.related_project_path,
+                "phase_msgs": s.phase_msgs,
             }
 
         main = self._main
@@ -354,7 +377,7 @@ class TaskManager:
         for sd in data.get("subtasks", []):
             rec = SubTaskRecord(
                 index=sd["index"],
-                content=sd["content"],
+                task=sd["task"],
                 task_type=sd["task_type"],
                 sub_type=sd.get("sub_type", ""),
                 dir_from=sd.get("dir_from", ""),
@@ -368,6 +391,10 @@ class TaskManager:
                 result_content=sd.get("result_content", ""),
                 round_count=sd.get("round_count", 0),
                 messages=[QAMessage(**m) for m in sd.get("messages", [])],
+                is_continuation=sd.get("is_continuation", False),
+                related_subtask_task=sd.get("related_subtask_task", ""),
+                related_project_path=sd.get("related_project_path", ""),
+                phase_msgs=sd.get("phase_msgs", []),
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
@@ -441,7 +468,7 @@ class TaskManager:
                 "completed_count": completed,
                 "subtasks": [{
                     "index": s.get("index"),
-                    "content": s.get("content", ""),
+                    "task": s.get("task", ""),
                     "task_type": s.get("task_type", ""),
                     "status": s.get("status", ""),
                     "result_judge": s.get("result_judge", ""),
