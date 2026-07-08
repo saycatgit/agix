@@ -350,29 +350,32 @@ class Agent:
             self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过", always=True)
             return False
         
-        result = self._get_phases(sub.task_type, sub.sub_type)
+        result = self._get_phases_and_extra_prompt(sub.task_type, sub.sub_type)
         if result is None:
             self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过", always=True)
             return False
-
         phases = result['phases']
+        
         extra_prompt = result.get('extra_prompt', '')
         if isinstance(extra_prompt, list):
             extra_prompt = "\n".join(extra_prompt)
 
         # 构建任务级别 extra_prompt：pretask + 任务元信息 + 历史延续信息（所有 phase 共享）
         pretask = self._build_pretask_skills()
-        extra_prompt += "\n" + pretask
-        extra_prompt += f"\n当前任务: {sub.task}"
-        extra_prompt += f"\n任务类别: {sub.task_type}"
+        extra_prompt_add = "\n" + pretask
+        extra_prompt_add += "\n"+"# 当前项目：\n"
+        extra_prompt_add += f"当前任务: {sub.task}\n"
+        extra_prompt_add += f"任务类别: {sub.task_type}\n"
         if sub.sub_type:
-            extra_prompt += f"\n子类型: {sub.sub_type}"
+            extra_prompt_add += f"子类型: {sub.sub_type}\n"
         if sub.is_continuation:
-            extra_prompt += (
+            extra_prompt_add += (
                 f"关联子任务: {sub.related_subtask_task}\n"
-                f"关联项目路径: {sub.related_project_path}"
+                f"关联项目路径: {sub.related_project_path}\n"
             )
-      
+        extra_prompt_add+=f"当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。\n"
+        extra_prompt= extra_prompt_add+extra_prompt+"\n"
+
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
         task_tools = get_tools_excluding("start_task")
         system_prompt = (
@@ -383,11 +386,8 @@ class Agent:
         if extra_prompt:
             system_prompt += "\n" + extra_prompt
 
-        system_prompt+=f"\n\n当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。"
-
-        # print(f"[DEBUG _run_landscape] system_prompt 长度: {len(system_prompt)}, system_prompt 部分: {system_prompt}")
     
-        print(f"[DEBUG _run_landscape] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分: {extra_prompt[:200]}...")
+        print(f"[DEBUG] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分:\n {extra_prompt}\n")
 
         # 预构建各 phase 消息（仅包含当前阶段名 + [M] 内容 + [P] 内容）
         phase_msgs = []
@@ -415,7 +415,7 @@ class Agent:
         self._save_task_state()
         return result
 
-    def _get_phases(self, task_type_key: str, sub_type: str = ""):
+    def _get_phases_and_extra_prompt(self, task_type_key: str, sub_type: str = ""):
         """从 TaskAttributeManager 获取指定 task type 的阶段列表
 
         Returns:
@@ -426,10 +426,10 @@ class Agent:
             from task_attribute_manager import TaskAttributeManager
             json_path = os.path.join(self.spc_dir, "spec.json")
             self._attr_mgr = TaskAttributeManager(json_path)
-        result = self._attr_mgr.get_phases(task_type_key, sub_type)
+        result = self._attr_mgr.get_phases_and_extra_prompt(task_type_key, sub_type)
         if result is None:
             self._log(
-                f"  ⚠️ 任务子类型 '{sub.sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
+                f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
                 always=True,
             )
         return result
@@ -537,7 +537,7 @@ class Agent:
                          entering: bool = False) -> tuple[str, str]:
         """构建阶段 prompt_add 和 msg，返回 (prompt_add, msg)"""
         pp = phase.get('phase_prompt', '')
-        header = f"\n# 当前子任务: {task_name} \n## 阶段: {phase.get('name', '')}"
+        header = f"\n## 阶段: {phase.get('name', '')}"
         if pp:
             prompt_add = header + "\n" + pp
         else:
