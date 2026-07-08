@@ -590,10 +590,10 @@ class Agent:
         return prompt_add, msg
 
     def _load_llm_context(self, sub) -> tuple[str, list]:
-        """从快照恢复 base_prompt 和 LLM 上下文，返回 (base_prompt, context)"""
+        """从 context_prompt.json 恢复 base_prompt 和 LLM 上下文"""
         if not sub or not sub.llm_context_info:
             return "", []
-        fpath = os.path.join(sub.project_path or self.work_dir, ".llm_context", f"ctx_{sub.llm_context_info}.json")
+        fpath = os.path.join(sub.project_path or self.work_dir, ".llm_context", "context_prompt.json")
         if not os.path.exists(fpath):
             return "", []
         try:
@@ -602,7 +602,7 @@ class Agent:
             bp = snap.get("base_prompt", "")
             ctx = snap.get("context", [])
             if bp:
-                self._log(f"  📝 从快照恢复 base_prompt ({len(bp)} chars): {fpath}")
+                self._log(f"  📝 从快照恢复 base_prompt ({len(bp)} chars)")
             if ctx:
                 self._log(f"  📝 从快照恢复 LLM 上下文 ({len(ctx)} 条消息)")
             return bp, ctx
@@ -610,24 +610,23 @@ class Agent:
             return "", []
 
     def _save_llm_context(self, subtask_index: int, base_prompt: str = ""):
-        """保存当前 LLM 上下文到文件，并计算哈希存入 SubTaskRecord"""
+        """保存当前 LLM 上下文到 context_prompt.json"""
         ctx_data = {
             "base_prompt": base_prompt,
             "context": self.task_llm.history,
         }
         ctx_json = json.dumps(ctx_data, ensure_ascii=False, indent=2)
-        ctx_hash = hashlib.sha256(ctx_json.encode()).hexdigest()
 
         sub = self.task_manager.get_subtask(subtask_index)
         proj = sub.project_path if sub and sub.project_path else self.work_dir
         save_dir = os.path.join(proj, ".llm_context")
         os.makedirs(save_dir, exist_ok=True)
-        filepath = os.path.join(save_dir, f"ctx_{ctx_hash}.json")
+        filepath = os.path.join(save_dir, "context_prompt.json")
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(ctx_json)
 
-        self.task_manager.set_subtask_llm_context_info(subtask_index, ctx_hash)
-        self._log(f"  📝 LLM 上下文已保存: {filepath}  (hash={ctx_hash[:16]}...)")
+        self.task_manager.set_subtask_llm_context_info(subtask_index, "context_prompt.json")
+        self._log(f"  📝 LLM 上下文已保存: {filepath}")
 
     def _run_loop(self, subtask_index: int, base_prompt: str = "") -> dict:
         """工具调用模式执行循环。
