@@ -23,7 +23,7 @@
   - work_dir 由 _resolve_subtask_dir 动态分配
 """
 
-import os, re, time, sys, glob, json, threading
+import os, re, time, sys, glob, json, threading, hashlib
 from datetime import datetime
 
 from llm_client import LLMClient
@@ -200,16 +200,17 @@ class Agent:
         self._log("阶段 0: " + ("任务分类与分解（含历史关联判断）" if enable_history else "任务分解"))
 
         self.task_llm.prepend_system_info()
-        classification = self._classify_with_history(user_task, enable_history=enable_history)
+        tc = TaskClassifier(self.task_llm, self.prompts)
+        classification = tc.classify_with_history(user_task, self.task_dir, enable_history=enable_history)
         self.task_llm.history.clear()
         if classification is None:
             self._log("\n❌ 任务分类失败", always=True)
-            return {f"任务:{user_task} 分类失败"}
+            return {"judge": "false", "content": f"任务:{user_task} 分类失败"}
 
         main_task = classification.get("main_task", user_task)
         orchestrate = classification.get("orchestrate", [])
 
-        has_continuation = any(sub.get("history_task_index", 0) > 0 for sub in orchestrate)
+        has_continuation = any(sub.get("related_task_file_name", "") for sub in orchestrate)
         self._log(f"  总任务: {main_task}")
         self._log(f"  拆解为 {len(orchestrate)} 个子任务（{'含延续' if has_continuation else '全新任务'}）：")
         
@@ -222,10 +223,11 @@ class Agent:
             dir_from = sub.get("dir_from", "temp")
 
             # 从子任务自身字段判断是否延续
-            sub_is_cont = bool(sub.get("history_task_index", 0))
-            cont_reason = sub.get("reason", "")
-            cont_hist_idx = sub.get("history_task_index", 0)
-            cont_sub_idx = sub.get("subtask_index", 0)
+            has_related = bool(sub.get("related_task_file_name", ""))
+            related_reason = sub.get("reason", "")
+            related_task_file_name = sub.get("related_task_file_name", "")
+            related_sub_idx = sub.get("related_sub_idx", 0)
+            related_subtask_relation = sub.get("related_subtask_relation", "change")
 
             self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
 
@@ -236,65 +238,77 @@ class Agent:
 
             # ── 初始化/加载主任务（子任务为主体） ──
             # 每个子任务独立决定归属哪个主任务：
-            #   - history_task_index > 0 → 加载历史主任务，把当前子任务挂上去
-            #   - history_task_index == 0 → 以当前子任务名创建新的主任务
-            _related_subtask_task = ""
-            _related_project_path = ""
-            if sub_is_cont:
-                # 【延续子任务】根据 history_task_index 找到历史主任务文件
-                # scan_history_tasks 扫描 task_dir 下所有 task_*_state.json
-                history_tasks = TaskManager.scan_history_tasks(self.task_dir)
-                hist_file = ""
-                if 0 <= cont_hist_idx - 1 < len(history_tasks):
-                    hist_file = history_tasks[cont_hist_idx - 1].get("file", "")
+            #   - related_task_file_name 非空 → 加载历史主任务，把当前子任务挂上去
+            #   - related_task_file_name 为空 → 以当前子任务名创建新的主任务
+            related_sub_task = None
+            if has_related:
+                # 【延续子任务】通过文件名直接加载历史主任务
+                state_file = os.path.join(self.task_dir, related_task_file_name) if related_task_file_name else ""
+                self.task_manager = TaskManager.load(state_file) if (related_task_file_name and os.path.exists(state_file)) else self.task_manager
 
-                if hist_file and os.path.exists(hist_file):
-                    # 1. 加载历史主任务的所有子任务记录（含 plan_steps、对话等）
-                    self.task_manager = TaskManager.load(hist_file)
-                    self.task_manager.reactivate()           # 将 IN_PROGRESS 重置为 PENDING
-                    self._task_state_path = hist_file        # 之后 save 回同一文件
-                    # 2. 将当前子任务追加到历史主任务下（返回新子任务的索引）
-                    new_idx = self.task_manager.append_subtasks([sub])
-                    self.task_manager.set_subtask_extra(
-                        new_idx, f"延续自 [{cont_hist_idx}/{cont_sub_idx}], 理由: {cont_reason}"
-                    )
-                    # 3. 读历史子任务的项目路径和内容（传给 _run_phases 做上下文）
-                    hist_sub = self.task_manager.get_subtask(cont_sub_idx)
-                    if hist_sub:
-                        _related_subtask_task = hist_sub.task
-                        _related_project_path = hist_sub.project_path or self.work_dir
-                    self._log(f"  延续自历史任务 [{cont_hist_idx}/{cont_sub_idx}]: {hist_sub.task[:50] if hist_sub else '?'}")
-                    subtask_index = new_idx
+                if self.task_manager is not None:
+                    self.task_manager.reactivate()
+                    related_sub_task = self.task_manager.get_subtask(related_sub_idx)
+
+                    if related_subtask_relation == "itself" and related_sub_task is not None:
+                        # 【本身延续】直接复用历史子任务，不追加新子任务
+                        self._log(f"  恢复历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.task[:50]}")
+                        subtask_index = related_sub_idx
+                    else:
+                        # 【变更延续】追加新子任务到历史主任务下
+                        new_idx = self.task_manager.append_subtasks([sub])
+                        self.task_manager.set_subtask_extra(
+                            new_idx, f"延续自 [{related_task_file_name}/{related_sub_idx}], 理由: {related_reason}"
+                        )
+                        self._log(f"  延续自历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.task[:50] if related_sub_task else '?'}")
+                        subtask_index = new_idx
                 else:
-                    # 历史文件不可用，退化为新任务
-                    self.task_manager.start(sub_task)
-                    self.task_manager.add_subtasks_from_orchestrate([sub])
-                    subtask_index = 1
-                    self._log(f"  ⚠️ 历史文件未找到，以新任务执行")
+                    # 历史文件不可用，跳过该子任务并报告错误
+                    self._log(f"  ❌ 历史文件未找到: {state_file}", always=True)
+                    total_results.append({
+                        "judge": "false",
+                        "sub_task": sub_task,
+                        "task_type": task_type,
+                        "sub_type": sub_type,
+                        "subtask_index": 0,
+                        "project_path": "",
+                        "content": f"历史任务文件缺失: {state_file}",
+                        "cost": "",
+                    })
+                    continue
             else:
                 # 【全新子任务】创建以子任务名命名的主任务，只含一个子任务
                 self.task_manager.start(sub_task)
                 self.task_manager.add_subtasks_from_orchestrate([sub])
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.task_manager._save_path = os.path.join(self.task_dir, f"task_{ts}_state.json")
                 subtask_index = 1
 
-            self.task_manager.add_conversation_entry("user", user_task)
-            self._save_task_state()
+
             self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.IN_PROGRESS)
 
-            # ── 解析项目目录 ──
-            self._resolve_subtask_dir(
-                subtask_index, dir_from, subtask_content=sub_task,
-                is_continuation=sub_is_cont,
-                related_project_path=_related_project_path if sub_is_cont else ""
-            )
+            # ── 解析项目目录（itself 跳过，直接用历史子任务的路径） ──
+            if related_subtask_relation == "itself" and related_sub_task is not None:
+                self.proj_path = related_sub_task.project_path or self.work_dir
+                self.docs_dir = os.path.join(self.proj_path, "docs")
+            else:
+                self._resolve_subtask_dir(
+                    subtask_index, dir_from, subtask_content=sub_task,
+                    is_continuation=has_related,
+                    related_project_path=related_sub_task.project_path if (has_related and related_sub_task) else ""
+                )
 
-            # ── 执行阶段 ──
-            self.task_manager.set_subtask_history_relation(subtask_index, sub_is_cont, _related_subtask_task, _related_project_path)
+            # ── 执行阶段（itself 跳过历史关系设置） ──
+            if related_subtask_relation != "itself":
+                self.task_manager.set_subtask_history_relation(subtask_index, has_related, related_sub_task.task if related_sub_task else "", related_sub_task.project_path if related_sub_task else "")
+            
+            
             result = self._run_phases(subtask_index)
 
             self.task_manager.set_subtask_result(subtask_index, result["judge"], result["content"],
                                                  rounds=self.task_llm.call_count)
-            self._save_task_state()
+            self._log(f"  💾 保存状态到: {self.task_manager._save_path}")
+            self.task_manager.save_plan_steps(self.task_manager._stage_progress)
 
             cost_str=  self.task_llm.get_cost_summary() + self.task_llm.get_cost_from_balance()
 
@@ -306,7 +320,7 @@ class Agent:
                 "subtask_index": subtask_index,
                 "project_path": self.proj_path,
                 "log_path": self.logger.path,
-                "task_state": getattr(self, '_task_state_path', ''),
+                "task_state": self.task_manager._save_path,
                 "cost": cost_str,
                 "content": result["content"],
             })
@@ -319,7 +333,7 @@ class Agent:
                 self._log(f"  日志: {self.logger.path}")
             else:
                 self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.FAILED)
-                self._save_task_state()
+                self.task_manager.save_plan_steps(self.task_manager._stage_progress)
 
         # ── 全部子任务完成，汇总各子任务结果 ──
         summary_lines = [f"✅ 全部 {len(total_results)} 个子任务完成"]
@@ -337,7 +351,7 @@ class Agent:
                 summary_lines.append(f"     {r["cost"]}")
         summary = "\n".join(summary_lines)
         self._log(f"\n{summary}")
-        self._save_task_state()
+        self.task_manager.save_plan_steps(self.task_manager._stage_progress)
         return {"judge": "true", "content": summary}
 
     def _run_phases(self, subtask_index: int) -> bool:
@@ -349,6 +363,12 @@ class Agent:
         if sub is None:
             self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过", always=True)
             return False
+        
+        # 恢复之前中断的子任务
+        if sub.llm_context_info:
+            result = self._run_loop(subtask_index, base_prompt="")
+            self.task_manager.save_plan_steps(self.task_manager._stage_progress)
+            return result
         
         result = self._get_phases_and_extra_prompt(sub.task_type, sub.sub_type)
         if result is None:
@@ -410,9 +430,10 @@ class Agent:
             self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
 
         self.task_manager.set_subtask_phase_msgs(subtask_index, phase_msgs)
+
         result = self._run_loop(subtask_index, base_prompt=system_prompt)
 
-        self._save_task_state()
+        self.task_manager.save_plan_steps(self.task_manager._stage_progress)
         return result
 
     def _get_phases_and_extra_prompt(self, task_type_key: str, sub_type: str = ""):
@@ -502,7 +523,7 @@ class Agent:
 
         msg=  user_message
         # 初始化 StageProgress（chat 模式无预定义阶段，LLM 通过 update_plan 动态创建）
-        self._stage_progress = StageProgress()
+        self.chat_stage_progress = StageProgress()
         rounds = 0
         while True:
             rounds += 1
@@ -533,29 +554,80 @@ class Agent:
                 #     self._log(f"\n  🤖: {content_text}\n",always=True)
                 return {"judge": "true", "content": content_text}
 
-    def _build_phase_msg(self, phase: dict, task_name: str,
-                         entering: bool = False) -> tuple[str, str]:
-        """构建阶段 prompt_add 和 msg，返回 (prompt_add, msg)"""
-        pp = phase.get('phase_prompt', '')
-        header = f"\n## 阶段: {phase.get('name', '')}"
+    def _build_phase_msg(self, sub) -> tuple[str, str]:
+        """从 sub 构建当前阶段的 prompt_add 和 msg，返回 (prompt_add, msg)"""
+        phases = sub.phase_msgs
+        plan_steps = sub.plan_steps
+
+        current_idx = 0
+        for idx, p in enumerate(phases):
+            steps = plan_steps.get(p["name"], [])
+            if not steps or any(s.get("status", "") != "completed" for s in steps):
+                current_idx = idx
+                break
+
+        entering = current_idx > 0
+        phase = phases[current_idx]
+        pp = phase.get("phase_prompt", "")
+        header = f"\n# 当前子任务: {sub.task} \n## 阶段: {phase.get('name', '')}"
         if pp:
             prompt_add = header + "\n" + pp
         else:
             prompt_add = header
-        prompt_add += ("\n- 开始前先调用 update_plan 规划本阶段执行步骤。"
+        prompt_add += ("\n- 如果本阶段缺少详细执行步骤，先调用 update_plan 规划。"
                        "\n- 每个步骤完成后及时更新状态。"
                        "\n- 所有步骤完成后调用 finish 结束本阶段。")
 
         action = "进入新阶段" if entering else "当前阶段"
         plan_msg = (
             f"{action}: {phase['name']}\n"
-            f"所有阶段进度:\n{self._stage_progress.format_status()}\n"
-            f"请先调用 update_plan 规划「{phase['name']}」阶段的详细步骤。"
+            f"所有阶段进度:\n{self.task_manager._stage_progress.format_status()}\n"
+            f"如果「{phase['name']}」阶段缺少详细步骤，请先调用 update_plan 规划。"
         )
 
         phase_msg = phase.get('msg', '')
         msg = (plan_msg +"\n" +phase_msg) if phase_msg else plan_msg
         return prompt_add, msg
+
+    def _load_llm_context(self, sub) -> tuple[str, list]:
+        """从快照恢复 base_prompt 和 LLM 上下文，返回 (base_prompt, context)"""
+        if not sub or not sub.llm_context_info:
+            return "", []
+        fpath = os.path.join(sub.project_path or self.work_dir, ".llm_context", f"ctx_{sub.llm_context_info}.json")
+        if not os.path.exists(fpath):
+            return "", []
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                snap = json.load(f)
+            bp = snap.get("base_prompt", "")
+            ctx = snap.get("context", [])
+            if bp:
+                self._log(f"  📝 从快照恢复 base_prompt ({len(bp)} chars): {fpath}")
+            if ctx:
+                self._log(f"  📝 从快照恢复 LLM 上下文 ({len(ctx)} 条消息)")
+            return bp, ctx
+        except Exception:
+            return "", []
+
+    def _save_llm_context(self, subtask_index: int, base_prompt: str = ""):
+        """保存当前 LLM 上下文到文件，并计算哈希存入 SubTaskRecord"""
+        ctx_data = {
+            "base_prompt": base_prompt,
+            "context": self.task_llm.history,
+        }
+        ctx_json = json.dumps(ctx_data, ensure_ascii=False, indent=2)
+        ctx_hash = hashlib.sha256(ctx_json.encode()).hexdigest()
+
+        sub = self.task_manager.get_subtask(subtask_index)
+        proj = sub.project_path if sub and sub.project_path else self.work_dir
+        save_dir = os.path.join(proj, ".llm_context")
+        os.makedirs(save_dir, exist_ok=True)
+        filepath = os.path.join(save_dir, f"ctx_{ctx_hash}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(ctx_json)
+
+        self.task_manager.set_subtask_llm_context_info(subtask_index, ctx_hash)
+        self._log(f"  📝 LLM 上下文已保存: {filepath}  (hash={ctx_hash[:16]}...)")
 
     def _run_loop(self, subtask_index: int, base_prompt: str = "") -> dict:
         """工具调用模式执行循环。
@@ -571,6 +643,11 @@ class Agent:
         sub = self.task_manager.get_subtask(subtask_index)
         phases = sub.phase_msgs if sub else []
 
+        if not base_prompt:
+            base_prompt, ctx_msgs = self._load_llm_context(sub)
+            if ctx_msgs:
+                self.task_llm.history = ctx_msgs
+
         executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self)
 
         self._log(f"工作目录proj: {sub.project_path}")
@@ -580,13 +657,12 @@ class Agent:
         prompt = base_prompt
         if phases:
             stage_names = [p["name"] for p in phases]
-            self._stage_progress = self.task_manager.load_stage_progress(stage_names)
-            prompt_add, msg = self._build_phase_msg(phases[0], sub.task if sub else '')
+            self.task_manager._stage_progress = self.task_manager.load_stage_progress(stage_names)
+            prompt_add, msg = self._build_phase_msg(sub)
             prompt += prompt_add
 
             self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}", always=True)
 
-        phase_idx = 0
 
         for num in range(self.max_rounds):
             result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
@@ -613,36 +689,33 @@ class Agent:
                                 subtask_index, "false", exec_result["summary"])
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
-                            self._log(f"\n  {self._stage_progress.format_status()}", always=True)
-                            self._update_task_list() 
-                            self._save_task_state()
+                            self._save_llm_context(subtask_index, base_prompt)
+                            self._log(f"\n  {self.task_manager._stage_progress.format_status()}", always=True)
+                            self.task_manager.update_task_list(self.task_dir) 
                             return {"judge": "false", "content": exec_result["summary"]}
 
-                        if phases and phase_idx < len(phases):
-                            self.task_manager.add_conversation_entry(
-                                "agent",
-                                f"子任务 [{subtask_index}] {phases[phase_idx]['name']} :{phases[phase_idx]['msg']} 完成",
-                                subtask_index=subtask_index)
-                            self._save_task_state()
+                        
+                        all_done = all(
+                            sub.plan_steps.get(p['name']) and
+                            all(s.get('status', '') == 'completed' for s in sub.plan_steps.get(p['name'], []))
+                            for p in sub.phase_msgs
+                        ) if sub.plan_steps else False
 
-                        if phases and phase_idx + 1 < len(phases):
-                            phase_idx += 1
-                            self._log(f"  → 进入 {phases[phase_idx]['name']}")
-                            prompt_add, msg = self._build_phase_msg(phases[phase_idx], sub.task if sub else '', entering=True)
+                        if sub.phase_msgs and not all_done:
+                            prompt_add, msg = self._build_phase_msg(sub)
                             prompt = base_prompt + prompt_add
 
-                            self._save_task_state()
                             self._log(f"[PHASE] 切换后 prompt={len(prompt)}chars |\n msg= {msg}")
                             self._log(f"[PHASE] prompt= {prompt}")
 
                         else:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
+                            
+                            self._save_llm_context(subtask_index, base_prompt)
                             self._log(f"\n任务总结: {exec_result['summary']}")
-                            self.task_manager.add_conversation_entry(
-                                "assistant", f"总结: {exec_result["summary"]}",
-                                subtask_index)
-                            self._save_task_state()
+                            self.task_manager.update_task_list(self.task_dir)
+                            
                             return {"judge": "true", "content": exec_result["summary"]}
                     else:
                         self.task_llm.submit_tool_result(call["id"], str(exec_result))
@@ -663,14 +736,17 @@ class Agent:
                     )
 
                 if convergence:
-                    base = msg.split('\n[')[0] if '\n[' in msg else msg
-                    msg = base + convergence
+                    base = f"所有阶段进度:\n{self.task_manager._stage_progress.format_status()}"
+                    msg = base + "\n" + convergence
 
             elif result["type"] == "error":
                 self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
                 return {"judge": "false", "content": result.get("message", "API错误")}
             
             continue
+
+        if num+1 >= self.max_rounds:
+            self._save_llm_context(subtask_index, base_prompt)
 
         return {"judge": "false", "content": f"达到最大轮次 ({self.max_rounds})，任务未完成"}
 
@@ -759,36 +835,6 @@ class Agent:
             json.dump(index, f, ensure_ascii=False, indent=2)
         self.logger.write(f"workspace_index.json: {len(index)} 个文件")
 
-    def _classify_with_history(self, user_task: str, enable_history: bool = True) -> dict | None:
-        """阶段0：任务分解（统一走 TaskClassifier.classify）
-
-        enable_history=True 时加载历史上下文并传给 TaskClassifier。
-        """
-      
-        tc = TaskClassifier(self.task_llm, self.prompts)
-
-        history_ctx = ""
-        if enable_history:
-            history_ctx = TaskManager.build_history_context(self.task_dir)
-
-        classification = tc.classify(user_task,
-                                     enable_history=enable_history,
-                                     history_ctx=history_ctx)
-        if classification is None:
-            return None
-
-        return classification
-
-    def _save_task_state(self):
-        """将 task_manager 状态序列化到 task_state.json"""
-
-        try:
-            save_path = getattr(self, '_task_state_path',
-                                os.path.join(self.task_dir, "task_state.json"))
-            self.task_manager.save(save_path)
-        except Exception:
-            pass
-
     def _resolve_subtask_dir(self, subtask_index: int, dir_from: str,
                              subtask_content: str = "",
                              is_continuation: bool = False,
@@ -831,56 +877,13 @@ class Agent:
         docs_dir = os.path.join(proj_path, "docs")
         os.makedirs(docs_dir, exist_ok=True)
 
-        self.task_manager.set_subtask_project(subtask_index, proj_name, proj_path, docs_dir)
+        self.task_manager.set_subtask_project(subtask_index, proj_path, docs_dir)
         self.proj_path = proj_path
         self.work_dir = proj_path
         self.docs_dir = docs_dir
 
         self._log(f"   目录策略: {dir_from} → {proj_path}")
         return proj_path
-
-    def _update_task_list(self):
-        """更新 task_list.json 任务索引，保留最近 50 条"""
-
-        try:
-            list_path = os.path.join(self.task_dir, "task_list.json")
-            task_list = []
-            if os.path.exists(list_path):
-                try:
-                    with open(list_path, 'r', encoding='utf-8') as f:
-                        task_list = json.load(f)
-                except Exception:
-                    task_list = []
-
-            state_path = getattr(self, '_task_state_path', '')
-            existing = None
-            for i, t in enumerate(task_list):
-                if t.get("state_file") == state_path:
-                    existing = i
-                    break
-
-            entry = {
-                "main_task": self.task_manager.main_task.task if self.task_manager.main_task else "",
-                "status": self.task_manager.main_task.status.value if self.task_manager.main_task else "",
-                "created_at": self.task_manager.main_task.created_at if self.task_manager.main_task else "",
-                "completed_at": self.task_manager.main_task.completed_at if self.task_manager.main_task else "",
-                "state_file": state_path,
-                "subtasks_count": len(self.task_manager.subtasks),
-                "completed_count": sum(1 for s in self.task_manager.subtasks
-                                      if s.status == SubTaskStatus.COMPLETED),
-            }
-            if existing is not None:
-                task_list[existing] = entry
-            else:
-                task_list.append(entry)
-
-            if len(task_list) > 50:
-                task_list = task_list[-50:]
-
-            with open(list_path, 'w', encoding='utf-8') as f:
-                json.dump(task_list, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
 
     def _init_log(self):
         """初始化日志文件、日志器注入、task_state 路径"""
@@ -890,4 +893,3 @@ class Agent:
         if self.auth:
             self.auth.logger = self.logger
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._task_state_path = os.path.join(self.task_dir, f"task_{ts}_state.json")

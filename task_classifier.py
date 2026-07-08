@@ -18,6 +18,17 @@ class TaskClassifier:
         self.llm = llm_client
         self.prompts = prompts
 
+    def classify_with_history(self, user_task: str, task_dir: str,
+                               enable_history: bool = True) -> dict | None:
+        """分类任务，自动构建历史上下文"""
+        history_ctx = ""
+        if enable_history:
+            from task_manager import TaskManager
+            history_ctx = TaskManager.build_history_context(task_dir)
+        return self.classify(user_task,
+                             enable_history=enable_history,
+                             history_ctx=history_ctx)
+
     def classify(self, user_task: str,
                  enable_history: bool = False,
                  history_ctx: str = "") -> dict:

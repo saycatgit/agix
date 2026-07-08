@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-import json, os, glob
+import json, os, glob, re
 from dataclasses import dataclass, field
 from stage_progress import StageProgress
 from datetime import datetime
@@ -82,13 +82,12 @@ class SubTaskRecord:
     is_continuation: bool = False
     related_subtask_task: str = ""
     related_project_path: str = ""
+    llm_context_info: str = ""
     phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
     dir_from:       str = ""
-    project_name:   str = ""
     project_path:   str = ""
     docs_dir:       str = ""
-    docs_paths:     str = ""
     extra:          str = ""
     result_judge:   str = ""
     result_content: str = ""
@@ -139,6 +138,7 @@ class TaskManager:
         self._global_messages: list[QAMessage] = []
         self._conversation_log: list[dict] = []
         self._save_path = save_path
+        self._stage_progress: StageProgress | None = None
 
     # ── 主任务 ──
 
@@ -192,12 +192,11 @@ class TaskManager:
             if status in (SubTaskStatus.COMPLETED, SubTaskStatus.FAILED, SubTaskStatus.SKIPPED):
                 rec.completed_at = _now_iso()
 
-    def set_subtask_project(self, index: int, project_name: str, project_path: str, docs_dir: str):
+    def set_subtask_project(self, index: int, project_path: str, docs_dir: str):
         """设置子任务的项目路径和文档目录信息。"""
         """设置子任务的项目名称、路径和文档目录"""
         rec = self._get_sub(index)
         if rec:
-            rec.project_name = project_name
             rec.project_path = project_path
             rec.docs_dir = docs_dir
 
@@ -210,7 +209,6 @@ class TaskManager:
             for k, v in docs.items():
                 if isinstance(v, dict) and v.get("path"):
                     paths.append(v["path"])
-            rec.docs_paths = "\n".join(paths)
 
     def set_subtask_result(self, index: int, judge: str, content: str, rounds: int = 0):
         """记录子任务的执行结果（成功/失败判定 + 结果摘要 + 消耗轮次）。"""
@@ -263,6 +261,12 @@ class TaskManager:
         rec = self._get_sub(index)
         if rec:
             rec.phase_msgs = phase_msgs
+
+    def set_subtask_llm_context_info(self, index: int, info: str):
+        """设置子任务的 LLM 上下文信息哈希"""
+        rec = self._get_sub(index)
+        if rec:
+            rec.llm_context_info = info
 
     def get_subtask(self, index: int) -> SubTaskRecord | None:
         """按索引获取子任务记录。"""
@@ -323,8 +327,8 @@ class TaskManager:
             return {
                 "index": s.index, "task": s.task, "task_type": s.task_type,
                 "sub_type": s.sub_type, "dir_from": s.dir_from, "status": s.status.value,
-                "project_name": s.project_name, "project_path": s.project_path,
-                "docs_dir": s.docs_dir, "docs_paths": s.docs_paths, "extra": s.extra,
+                "project_path": s.project_path,
+                "docs_dir": s.docs_dir, "extra": s.extra,
                 "result_judge": s.result_judge, "result_content": s.result_content,
                 "round_count": s.round_count,
                 "messages": [_msg_to_dict(m) for m in s.messages],
@@ -334,6 +338,7 @@ class TaskManager:
                 "related_subtask_task": s.related_subtask_task,
                 "related_project_path": s.related_project_path,
                 "phase_msgs": s.phase_msgs,
+                "llm_context_info": s.llm_context_info,
             }
 
         main = self._main
@@ -382,11 +387,9 @@ class TaskManager:
                 sub_type=sd.get("sub_type", ""),
                 dir_from=sd.get("dir_from", ""),
                 status=SubTaskStatus(sd.get("status", "pending")),
-                project_name=sd.get("project_name", ""),
-                project_path=sd.get("project_path", ""),
+                                project_path=sd.get("project_path", ""),
                 docs_dir=sd.get("docs_dir", ""),
-                docs_paths=sd.get("docs_paths", ""),
-                extra=sd.get("extra", ""),
+                                extra=sd.get("extra", ""),
                 result_judge=sd.get("result_judge", ""),
                 result_content=sd.get("result_content", ""),
                 round_count=sd.get("round_count", 0),
@@ -395,6 +398,7 @@ class TaskManager:
                 related_subtask_task=sd.get("related_subtask_task", ""),
                 related_project_path=sd.get("related_project_path", ""),
                 phase_msgs=sd.get("phase_msgs", []),
+                llm_context_info=sd.get("llm_context_info", ""),
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
@@ -442,14 +446,65 @@ class TaskManager:
 
     # ── 历史任务扫描 ──
 
+    def save_plan_steps(self, stage_progress=None):
+        """保存任务状态到 _save_path，可选同步 stage_progress"""
+        if not self._save_path:
+            raise ValueError("_save_path 为空，无法保存")
+        if stage_progress:
+            self.update_plan_steps(stage_progress)
+        self.save(self._save_path)
+
+    def update_task_list(self, task_dir: str):
+        """更新 task_list.json 任务索引，保留最近 50 条"""
+        try:
+            list_path = os.path.join(task_dir, "task_list.json")
+            task_list = []
+            if os.path.exists(list_path):
+                try:
+                    with open(list_path, 'r', encoding='utf-8') as f:
+                        task_list = json.load(f)
+                except Exception:
+                    task_list = []
+
+            existing = None
+            for i, t in enumerate(task_list):
+                if t.get("state_file") == self._save_path:
+                    existing = i
+                    break
+
+            entry = {
+                "main_task": self.main_task.task if self.main_task else "",
+                "status": self.main_task.status.value if self.main_task else "",
+                "created_at": self.main_task.created_at if self.main_task else "",
+                "completed_at": self.main_task.completed_at if self.main_task else "",
+                "state_file": self._save_path,
+                "subtasks_count": len(self.subtasks),
+                "completed_count": sum(1 for s in self.subtasks
+                                      if s.status == SubTaskStatus.COMPLETED),
+            }
+            if existing is not None:
+                task_list[existing] = entry
+            else:
+                task_list.append(entry)
+
+            if len(task_list) > 50:
+                task_list = task_list[-50:]
+
+            with open(list_path, 'w', encoding='utf-8') as f:
+                json.dump(task_list, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     @staticmethod
     def scan_history_tasks(log_dir: str) -> list[dict]:
         """扫描日志目录，获取所有已完成/进行中的历史任务摘要"""
         tasks = []
         if not os.path.isdir(log_dir):
             return tasks
-        for state_file in sorted(glob.glob(os.path.join(log_dir, "task_*_state.json")),
-                                 reverse=True):
+        _pat = re.compile(r'task_(\d+)_state\.json$')
+        for state_file in glob.glob(os.path.join(log_dir, "task_*_state.json")):
+            m = _pat.search(state_file)
+            task_num = int(m.group(1)) if m else 0
             try:
                 with open(state_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -460,6 +515,8 @@ class TaskManager:
             completed = sum(1 for s in subtasks if s.get("status") == "completed")
             tasks.append({
                 "file": state_file,
+                "file_name": os.path.basename(state_file),
+                "task_num": task_num,
                 "main_task": main.get("task", ""),
                 "status": main.get("status", ""),
                 "created_at": main.get("created_at", ""),
@@ -476,6 +533,7 @@ class TaskManager:
                     "messages": s.get("messages", []),
                 } for s in subtasks],
             })
+        tasks.sort(key=lambda t: t["task_num"])
         return tasks
 
     @staticmethod
@@ -492,7 +550,7 @@ class TaskManager:
         for ti, t in enumerate(tasks[:15]):
             header = (
                 f"\n### 历史主任务 {ti+1}: {t['main_task']}"
-                f" (状态: {t['status']}, {t['completed_count']}/{t['subtasks_count']} 完成)"
+                f" (状态: {t['status']}, {t['completed_count']}/{t['subtasks_count']} 完成, 文件: {t['file_name']})"
             )
             total += len(header)
             if total > max_chars:
@@ -504,7 +562,7 @@ class TaskManager:
                 icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
                        .get(s["status"], "?")
                 sline = (
-                    f"  子任务{s['index']} {icon} [{s['task_type']}] {s['content'][:100]}"
+                    f"  子任务{s['index']} {icon} [{s['task_type']}] {s.get('task', '')[:100]}"
                 )
                 if s.get("result_judge"):
                     sline += f" → 结果: {s['result_judge']}"
@@ -551,7 +609,7 @@ class TaskManager:
                 pass
         return StageProgress(stage_names)
 
-    def save_stage_progress(self, progress: StageProgress):
+    def update_plan_steps(self, progress: StageProgress):
         """将 StageProgress 序列化回当前活动子任务的 plan_steps 字段。"""
         sub = self._active_subtask()
         if sub:

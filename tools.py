@@ -674,13 +674,13 @@ class ToolExecutor:
         if not agent:
             return json.dumps({"error": "agent not available"}, ensure_ascii=False)
 
-        progress = getattr(agent, "_stage_progress", None)
+        progress = getattr(agent.task_manager, "_stage_progress", None)
         if not progress:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         progress.update_steps(stage, steps)
         try:
-            agent.task_manager.save_stage_progress(progress)
+            agent.task_manager.save_plan_steps(agent.task_manager._stage_progress)
         except Exception:
             pass
 
