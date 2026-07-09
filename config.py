@@ -1,126 +1,235 @@
-"""配置管理
-
-负责 JSON 配置文件的读写、默认值合并、供应商查询。
-核心数据结构:
-  - DEFAULT_CONFIG: 默认配置字典 (llm/execution/log/memory/docs/auth)
-  - TRUNCATION: 文本截断长度统一管理常量
-"""
+"""配置管理 —— 基于 dataclass 的类型安全配置"""
 
 import json
 import os
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from typing import Optional
 from llm_client import PROVIDERS
 
-DEFAULT_CONFIG = {
-    "llm": {
-        "provider": "deepseek",
-        "api_key": "",
-        "base_url": "",
-        "model": "deepseek-v4-pro",
-        "temperature": 0.7,
-        "max_tokens": 10240,
-    },
-    "execution": {
-        "timeout": 60,              # shell 命令超时秒数
-        "llm_rounds": 40,           # 重规划最大轮次（防止无限循环）
-        "work_dir": "./workspace",   # 临时文件工作目录
-        "skills_dir": "./workspace/skills",      # 技能目录
-        "spc_dir": "./spc",                         # spec文档目录
-        "enable_history_association":True  #启用历史task项目记录关联记忆
-    },
-    "log": {
-        "dir": "./workspace/log",                              # 日志目录，为空则使用 {work_dir}/log
-        "log_to_terminal": False,           # 是否打印过程信息到终端
-        "log_to_file": True,        # 是否写入日志文件
-        "history": True,            # 是否将 LLM 对话历史保存到独立日志
-    },
-    "memory": {
-        "enabled": True,            # 是否启用 LLM 会话记忆
-        "size": 40,                 # 保留最近 N 轮对话，尽量和最大轮次一致
-    },
-    
-    "auth": {
-        "interactive": True,               # 是否交互式确认（False 则自动拒绝）
-        "sensitive_command_check": True,   # 是否检查敏感命令
-    },
-}
-
-# ── 文本截断长度统一管理 ──
-TRUNCATION = {
-    # ── 日志文件输出截断（仅影响日志，不影响 LLM prompt）──
-    "log_raw_response":   10000,    # 规划/评估 LLM 原始响应存入日志的最大长度
-    "log_exec_output":     5000,    # 单个任务执行输出存入日志的最大长度
-    "log_llm_interact":    5000,    # executor/planner 内部 LLM 交互记录响应的最大长度
-    "log_llm_prompt":       10000,    # executor/planner 内部 LLM 交互 system/user 的最大长度
-    "log_task_cmd":       2300,    # 重规划任务命令日志最大长度
-
-    # ── 终端显示截断（仅影响打印，不影响日志）──
-    "display_cmd_preview":  120,    # 终端命令预览最大长度
-    "display_result":       300,    # 终端单个任务结果最大长度
-
-    # ── LLM Prompt/记忆截断（控制 token 消耗）──
-    "history_detail":       8000,    # 写入 LLM 会话记忆的单个结果最大长度
-    "evaluate_output":     50000,    # 评估时发送给 LLM 的汇总结果最大长度
-    "skill_dir_list":        10,    # 技能目录列表错误提示中显示的最大条目数
-}
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 
-def load_config(path: str = "") -> dict:
-    """加载 JSON 配置文件
-
-    Args:
-        path: 配置文件路径，默认 CONFIG_PATH (config.json)
-
-    Returns:
-        与 DEFAULT_CONFIG 深度合并后的完整配置 dict。
-        用户配置中的字段会覆盖默认值，未设置的字段保持默认。
-    """
-    p = Path(path) if path else CONFIG_PATH
-    user = json.loads(open(p, encoding="utf-8").read()) if p.exists() else {}
-    cfg = json.loads(json.dumps(DEFAULT_CONFIG))
-    _deep_merge(cfg, user)
-    return cfg
+@dataclass
+class LLMConfig:
+    provider: str = "deepseek"
+    api_key: str = ""
+    base_url: str = ""
+    model: str = "deepseek-v4-pro"
+    temperature: float = 0.7
+    max_tokens: int = 10240
+    memory_enabled: bool = True
+    memory_size: int = 40
+    llm_max_allowed_rounds: int = 40
 
 
-def save_config(config: dict, path: str = ""):
-    """保存配置到 JSON 文件
+@dataclass
+class ExecutionConfig:
+    timeout: int = 60
+    work_dir: str = "./workspace"
+    skills_dir: str = ""
+    spc_dir: str = ""
+    enable_history_association: bool = True
+    task_config_file_path: str = ""
+    pending_tasks_file_path: str = ""
+    task_dir: str = ""
+    inner_space_dir: str = "./inner_space"
 
-    Args:
-        config: 配置字典
-        path: 目标路径，默认 CONFIG_PATH
-    """
-    p = Path(path) if path else CONFIG_PATH
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+
+@dataclass
+class LogConfig:
+    dir: str = "./workspace/log"
+    log_to_terminal: bool = False
+    log_to_file: bool = True
+    history: bool = True
 
 
-def get_default_config() -> dict:
-    """返回 DEFAULT_CONFIG 的深拷贝
+@dataclass
+class AuthConfig:
+    interactive: bool = True
+    sensitive_command_check: bool = True
 
-    Returns:
-        不从文件读取的默认配置字典
-    """
-    return json.loads(json.dumps(DEFAULT_CONFIG))
+
+# ── 文本截断长度 ──
+TRUNCATION = {
+    "log_raw_response":   10000,
+    "log_exec_output":     5000,
+    "log_llm_interact":    5000,
+    "log_llm_prompt":      10000,
+    "log_task_cmd":        2300,
+    "display_cmd_preview":  120,
+    "display_result":       300,
+    "history_detail":       8000,
+    "evaluate_output":     50000,
+    "skill_dir_list":        10,
+}
+
+
+# ── AppConfig ────────────────────────────────────────────────────
+
+@dataclass
+class AppConfig:
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    log: LogConfig = field(default_factory=LogConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
+
+    def __post_init__(self):
+        """自动初始化：解析 API Key、规范化路径、创建目录"""
+        self._init_paths()
+        self._init_dirs()
+        self._init_api_key()
+
+    def _init_paths(self):
+        """将相对路径转为绝对路径（相对于 config.py 所在目录）"""
+        import os as _os
+        root = str(Path(__file__).parent)
+        isd = self.execution.inner_space_dir
+
+        if not self.execution.spc_dir:
+            self.execution.spc_dir = isd + "/spc"
+        if not self.execution.skills_dir:
+            self.execution.skills_dir = isd + "/skills"
+        if not self.execution.task_dir:
+            self.execution.task_dir = isd + "/task"
+        if not self.execution.task_config_file_path:
+            self.execution.task_config_file_path = self.execution.spc_dir + "/task_config.json"
+        if not self.execution.pending_tasks_file_path:
+            self.execution.pending_tasks_file_path = self.execution.task_dir + "/pending_tasks.json"
+
+        self.execution.spc_dir = self._resolve(self.execution.spc_dir, root)
+        self.execution.skills_dir = self._resolve(self.execution.skills_dir, root)
+        self.execution.task_dir = self._resolve(self.execution.task_dir, root)
+        self.execution.task_config_file_path = self._resolve(self.execution.task_config_file_path, root)
+        self.execution.pending_tasks_file_path = self._resolve(self.execution.pending_tasks_file_path, root)
+        self.log.dir = self._resolve(self.log.dir, root)
+
+    def _init_dirs(self):
+        """创建必要的目录"""
+        import os as _os
+        for d in [self.log.dir, self.execution.task_dir]:
+            if d:
+                _os.makedirs(d, exist_ok=True)
+
+    def _init_api_key(self):
+        """解析 API Key，失败则抛异常"""
+        from aes_crypto import is_encrypted, decrypt
+        import os as _os
+        key = self.llm.api_key
+        if not key or not key.strip():
+            return
+        if is_encrypted(key):
+            self.llm.api_key = decrypt(key)
+        elif any(key.startswith(p) for p in ("sk-", "fk-", "ak-", "xai-", "hf-")):
+            pass  # 原始 key，直接使用
+        else:
+            resolved = _os.environ.get(key, "")
+            if resolved:
+                self.llm.api_key = resolved
+
+    @staticmethod
+    def _resolve(path: str, root: str) -> str:
+        import os as _os
+        if not _os.path.isabs(path):
+            return _os.path.abspath(_os.path.join(root, path))
+        return _os.path.abspath(path)
+
+    # ── 序列化 ──
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        # 向后兼容：保留 memory 段（读取时仍可用）
+        d["memory"] = {
+            "enabled": self.llm.memory_enabled,
+            "size": self.llm.memory_size,
+        }
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "AppConfig":
+        llm_data = dict(d.get("llm", {}))
+        # 向后兼容：旧 config.json 的 memory 段合并到 llm
+        if "memory" in d:
+            mem = d["memory"]
+            llm_data.setdefault("memory_enabled", mem.get("enabled", True))
+            llm_data.setdefault("memory_size", mem.get("size", 40))
+        return cls(
+            llm=LLMConfig(**llm_data),
+            execution=ExecutionConfig(**d.get("execution", {})),
+            log=LogConfig(**d.get("log", {})),
+            auth=AuthConfig(**d.get("auth", {})),
+        )
+
+    # ── 加载 / 保存 ──
+
+    @classmethod
+    def load(cls, path: str = "") -> "AppConfig":
+        """从 JSON 加载配置，合并用户设置后执行 __post_init__"""
+        cfg = cls()  # defaults → __post_init__ 会在构造时触发
+        p = Path(path) if path else CONFIG_PATH
+        if p.exists():
+            user = json.loads(open(p, encoding="utf-8").read())
+            cfg._merge(user)
+            cfg.__post_init__()  # 合并后重新初始化
+        return cfg
+
+    def save(self, path: str = ""):
+        """保存到 JSON 文件"""
+        p = Path(path) if path else CONFIG_PATH
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+
+    def _merge(self, user: dict):
+        """深度合并用户配置到默认值上"""
+        for section in ("llm", "execution", "log", "auth"):
+            if section in user:
+                s = getattr(self, section)
+                for k, v in user[section].items():
+                    if hasattr(s, k):
+                        setattr(s, k, v)
+
+    # ── API Key 解析 ──
+
+    def resolve_api_key(self) -> bool:
+        """解析并解密 api_key（AES 加密 / 环境变量 / 原始 key）"""
+        from aes_crypto import is_encrypted, decrypt
+        api_key = self.llm.api_key
+        if not api_key or not api_key.strip():
+            return False
+
+        if is_encrypted(api_key):
+            try:
+                self.llm.api_key = decrypt(api_key)
+                return True
+            except ValueError:
+                return False
+
+        if any(api_key.startswith(p) for p in ("sk-", "fk-", "ak-", "xai-", "hf-")):
+            return True
+
+        # 尝试作为环境变量名解析
+        resolved = os.environ.get(api_key, "")
+        if resolved:
+            self.llm.api_key = resolved
+            return True
+        return False
+
+
+# ── 兼容旧版 ──
+
+def load_config(path: str = "") -> AppConfig:
+    """兼容旧接口：返回 AppConfig 实例。"""
+    return AppConfig.load(path)
+
+
+def save_config(config: AppConfig, path: str = ""):
+    config.save(path)
+
+
+def get_default_config() -> AppConfig:
+    return AppConfig()
 
 
 def list_available_providers() -> list:
-    """列出所有可用的 LLM 供应商
-
-    Returns:
-        [{"id": str, "name": str, "models": list, "base_url": str}, ...]
-    """
     return [{"id": k, "name": v["name"], "models": v["models"], "base_url": v["base_url"]}
             for k, v in PROVIDERS.items()]
-
-
-def _deep_merge(base: dict, override: dict):
-    """深度合并两个字典，override 覆盖 base
-
-    递归处理嵌套字典，非字典值直接覆盖。
-    """
-    for k, v in override.items():
-        if k in base and isinstance(base[k], dict) and isinstance(v, dict):
-            _deep_merge(base[k], v)
-        else:
-            base[k] = v

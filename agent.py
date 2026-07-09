@@ -47,82 +47,57 @@ class Agent:
     依赖组件：LLMClient / TaskManager / Logger
     """
 
-    def __init__(self, config: dict, auth_handler=None):
+    def __init__(self, config, auth_handler=None, eqm=None):
         self.config = config
-        llm_cfg = config.get("llm", {})
-        mem_cfg = config.get("memory", {})
-        llm_cfg["memory_enabled"] = mem_cfg.get("enabled", True)
-        llm_cfg["memory_size"]    = mem_cfg.get("size", 20)
-  
-        self.auth       = auth_handler
+        self.eqm = eqm
+        self.auth = auth_handler
 
-        exec_cfg = config.get("execution", {})
-        self.max_rounds   = exec_cfg.get("llm_rounds", 10)
-        log_cfg = config.get("log", {})
-        
-        self.logger    = Logger()
-        self.logger.log_to_terminal = log_cfg.get("log_to_terminal", False)
-        self.logger.enabled = log_cfg.get("log_to_file", True)
+        self.max_rounds = config.llm.llm_max_allowed_rounds
 
-        self.chat_llm  = LLMClient(llm_cfg, logger=self.logger)
+        self.chat_logger = Logger(config.log, eqm=self.eqm)
+        self.task_logger = Logger(config.log, eqm=self.eqm)
+        self.logger = Logger(config.log, eqm=self.eqm)
 
-        self.task_llm  = LLMClient(llm_cfg, logger=self.logger)
+        self.chat_llm = LLMClient(config.llm, logger=self.chat_logger)
+        self.task_llm = LLMClient(config.llm, logger=self.task_logger)
 
         self.project_root = os.path.dirname(os.path.abspath(__file__))
         self.work_dir = os.getcwd()
-        # spc_dir
-        scd = exec_cfg.get("spc_dir", "./spc")
-        if not os.path.isabs(scd):
-            scd = os.path.join(self.project_root, scd)
-        self.spc_dir = os.path.abspath(scd)
-        
+
+        # 路径由 AppConfig.__post_init__ 解析为绝对路径并创建目录
+        self.spc_dir = config.execution.spc_dir
+        self.skills_dir = config.execution.skills_dir
+        self.task_dir = config.execution.task_dir
+
         self.proj_path = os.path.join(self.work_dir, "temp")
         self.docs_dir = None
-        # skills_dir
-        sd = exec_cfg.get("skills_dir", "./inner_space/skills")
-        if not os.path.isabs(sd):
-            sd = os.path.join(self.project_root, sd)
-        self.skills_dir = os.path.abspath(sd)
-        # log_dir
-        ld = log_cfg.get("dir") or os.path.join(self.work_dir, "log")
-        if not os.path.isabs(ld):
-            ld = os.path.join(self.project_root, ld)
-        self.log_dir = os.path.abspath(ld)
-        # task_dir
-        td = exec_cfg.get("task_dir", "./task")
-        if not os.path.isabs(td):
-            td = os.path.join(self.project_root, td)
-        self.task_dir = os.path.abspath(td)
 
         self.task_manager = TaskManager()
-        self.enable_history_association = exec_cfg.get("enable_history_association", True)
+        self.enable_history_association = config.execution.enable_history_association
 
-        self.prompts = Prompts(self.spc_dir)
+        self.prompts = Prompts(self.spc_dir, self.config.execution.task_config_file_path)
 
-        os.makedirs(self.task_dir, exist_ok=True)
-        self._exec_lock = threading.Lock()
         self.scheduler = TaskScheduler(
-            os.path.join(self.task_dir, "pending_tasks.json"),
+            self.config.execution.pending_tasks_file_path,
             self
         )
         self.scheduler.start()
         self.is_interactive = False  # 当前任务是否为交互模式
-        self._start_task_worker()
 
-        # 初始化日志文件（所有模式都需要，不仅仅是 task 模式）
-        os.makedirs(self.log_dir, exist_ok=True)
-        if not self.logger.path:
-            self.logger.init(self.log_dir)
-        if log_cfg.get("history", True):
-            self.chat_llm.history_log_path = os.path.join(self.log_dir, "history_chat.log")
-            self.task_llm.history_log_path = os.path.join(self.log_dir, "history_task.log")
+        if self.config.log.history:
+            self.chat_llm.history_log_path = os.path.join(self.config.log.dir, "history_chat.log")
+            self.task_llm.history_log_path = os.path.join(self.config.log.dir, "history_task.log")
+
+        if self.eqm:
+            self.start_chat_worker()
+            self.start_task_worker()
 
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg, always)
-
-    def _start_task_worker(self):
+    def start_task_worker(self):
         """启动后台工作线程：轮询调度器的到期任务队列并执行"""
-        def _worker():
+        def _task_worker():
+            Logger.mark_thread("task")
             while not self.scheduler._stopped.is_set():
                 ready = self.scheduler.pop_ready_tasks()
                 for rt in ready:
@@ -130,28 +105,40 @@ class Agent:
                     self.is_interactive = rt.get("is_interactive", False)
                     if task_name:
                         mode = rt.get("mode", "task")
-                        self._log(f"\n{"="*30}⏰ 定时任务{task_name[:15]}.. 🚀{"="*30}", always=True)
-                        ret = self.run(task_name, mode=mode)
-                        self._log(f"\n{ret["content"]}", always=True)
-                        self._log(f"\n{"="*40}✅ 任务执行结束{"="*40}", always=True)
-
+                        self._log("=" * 30, always=True)
+                        self.run(task_name, mode=mode)
                 time.sleep(1)
-        t = threading.Thread(target=_worker, daemon=True)
+        t = threading.Thread(target=_task_worker, daemon=True)
+        t.start()
+
+    def start_chat_worker(self):
+        """启动 Chat 工作线程"""
+        if not self.eqm:
+            return
+        def _chat_worker():
+            Logger.mark_thread("chat")
+            while True:
+                msg = self.eqm.to_chat_queue.get()
+                if msg.get("message_type") == "user_input":
+                    content = msg.get("content", "")
+                    try:
+                        self.run(content, mode="chat")
+                    except Exception as ex:
+                        self.eqm.send_display(f"Error: {ex}", mode="chat", style="error")
+        t = threading.Thread(target=_chat_worker, daemon=True)
         t.start()
 
     def run(self, user_task: str, mode: str = "chat") -> dict:
         """主入口
 
-        线程安全：通过 self._exec_lock 确保定时器线程与主线程不会并发执行。
 
         mode="chat": 对话模式（默认），无任务分解，直接进入工具调用对话
         mode="task": 任务模式，执行完整流水线（分类→分解→执行）
 
         Returns: {"judge": str, "content": str}
         """
-        # with self._exec_lock:
         if mode == "chat":
-            # print(f"\n🤖: {self.chat_llm.dump_history()}")
+            Logger.mark_thread("chat")
             self._in_task_mode = False
             ret= self._run_chat(user_task)
             # print(self.chat_llm.dump_history())
@@ -161,12 +148,14 @@ class Agent:
         else:
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
             self._in_task_mode = True
+            Logger.mark_thread("task")
 
             try:
                 ret= self._run_task(user_task)
 
                 self._in_task_mode = False
                 self._log(ret["content"],always=True)
+                Logger.mark_thread("chat")
 
                 ret= self._run_chat(f"任务模式返回结果："+ret["content"])
 
@@ -232,7 +221,6 @@ class Agent:
             self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
 
             # ── 每个子任务独立的日志和计数器 ──
-            self._init_log()
             self.task_llm.history.clear()
             self.task_llm.init_task_counters()
 
@@ -319,7 +307,7 @@ class Agent:
                 "sub_type": sub_type,
                 "subtask_index": subtask_index,
                 "project_path": self.proj_path,
-                "log_path": self.logger.path,
+                "log_path": self.task_logger.path,
                 "task_state": self.task_manager._save_path,
                 "cost": cost_str,
                 "content": result["content"],
@@ -330,7 +318,7 @@ class Agent:
                 self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.COMPLETED)
                 self.task_manager.finish(True)
                 self._log(f"\n子任务{subtask_index}完成 — " +cost_str)
-                self._log(f"  日志: {self.logger.path}")
+                self._log(f"  日志: {self.task_logger.path}")
             else:
                 self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.FAILED)
                 self.task_manager.save_plan_steps(self.task_manager._stage_progress)
@@ -445,7 +433,7 @@ class Agent:
         """
         if not hasattr(self, '_attr_mgr'):
             from task_attribute_manager import TaskAttributeManager
-            json_path = os.path.join(self.spc_dir, "spec.json")
+            json_path = self.config.execution.task_config_file_path
             self._attr_mgr = TaskAttributeManager(json_path)
         result = self._attr_mgr.get_phases_and_extra_prompt(task_type_key, sub_type)
         if result is None:
@@ -515,7 +503,7 @@ class Agent:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
         self.is_interactive = True  # chat 模式默认为交互模式
-        executor = ToolExecutor(self.proj_path, logger=self.logger, agent=self)
+        executor = ToolExecutor(self.proj_path, logger=self.chat_logger, agent=self, eqm=self.eqm, mode="chat")
 
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
@@ -647,7 +635,7 @@ class Agent:
             if ctx_msgs:
                 self.task_llm.history = ctx_msgs
 
-        executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self)
+        executor = ToolExecutor(sub.project_path, logger=self.task_logger, agent=self, eqm=self.eqm, mode="task")
 
         self._log(f"工作目录proj: {sub.project_path}")
 
@@ -856,15 +844,24 @@ class Agent:
         elif dir_from.startswith("[") and dir_from.endswith("]"):
             suggested = dir_from[1:-1].strip() or "temp"
             proj_name = suggested
-            if self.is_interactive and __import__("threading").current_thread() is __import__("threading").main_thread():
-                try:
-                    user_input = input(
-                        f"\n📁 子任务 [{subtask_index}] 请输入项目目录名 [{suggested}]: "
-                    ).strip()
-                    if user_input:
-                        proj_name = user_input
-                except (EOFError, KeyboardInterrupt):
-                    pass
+            if self.is_interactive:
+                prompt = f"子任务 [{subtask_index}] 请输入项目目录名 [{suggested}]"
+                if self.eqm is not None:
+                    try:
+                        user_input = self.eqm.ask_user(prompt, mode="task").strip()
+                        if user_input:
+                            proj_name = user_input
+                    except Exception:
+                        pass
+                elif __import__("threading").current_thread() is __import__("threading").main_thread():
+                    try:
+                        user_input = input(
+                            f"\n📁 {prompt}: "
+                        ).strip()
+                        if user_input:
+                            proj_name = user_input
+                    except (EOFError, KeyboardInterrupt):
+                        pass
             proj_path = os.path.join(self.work_dir, proj_name)
 
         # ── temp 或其他: 使用 temp 目录 ──
@@ -884,11 +881,4 @@ class Agent:
         self._log(f"   目录策略: {dir_from} → {proj_path}")
         return proj_path
 
-    def _init_log(self):
-        """初始化日志文件、日志器注入、task_state 路径"""
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.logger.init(self.log_dir)
-        self.logger.write(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
-        if self.auth:
-            self.auth.logger = self.logger
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+ 

@@ -1,0 +1,20 @@
+[
+  {
+    "main_task": "实现完整的俄罗斯方块游戏，包含核心逻辑、交互控制（键盘/触屏）、Canvas渲染和UI，输出为单个可运行的HTML文件。",
+    "status": "in_progress",
+    "created_at": "2026-07-09T16:58:11",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260709_165811_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task": "实现完整的网页贪吃蛇游戏，包含核心玩法（移动、吃食物、增长、碰撞结束）、UI（分数、最高分、开始/结束提示、重新开始）、键盘与触屏控制、暂停/继续、Canvas绘制、渐变色蛇身与动画食物、难度递增，输出为单个可运行的HTML文件",
+    "status": "in_progress",
+    "created_at": "2026-07-09T17:07:38",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260709_170738_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  }
+]

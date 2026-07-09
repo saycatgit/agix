@@ -2,3 +2,4 @@ openai>=1.0.0
 markdown-it-py
 prompt-toolkit
 debugpy
+flet>=0.25.0

@@ -56,18 +56,41 @@ PROVIDERS = {
 
 class LLMClient:
 
-    def __init__(self, config: dict, logger=None):
-        provider = config.get("provider", "deepseek")
-        provider_info = PROVIDERS.get(provider, PROVIDERS["custom"])
+    def __init__(self, config, logger=None):
+        # 支持 LLMConfig 或 dict
+        if hasattr(config, "provider"):
+            # LLMConfig
+            provider = config.provider
+            api_key = config.api_key
+            base_url = config.base_url
+            model = config.model
+            temperature = config.temperature
+            max_tokens = config.max_tokens
+            memory_enabled = config.memory_enabled
+            memory_size = config.memory_size
+        else:
+            # dict (兼容)
+            provider = config.get("provider", "deepseek")
+            api_key = config.get("api_key", "")
+            base_url = config.get("base_url", "")
+            model = config.get("model", "")
+            temperature = config.get("temperature", 0.7)
+            max_tokens = config.get("max_tokens", 10240)
+            memory_enabled = config.get("memory_enabled", True)
+            memory_size = config.get("memory_size", 20)
 
-        api_key = config.get("api_key", "")
-        # 如果 api_key 不是以 sk-/fk-/ak- 等常见 key 前缀开头，视为环境变量名
+        provider_info = PROVIDERS.get(provider, PROVIDERS["custom"])
+        # 如果 api_key 不是以标准前缀开头，视为环境变量名
         if api_key and not any(api_key.startswith(p) for p in ("sk-", "fk-", "ak-", "SECRET:")):
             api_key = os.environ.get(api_key, api_key)
-        base_url = config.get("base_url") or provider_info["base_url"]
-        self.model = config.get("model", provider_info["models"][0] if provider_info["models"] else "")
-        self.temperature = config.get("temperature", 0.7)
-        self.max_tokens = config.get("max_tokens", 10240)
+        if not base_url:
+            base_url = provider_info["base_url"]
+        if not model:
+            model = provider_info["models"][0] if provider_info["models"] else ""
+
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
 
         if not api_key:
             print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
@@ -91,8 +114,8 @@ class LLMClient:
         # 会话记忆
         self.history: list[dict] = []
         self.last_raw_response: str = ""
-        self.memory_enabled = config.get("memory_enabled", True)
-        self.memory_size = config.get("memory_size", 20)  # 最多保留 20 轮对话
+        self.memory_enabled = memory_enabled
+        self.memory_size = memory_size
         self.call_count = 0  # LLM 交互次数统计
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0

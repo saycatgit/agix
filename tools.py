@@ -189,8 +189,10 @@ TOOLS = [
 class ToolExecutor:
     """工具执行器：将 tool_call 转换为实际操作"""
 
-    def __init__(self, work_dir: str, logger=None, agent=None):
+    def __init__(self, work_dir: str, logger=None, agent=None, eqm=None, mode: str = "chat"):
         self.work_dir = os.path.abspath(work_dir)
+        self.eqm = eqm            # EventQueueManager
+        self.mode = mode          # "chat" | "task"
         self.logger = logger
         self.agent = agent
 
@@ -348,9 +350,18 @@ class ToolExecutor:
 
     def _tool_ask_user(self, args: dict) -> str:
         """向用户提问并获取输入，返回用户回答或错误信息。"""
-        question = args.get("question", "")
-        if not question:
+        question = str(args.get("question", "") or "")
+        if not question.strip():
             return "ask_user 需要 question 参数"
+
+        # 优先使用 EventQueueManager 进行交互
+        eqm = getattr(self, "eqm", None)
+        if eqm is not None:
+            return eqm.ask_user(question, mode=getattr(self, "mode", "chat"))
+
+        # 回退到 CLI 交互
+                # [eqm patched] if not question:
+        # [eqm patched] return "ask_user 需要 question 参数"
 
         # 非交互模式任务直接返回问题原文
         if self.agent and not getattr(self.agent, "is_interactive", False):

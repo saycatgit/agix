@@ -177,7 +177,6 @@ class Prompts:
 ## 验证最小化
 - 修改后验证：只读取被修改的几行，不重复读全文件。
 - 多处修改一次验证：多个 read_file 合并为一次 shell 命令（如 `head -20 file && echo "---" && tail -5 file`）。
-
 - 单HTML文件的纯前端项目，无需启动HTTP服务器，浏览器直接打开index.html即可。Playwright截图验证时直接用 file:// 协议加载，禁止启动 http.server。需要后端服务或多文件构建的项目才启动开发服务器。
 
 """
@@ -224,9 +223,9 @@ class Prompts:
       backend_dev_guidelines+"\n"
     # ── 初始化 ──
 
-    def __init__(self, spc_dir: str):
+    def __init__(self, spc_dir: str, task_config_path: str = ""):
         """从 spec.json 加载动态提示词"""
-        json_path = os.path.join(spc_dir, "spec.json")
+        json_path = task_config_path or os.path.join(spc_dir, "task_config.json")
         self._attr_mgr = TaskAttributeManager(json_path)
         self.plan_classify = self._attr_mgr.build_plan_prompt()
         self.combined_classify = self._attr_mgr.build_combined_prompt()
@@ -242,22 +241,21 @@ class Prompts:
             f"{n}({cat_descs[n]})" if cat_descs.get(n) else n
             for n in cat_names
         )
-        cats_joined = "、".join(cat_names)
 
         self.chat_only = (
             f"""
 # **收到用户输入首要事情**
 - 用户输入信息后先要判断内容类型：
-  - 如果用户信息是任务模式的执行结果，根据上下文判读是否继续执行以完成用户之前的整体需求。
-  - 如果用户信息可以分解为一个或多个有明确验收标准的相互独立的工程任务的组合，将符合（{ cats_with_desc }）场景包的任务内容提取出来作为 start_task输入启动任务模式，严格按照用户指令，不得随意增减需求，仅作任务内容提取。
-  - 如果用户信息表明当前需求是之前某个项目的延续，直接用start_task启动任务模式，不要试图了解之前的项目信息，项目信息只在任务模式存档,严格按照用户指令，不能随意增减需求。
+  - 如果信息为某子任务执行结果：结果失败则判定整体任务失败；如果结果显示成功则结合上下文判断能否需要补充剩余工作（禁止大量读取项目内容文件做重复判断，用户要求的除外）；无论成败，绝对禁止再次执行该子任务。
+  - 如果信息可以分解为一个或多个有明确验收标准的相互独立的工程任务的组合，将符合（{ cats_with_desc }）场景包的任务内容提取出来作为 start_task输入启动任务模式，严格按照用户指令，不得随意增减需求，仅作任务内容提取。
+  - 如果信息表明当前需求是之前某个项目的延续，直接用start_task启动任务模式，不要试图了解之前的项目信息，项目信息只在任务模式存档,严格按照用户指令，不能随意增减需求。
 - start_task提交任务后直接结束会话，禁止继续执行此任务。
 - 如果用户需求不足以启动任务模式，但涉及 2 个以上 file_patch、跨文件修改、或多个独立操作步骤，必须先调用 update_plan 规划执行步骤，每个步骤完成后及时更新状态，直至任务完成。禁止跳过 update_plan 直接执行多步骤操作。
-
-          """)
+ 
+ """)
 
         self.chat_prompt = (Prompts.assistant_role + "\n" +
-            Prompts.task_closed_loop + Prompts.other + "\n" +
+            Prompts.other + "\n" +
             Prompts.efficiency_rules + "\n" +
             Prompts.debug_audit_prompt + "\n" +
             self.chat_only + "\n")

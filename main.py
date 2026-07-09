@@ -11,7 +11,7 @@ from prompt_toolkit.styles import Style
 # 将当前目录加入模块搜索路径（便于导入本地模块）
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import load_config, save_config, get_default_config, list_available_providers
+from config import AppConfig, load_config, save_config, get_default_config, list_available_providers
 from agent import Agent
 from llm_client import LLMClient
 from task_manager import TaskManager
@@ -26,46 +26,15 @@ import aes_crypto  # AES 磁盘序列号加密
 
 
 
-def _resolve_api_key(config: dict) -> bool:
-    """
-    解析 api_key 配置项。支持两种格式:
-      1. 加密存储: 'enc:aes:<base64>' → 磁盘序列号解密
-      2. 原始 key: 以 sk-、fk-、ak- 等开头 → 直接使用（兼容旧版）
-    返回 True 表示解析成功，False 表示未找到有效 key。
-    """
-    llm = config.get("llm")
-    if not llm:
-        return False
-
-    api_key = llm.get("api_key", "")
-    if not api_key.strip():
-        return False
-
-    # 格式1: AES 加密存储
-    if aes_crypto.is_encrypted(api_key):
-        try:
-            decrypted = aes_crypto.decrypt(api_key)
-            config["llm"]["api_key"] = decrypted
-            return True
-        except ValueError as e:
-            print(f"  ⚠ 密钥解密失败: {e}")
-            return False
-
-    # 格式2: 直接是原始 key（兼容旧版未加密的配置）
-    if any(api_key.startswith(p) for p in ("sk-", "fk-", "ak-", "xai-", "hf-")):
-        return True
-
-    # 无法识别的格式
-    return False
+def _resolve_api_key(config) -> bool:
+    return config.resolve_api_key()
 
 
 
 
 
-def setup_wizard() -> dict:
-    """首次配置向导：选择 LLM 供应商并设置 API Key。
-    Key 使用磁盘序列号 AES 加密后存入 config.json，不写入 shell rc 文件。
-    """
+def setup_wizard():
+    """首次配置向导：选择 LLM 供应商并设置 API Key。"""
     print("\n🔧 首次配置向导\n")
 
     providers = list_available_providers()
@@ -90,40 +59,40 @@ def setup_wizard() -> dict:
     else:
         model = input("输入模型名称: ").strip()
 
-    # 以现有 config.json 为基础，只覆盖向导中重新指定的 LLM 字段
     try:
-        config = load_config()
+        config = AppConfig.load()
     except Exception:
-        config = get_default_config()
-    config["llm"]["provider"] = provider["id"]
-    # 使用磁盘序列号加密存储 API Key（不写入 shell rc 文件）
-    encrypted_key = aes_crypto.encrypt(api_key)
-    config["llm"]["api_key"] = encrypted_key
-    config["llm"]["base_url"] = provider["base_url"]
-    config["llm"]["model"] = model
+        config = AppConfig()
+    config.llm.provider = provider["id"]
+    config.llm.api_key = aes_crypto.encrypt(api_key)
+    config.llm.base_url = provider["base_url"]
+    config.llm.model = model
 
-    save_config(config)
+    config.save()
     print(f"\n✅ 配置已保存到 config.json\n")
     return config
 
 
 def initialize_agent(config_path: Path):
     """
-    加载配置、解析 API Key、创建并返回 Agent 实例和配置字典。
-    若配置不存在或解析失败，则进入配置向导。
+    加载配置（自动解析 API Key、创建目录），失败则进入配置向导。
     """
     if not config_path.exists():
         config = setup_wizard()
     else:
-        config = load_config()
+        try:
+            config = AppConfig.load(str(config_path))
+        except Exception:
+            config = setup_wizard()
 
-    while not _resolve_api_key(config):
+    # 验证 API Key 是否有效
+    if not config.llm.api_key or not config.llm.api_key.strip():
         print("\n⚙ 需要配置 LLM API Key，进入配置向导...\n")
         config = setup_wizard()
 
     auth_handler = AuthHandler(
-        interactive=config.get("auth", {}).get("interactive", True),
-        sensitive_command_check=config.get("auth", {}).get("sensitive_command_check", True)
+        interactive=config.auth.interactive,
+        sensitive_command_check=config.auth.sensitive_command_check
     )
     agent = Agent(config, auth_handler)
     return agent, config
@@ -170,24 +139,28 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
     elif c == "/llm":
         print("\n⚙ 重新配置 LLM...\n")
         new_cfg = setup_wizard()
-        config.clear()
-        config.update(new_cfg)
-        # 重新创建 AuthHandler 和 Agent
+        config.llm = new_cfg.llm
         auth_handler = AuthHandler(
-            interactive=config.get("auth", {}).get("interactive", True),
-            sensitive_command_check=config.get("auth", {}).get("sensitive_command_check", True)
+            interactive=config.auth.interactive,
+            sensitive_command_check=config.auth.sensitive_command_check
         )
         new_agent = Agent(config, auth_handler)
-        return new_agent  # 返回新 agent，调用方会更新
+        return new_agent
 
     elif c == "/config":
-        safe = {k: v for k, v in config.get("llm", {}).items() if k != "api_key"}
-        safe["api_key"] = "***" if config.get("llm", {}).get("api_key") else "(未设置)"
+        safe = {
+            "provider": config.llm.provider,
+            "base_url": config.llm.base_url,
+            "model": config.llm.model,
+            "temperature": config.llm.temperature,
+            "max_tokens": config.llm.max_tokens,
+            "api_key": "***" if config.llm.api_key else "(未设置)",
+        }
         print(f"\n当前 LLM 配置:\n{json.dumps(safe, indent=2, ensure_ascii=False)}")
         return None
 
     elif c == "/history":
-        wd = config.get("execution", {}).get("inner_space_dir", "./inner_space")
+        wd = config.execution.inner_space_dir
         task_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), wd, "task")
         history_ctx = TaskManager.build_history_context(task_dir)
         if history_ctx:
@@ -233,9 +206,9 @@ def interactive_mode():
     agent, config = initialize_agent(config_path)
 
     # 显示当前模型信息
-    llm_info = config.get("llm", {})
+    llm_info = config.llm
     providers = {p["id"]: p for p in list_available_providers()}
-    provider_name = providers.get(llm_info.get("provider", ""), {}).get("name", "未知")
+    provider_name = providers.get(llm_info.provider, {}).get("name", "未知")
     print(f"\n🤖 当前模型: {provider_name} / {llm_info.get('model', '未知')}")
 
     # 命令补全器
