@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from llm_client import PROVIDERS
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 
 
 @dataclass
@@ -83,7 +83,7 @@ class AppConfig:
     def _init_paths(self):
         """将相对路径转为绝对路径（相对于 config.py 所在目录）"""
         import os as _os
-        root = str(Path(__file__).parent)
+        root = str(Path(__file__).parent.parent)
         isd = self.execution.inner_space_dir
 
         if not self.execution.spc_dir:

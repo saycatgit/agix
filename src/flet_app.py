@@ -3,6 +3,9 @@
 import asyncio
 import flet as ft
 from event_queue_manager import EventQueueManager
+import os
+import uuid
+import webbrowser
 
 
 def build_ui(page: ft.Page, eqm: EventQueueManager, agent):
@@ -292,3 +295,108 @@ def _open_settings(page: ft.Page):
         content=ft.Text("设置面板（待实现）"),
     )
     page.show_dialog(dlg)
+
+
+# ── 登录界面 ──
+
+def build_login_view(page: ft.Page, on_login_success, server_url: str = "http://127.0.0.1:5000"):
+    """构建 RFC 8252 登录界面 —— 点击按钮 → 打开浏览器 → 轮询 token → 回调 on_login_success(token)"""
+
+    page.window.title_bar_hidden = True
+    page.window.frameless = True
+    page.title = "Agix"
+    page.window.width = 720
+    page.window.height = 620
+    page.padding = 0
+
+    # ── 标题栏 ──
+    def _close_window(e):
+        async def _do_close():
+            try:
+                await page.window.close()
+            except Exception:
+                pass
+        page.run_task(_do_close)
+
+    title_bar = ft.Container(
+        content=ft.Row([
+            ft.WindowDragArea(
+                content=ft.Row([
+                    ft.Text("🤖", size=18),
+                    ft.Text("Agix", size=14),
+                ]),
+                expand=True,
+            ),
+            ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=_close_window),
+        ], spacing=0),
+        bgcolor=ft.Colors.SURFACE,
+        padding=ft.Padding(left=12, right=4, top=4, bottom=4),
+        height=40,
+    )
+
+    # ── 登录区域 ──
+    status_text = ft.Text("", size=13, color=ft.Colors.GREY_600)
+
+    def on_login_click(e):
+        try:
+            login_btn.disabled = True
+            login_btn.text = "等待浏览器登录..."
+            status_text.value = "正在打开登录页..."
+            page.update()
+
+            # 生成唯一 session_id，关联浏览器和桌面端
+            session_id = uuid.uuid4().hex[:12]
+            login_url = f"{server_url}/login?session_id={session_id}"
+            webbrowser.open(login_url)
+            status_text.value = "已打开浏览器，请在浏览器中完成登录"
+            page.update()
+
+            # 轮询服务端取 token
+            import urllib.request as _ur
+            async def poll_token():
+                import json as _json
+                poll_url = f"{server_url}/api/poll_login?session_id={session_id}"
+                while True:
+                    await asyncio.sleep(0.5)
+                    try:
+                        resp = _ur.urlopen(poll_url, timeout=3)
+                        data = _json.loads(resp.read())
+                        token = data.get("token")
+                        if token:
+                            expires_at = data.get("expires_at", 0)
+                            on_login_success(token, expires_at)
+                            return
+                    except Exception:
+                        pass  # 服务器暂时不可达，继续轮询
+
+            page.run_task(poll_token)
+        except Exception as ex:
+            login_btn.disabled = False
+            login_btn.text = "手机登录"
+            status_text.value = f"错误: {ex}"
+            page.update()
+
+    login_btn = ft.ElevatedButton(
+        content=ft.Text("手机登录", size=15),
+        on_click=on_login_click,
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.Padding(20, 12, 20, 12),
+        ),
+    )
+
+    content = ft.Column([
+        ft.Container(height=40),
+        ft.Text("🤖", size=48),
+        ft.Text("Agix", size=24, weight=ft.FontWeight.W_600),
+        ft.Text("AI 开发助手", size=14, color=ft.Colors.GREY_600),
+        ft.Container(height=24),
+        login_btn,
+        ft.Container(height=8),
+        status_text,
+    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
+    page.add(title_bar, content)
+    page.window.visible = True
+    page.update()
+

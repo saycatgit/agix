@@ -570,7 +570,8 @@ class Agent:
         plan_msg = (
             f"{action}: {phase['name']}\n"
             f"所有阶段进度:\n{self.task_manager._stage_progress.format_status()}\n"
-            f"如果「{phase['name']}」阶段缺少详细步骤，请先调用 update_plan 规划。"
+            f"如果「{phase['name']}」阶段缺少详细步骤，请先调用 update_plan 规划。\n"
+            f"如果所有步骤完成调用 finish 结束本阶段。"
         )
 
         phase_msg = phase.get('msg', '')

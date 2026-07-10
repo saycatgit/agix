@@ -1,0 +1,15 @@
+[Unit]
+Description=Agix Auth Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/agix-auth/server
+ExecStart=/opt/agix-auth/venv/bin/gunicorn -c gunicorn_config.py app:app
+Restart=always
+RestartSec=5
+Environment=AGIX_TOKEN_EXPIRE_SECONDS=2592000
+
+[Install]
+WantedBy=multi-user.target

@@ -202,7 +202,7 @@ class SlashCommandCompleter(Completer):
 
 def interactive_mode():
     """交互式循环：读取用户目标 → 执行 → 输出结果。"""
-    config_path = Path(__file__).parent / "config.json"
+    config_path = Path(__file__).parent.parent / "config.json"
     agent, config = initialize_agent(config_path)
 
     # 显示当前模型信息
@@ -272,7 +272,7 @@ def interactive_mode():
 
 def single_run(goal: str):
     """命令行单次执行模式：python main.py <任务描述>。"""
-    config_path = Path(__file__).parent / "config.json"
+    config_path = Path(__file__).parent.parent / "config.json"
     agent, config = initialize_agent(config_path)
 
     print(f"\n🤖 执行任务: {goal}\n")

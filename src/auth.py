@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple, List
 
-RULES_PATH = Path(__file__).parent / ".agent_permissions.json"
+RULES_PATH = Path(__file__).parent.parent / ".agent_permissions.json"
 
 # ── 动作识别：命令 → 统一动作标识 ──
 ACTION_PATTERNS = [
