@@ -23,7 +23,7 @@
   - work_dir 由 _resolve_subtask_dir 动态分配
 """
 
-import os, re, time, sys, glob, json, threading, hashlib
+import os, re, time, sys, glob, json, threading, hashlib, queue
 from datetime import datetime
 
 from llm_client import LLMClient
@@ -34,9 +34,23 @@ from stage_progress import StageProgress
 from prompts import Prompts
 from tools import TOOLS, ToolExecutor, get_tools_excluding
 from markdown_it import MarkdownIt
+from event_queue_manager import EventQueueManager, MsgType, MsgField, MsgStyle
 from scheduler import TaskScheduler
 
 from task_classifier import TaskClassifier
+class TaskField:
+    """total_results 字典的 key 常量"""
+    JUDGE = "judge"
+    SUB_TASK = "sub_task"
+    TASK_TYPE = "task_type"
+    SUB_TYPE = "sub_type"
+    SUBTASK_INDEX = "subtask_index"
+    PROJECT_PATH = "project_path"
+    CONTENT = "content"
+    COST = "cost"
+    LOG_PATH = "log_path"
+    TASK_STATE = "task_state"
+
 
 class Agent:
     """Agent 核心调度器
@@ -119,29 +133,32 @@ class Agent:
             Logger.mark_thread("chat")
             while True:
                 msg = self.eqm.to_chat_queue.get()
-                if msg.get("message_type") == "user_input":
-                    content = msg.get("content", "")
+                if msg.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                    content = msg.get(MsgField.CONTENT, "")
                     try:
                         self.run(content, mode="chat")
                     except Exception as ex:
-                        self.eqm.send_display(f"Error: {ex}", mode="chat", style="error")
+                        self.eqm.send_display(f"Error: {ex}", mode="chat", style=MsgStyle.ERROR)
         t = threading.Thread(target=_chat_worker, daemon=True)
         t.start()
 
     def run(self, user_task: str, mode: str = "chat") -> dict:
         """主入口
 
+        每次新消息重置取消标志。
 
         mode="chat": 对话模式（默认），无任务分解，直接进入工具调用对话
         mode="task": 任务模式，执行完整流水线（分类→分解→执行）
 
         Returns: {"judge": str, "content": str}
         """
+        if self.eqm:
+            self.eqm.reset_cancel(mode)
         if mode == "chat":
             Logger.mark_thread("chat")
             self._in_task_mode = False
             ret= self._run_chat(user_task)
-            # print(self.chat_llm.dump_history())
+
 
             self._log(f"\n🤖: {ret["content"]}\n",always=True)
             return ret
@@ -157,7 +174,7 @@ class Agent:
                 self._log(ret["content"],always=True)
                 Logger.mark_thread("chat")
 
-                ret= self._run_chat(f"任务模式返回结果："+ret["content"])
+                ret= self._run_chat(f"任务模式返回结果(无论成败禁止继续此任务内容)："+ret["content"])
 
                 return ret
             finally:
@@ -194,7 +211,7 @@ class Agent:
         self.task_llm.history.clear()
         if classification is None:
             self._log("\n❌ 任务分类失败", always=True)
-            return {"judge": "false", "content": f"任务:{user_task} 分类失败"}
+            return {TaskField.JUDGE: "false", "content": f"任务:{user_task} 分类失败"}
 
         main_task = classification.get("main_task", user_task)
         orchestrate = classification.get("orchestrate", [])
@@ -254,14 +271,14 @@ class Agent:
                     # 历史文件不可用，跳过该子任务并报告错误
                     self._log(f"  ❌ 历史文件未找到: {state_file}", always=True)
                     total_results.append({
-                        "judge": "false",
-                        "sub_task": sub_task,
-                        "task_type": task_type,
-                        "sub_type": sub_type,
-                        "subtask_index": 0,
-                        "project_path": "",
-                        "content": f"历史任务文件缺失: {state_file}",
-                        "cost": "",
+                        TaskField.JUDGE: "false",
+                        TaskField.SUB_TASK: sub_task,
+                        TaskField.TASK_TYPE: task_type,
+                        TaskField.SUB_TYPE: sub_type,
+                        TaskField.SUBTASK_INDEX: 0,
+                        TaskField.PROJECT_PATH: "",
+                        TaskField.CONTENT: f"历史任务文件缺失: {state_file}",
+                        TaskField.COST: "",
                     })
                     continue
             else:
@@ -301,16 +318,16 @@ class Agent:
             cost_str=  self.task_llm.get_cost_summary() + self.task_llm.get_cost_from_balance()
 
             total_results.append({
-                "judge": result["judge"],
-                "sub_task": sub_task,
-                "task_type": task_type,
-                "sub_type": sub_type,
-                "subtask_index": subtask_index,
-                "project_path": self.proj_path,
-                "log_path": self.task_logger.path,
-                "task_state": self.task_manager._save_path,
-                "cost": cost_str,
-                "content": result["content"],
+                TaskField.JUDGE: result["judge"],
+                TaskField.SUB_TASK: sub_task,
+                TaskField.TASK_TYPE: task_type,
+                TaskField.SUB_TYPE: sub_type,
+                TaskField.SUBTASK_INDEX: subtask_index,
+                TaskField.PROJECT_PATH: self.proj_path,
+                TaskField.LOG_PATH: self.task_logger.path,
+                TaskField.TASK_STATE: self.task_manager._save_path,
+                TaskField.COST: cost_str,
+                TaskField.CONTENT: result["content"],
             })
 
             # ── 子任务完成报告 ──
@@ -326,17 +343,20 @@ class Agent:
         # ── 全部子任务完成，汇总各子任务结果 ──
         summary_lines = [f"✅ 全部 {len(total_results)} 个子任务完成"]
         for r in total_results:
-            judge = r.get("judge", "false")
-            sub = r.get("sub_task", "")
+            judge = r.get(TaskField.JUDGE, "false")
+            sub = r.get(TaskField.SUB_TASK, "")
             icon = "✅" if judge == "true" else "❌"
-            project = r.get("project_path", "")
-            summary_lines.append(f"{icon} [{r.get('task_type','')}] {sub}")
+            project = r.get(TaskField.PROJECT_PATH, "")
+            summary_lines.append(f"{icon} [{r.get(TaskField.TASK_TYPE, "")}] {sub}")
             if project:
                 summary_lines.append(f"     项目: {project}")
-            if r.get("log_path"):
-                summary_lines.append(f"     日志: {r["log_path"]}")
-            if r.get("cost"):
-                summary_lines.append(f"     {r["cost"]}")
+            if r.get(TaskField.LOG_PATH):
+                summary_lines.append(f"     日志: {r[TaskField.LOG_PATH]}")
+            if r.get(TaskField.CONTENT):
+                cnt = r[TaskField.CONTENT]
+                summary_lines.append(f"     结果: {cnt[:200]}{'...' if len(cnt) > 200 else ''}")
+            if r.get(TaskField.COST):
+                summary_lines.append(f"     {r[TaskField.COST]}")
         summary = "\n".join(summary_lines)
         self._log(f"\n{summary}")
         self.task_manager.save_plan_steps(self.task_manager._stage_progress)
@@ -514,10 +534,26 @@ class Agent:
         self.chat_stage_progress = StageProgress()
         rounds = 0
         while True:
+            if self.eqm and self.eqm.is_cancelled("chat"):
+                self.eqm.send_display("⏹ 已取消", mode="chat")
+                return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
             rounds += 1
             if rounds > self.max_rounds:
-                return {"judge": "false", "content": "超过最大调用次数"}
-            
+                return {TaskField.JUDGE: "false", "content": "超过最大调用次数"}
+
+            # 检查是否有新消息进来（工具执行期间用户可能发了新消息）
+            if self.eqm:
+                drained = ""
+                try:
+                    while True:
+                        m = self.eqm.to_chat_queue.get_nowait()
+                        if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                            drained += m.get(MsgField.CONTENT, "") + "\n"
+                except queue.Empty:
+                    pass
+                if drained.strip():
+                    msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
+
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
            
             if result["type"] == "tool_calls":
@@ -653,6 +689,9 @@ class Agent:
 
 
         for num in range(self.max_rounds):
+            if self.eqm and self.eqm.is_cancelled("task"):
+                self.eqm.send_display("⏹ 已取消", mode="task")
+                return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
             result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
             # 打印思考信息
             reasoning = result.get("reasoning_content", "")
@@ -680,7 +719,7 @@ class Agent:
                             self._save_llm_context(subtask_index, base_prompt)
                             self._log(f"\n  {self.task_manager._stage_progress.format_status()}", always=True)
                             self.task_manager.update_task_list(self.task_dir) 
-                            return {"judge": "false", "content": exec_result["summary"]}
+                            return {TaskField.JUDGE: "false", "content": exec_result["summary"]}
 
                         
                         all_done = all(
@@ -729,14 +768,14 @@ class Agent:
 
             elif result["type"] == "error":
                 self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
-                return {"judge": "false", "content": result.get("message", "API错误")}
+                return {TaskField.JUDGE: "false", "content": result.get("message", "API错误")}
             
             continue
 
         if num+1 >= self.max_rounds:
             self._save_llm_context(subtask_index, base_prompt)
 
-        return {"judge": "false", "content": f"达到最大轮次 ({self.max_rounds})，任务未完成"}
+        return {TaskField.JUDGE: "false", "content": f"达到最大轮次 ({self.max_rounds})，任务未完成"}
 
     def _generate_skills_index(self):
         """扫描 skills_dir，生成 skills_index.json"""

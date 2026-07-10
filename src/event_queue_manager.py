@@ -11,13 +11,36 @@
   task_ask — 标记 task 线程正在阻塞等待用户回答
 
 消息格式 (JSON):
-  {"content": str, "message_type": "display"|"ask"|"response"|"user_input",
-   "message_id": str}   # message_id 仅 ask / response 类型必填
+  {MsgField.CONTENT: str, MsgField.TYPE: MsgType,
+   MsgField.ID: str}   # ID 仅 ask / response 类型必填
 """
 
 import queue
 import threading
 import uuid
+from enum import Enum
+
+
+class MsgType(str, Enum):
+    USER_INPUT = "user_input"
+    DISPLAY = "display"
+    ASK = "ask"
+    RESPONSE = "response"
+
+
+class MsgField:
+    CONTENT = "content"
+    TYPE = "message_type"
+    ID = "message_id"
+    STYLE = "style"
+
+
+class MsgStyle:
+    USER = "user"
+    ASSISTANT = "assistant"
+    ASK = "ask"
+    ERROR = "error"
+    WARN = "warn"
 
 
 class EventQueueManager:
@@ -28,6 +51,8 @@ class EventQueueManager:
         self.task_display_queue = queue.Queue()
         self.to_chat_queue = queue.Queue()
         self.to_task_queue = queue.Queue()
+        self.chat_cancel_event = threading.Event()
+        self.task_cancel_event = threading.Event()
 
         self.chat_ask = threading.Event()
         self.task_ask = threading.Event()
@@ -41,20 +66,21 @@ class EventQueueManager:
 
     @staticmethod
     def make_msg(content: str, msg_type: str, msg_id: str = "",
-                 style: str = "") -> dict:
-        msg = {"content": content, "message_type": msg_type}
-        if style:
-            msg["style"] = style
-        if msg_type in ("ask", "response"):
-            msg["message_id"] = msg_id or str(uuid.uuid4())
+                 style: MsgStyle | None = None) -> dict:
+        msg = {MsgField.CONTENT: content, MsgField.TYPE: msg_type}
+        if style is not None:
+            msg[MsgField.STYLE] = str(style)
+        if msg_type in (MsgType.ASK, MsgType.RESPONSE):
+            msg[MsgField.ID] = msg_id or str(uuid.uuid4())
         return msg
 
     # ---------- display 消息 ----------
 
     def send_display(self, content: str, *, mode: str = "chat",
-                     style: str = ""):
+                     style: MsgStyle | None = None):
         """工作线程 -> UI 线程: 发送展示内容"""
-        msg = self.make_msg(content, "display", style=style)
+        actual_style = style or MsgStyle.ASSISTANT
+        msg = self.make_msg(content, MsgType.DISPLAY, style=actual_style)
         if mode == "chat":
             self.chat_display_queue.put(msg)
         else:
@@ -64,7 +90,7 @@ class EventQueueManager:
 
     def send_user_input(self, content: str, *, mode: str = "chat"):
         """UI 线程 -> 工作线程: 发送用户输入"""
-        msg = self.make_msg(content, "user_input")
+        msg = self.make_msg(content, MsgType.USER_INPUT)
         if mode == "chat":
             self.to_chat_queue.put(msg)
         else:
@@ -76,7 +102,7 @@ class EventQueueManager:
                  timeout: float = None) -> str:
         """工作线程调用: 向 UI 发提问并阻塞等待用户回答。"""
         msg_id = str(uuid.uuid4())
-        msg = self.make_msg(question, "ask", msg_id)
+        msg = self.make_msg(question, MsgType.ASK, msg_id)
 
         if mode == "chat":
             self._chat_pending_ask_id = msg_id
@@ -96,9 +122,9 @@ class EventQueueManager:
             while True:
                 try:
                     response = resp_q.get(timeout=timeout or 1.0)
-                    if (response.get("message_type") == "response" and
-                            response.get("message_id") == msg_id):
-                        return response.get("content", "")
+                    if (response.get(MsgField.TYPE) == MsgType.RESPONSE and
+                            response.get(MsgField.ID) == msg_id):
+                        return response.get(MsgField.CONTENT, "")
                     resp_q.put(response)
                 except queue.Empty:
                     continue
@@ -111,7 +137,7 @@ class EventQueueManager:
 
     def respond_to_ask(self, content: str, *, msg_id: str, mode: str = "chat"):
         """UI 线程调用: 回复某个 ask 消息"""
-        msg = self.make_msg(content, "response", msg_id)
+        msg = self.make_msg(content, MsgType.RESPONSE, msg_id)
         if mode == "chat":
             self.to_chat_queue.put(msg)
         else:
@@ -141,3 +167,24 @@ class EventQueueManager:
             except queue.Empty:
                 break
         return items
+
+    # ── 取消机制 ──
+
+    def request_cancel(self, mode: str = "chat"):
+        """UI 线程调用：请求取消指定模式的执行"""
+        if mode == "task":
+            self.task_cancel_event.set()
+        else:
+            self.chat_cancel_event.set()
+
+    def is_cancelled(self, mode: str = "chat") -> bool:
+        if mode == "task":
+            return self.task_cancel_event.is_set()
+        return self.chat_cancel_event.is_set()
+
+    def reset_cancel(self, mode: str = "chat"):
+        """新消息开始前清除取消标志"""
+        if mode == "task":
+            self.task_cancel_event.clear()
+        else:
+            self.chat_cancel_event.clear()

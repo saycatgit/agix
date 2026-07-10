@@ -465,6 +465,7 @@ class LLMClient:
 
         return {"type": "text", "content": content, "reasoning_content": reasoning}
 
+
     def _write_history_log(self, content: str):
         """写入历史日志，自动创建目录"""
         if not self.history_log_path:
