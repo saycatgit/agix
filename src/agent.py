@@ -34,22 +34,12 @@ from stage_progress import StageProgress
 from prompts import Prompts
 from tools import TOOLS, ToolExecutor, get_tools_excluding
 from markdown_it import MarkdownIt
-from event_queue_manager import EventQueueManager, MsgType, MsgField, MsgStyle
+from event_queue_manager import EventQueueManager
 from scheduler import TaskScheduler
 
+from meta import TaskField, MsgType, MsgField, MsgStyle
 from task_classifier import TaskClassifier
-class TaskField:
-    """total_results 字典的 key 常量"""
-    JUDGE = "judge"
-    SUB_TASK = "sub_task"
-    TASK_TYPE = "task_type"
-    SUB_TYPE = "sub_type"
-    SUBTASK_INDEX = "subtask_index"
-    PROJECT_PATH = "project_path"
-    CONTENT = "content"
-    COST = "cost"
-    LOG_PATH = "log_path"
-    TASK_STATE = "task_state"
+
 
 
 class Agent:
@@ -102,10 +92,10 @@ class Agent:
             self.chat_llm.history_log_path = os.path.join(self.config.log.dir, "history_chat.log")
             self.task_llm.history_log_path = os.path.join(self.config.log.dir, "history_task.log")
 
+
         if self.eqm:
             self.start_chat_worker()
             self.start_task_worker()
-
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg, always)
     def start_task_worker(self):
@@ -144,6 +134,15 @@ class Agent:
 
     def run(self, user_task: str, mode: str = "chat") -> dict:
         """主入口
+        if self.eqm:
+            self.eqm.reset_cancel(mode)
+        if mode == "chat":
+            Logger.mark_thread("chat")
+            ret= self._run_chat(user_task)
+        if self.eqm:
+
+            self._log(f"\n{ret['content']}\n",always=True)
+            return ret
 
         每次新消息重置取消标志。
 
@@ -156,29 +155,22 @@ class Agent:
             self.eqm.reset_cancel(mode)
         if mode == "chat":
             Logger.mark_thread("chat")
-            self._in_task_mode = False
             ret= self._run_chat(user_task)
 
-
-            self._log(f"\n🤖: {ret["content"]}\n",always=True)
+            self._log(f"\n{ret['content']}\n",always=True)
             return ret
         else:
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
-            self._in_task_mode = True
             Logger.mark_thread("task")
 
-            try:
-                ret= self._run_task(user_task)
+            ret= self._run_task(user_task)
 
-                self._in_task_mode = False
-                self._log(ret["content"],always=True)
-                Logger.mark_thread("chat")
+            self._log(ret["content"],always=True)
+            Logger.mark_thread("chat")
 
-                ret= self._run_chat(f"任务模式返回结果(无论成败禁止继续此任务内容)："+ret["content"])
+            ret= self._run_chat(f"任务模式返回结果(无论成败禁止继续此任务内容)："+ret["content"])
 
-                return ret
-            finally:
-                self._in_task_mode = False
+            return ret
 
     def _run_task(self, user_task: str) -> dict:
         """任务模式：以子任务为执行主体。
@@ -209,9 +201,9 @@ class Agent:
         tc = TaskClassifier(self.task_llm, self.prompts)
         classification = tc.classify_with_history(user_task, self.task_dir, enable_history=enable_history)
         self.task_llm.history.clear()
-        if classification is None:
+        if TaskField.IS_FALSE(classification):
             self._log("\n❌ 任务分类失败", always=True)
-            return {TaskField.JUDGE: "false", "content": f"任务:{user_task} 分类失败"}
+            return TaskField.RET_JSON_FALSE(f"任务:{user_task} 分类失败")
 
         main_task = classification.get("main_task", user_task)
         orchestrate = classification.get("orchestrate", [])
@@ -360,7 +352,7 @@ class Agent:
         summary = "\n".join(summary_lines)
         self._log(f"\n{summary}")
         self.task_manager.save_plan_steps(self.task_manager._stage_progress)
-        return {"judge": "true", "content": summary}
+        return TaskField.RET_JSON_TRUE(summary)
 
     def _run_phases(self, subtask_index: int) -> bool:
         """按任务属性定义循环执行各阶段 run_loop
@@ -523,7 +515,7 @@ class Agent:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
         self.is_interactive = True  # chat 模式默认为交互模式
-        executor = ToolExecutor(self.proj_path, logger=self.chat_logger, agent=self, eqm=self.eqm, mode="chat")
+        executor = ToolExecutor(self.work_dir, logger=self.chat_logger, agent=self, eqm=self.eqm, mode="chat")
 
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
@@ -542,20 +534,18 @@ class Agent:
                 return {TaskField.JUDGE: "false", "content": "超过最大调用次数"}
 
             # 检查是否有新消息进来（工具执行期间用户可能发了新消息）
-            if self.eqm:
-                drained = ""
-                try:
-                    while True:
-                        m = self.eqm.to_chat_queue.get_nowait()
-                        if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
-                            drained += m.get(MsgField.CONTENT, "") + "\n"
-                except queue.Empty:
-                    pass
-                if drained.strip():
-                    msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
-
-            result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
+            drained = ""
+            try:
+                while True:
+                    m = self.eqm.to_chat_queue.get_nowait()
+                    if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                        drained += m.get(MsgField.CONTENT, "") + "\n"
+            except queue.Empty:
+                pass
+            if drained.strip():
+                msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
            
+            result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
             if result["type"] == "tool_calls":
                 responses = []
                 for i, call in enumerate(result["calls"]):
@@ -603,13 +593,13 @@ class Agent:
                        "\n- 所有步骤完成后调用 finish 结束本阶段。")
 
         action = "进入新阶段" if entering else "当前阶段"
+        status= self.task_manager._stage_progress.format_status()
         plan_msg = (
             f"{action}: {phase['name']}\n"
-            f"所有阶段进度:\n{self.task_manager._stage_progress.format_status()}\n"
+            f"所有阶段进度:\n{status}\n"
             f"如果「{phase['name']}」阶段缺少详细步骤，请先调用 update_plan 规划。\n"
             f"如果所有步骤完成调用 finish 结束本阶段。"
         )
-
         phase_msg = phase.get('msg', '')
         msg = (plan_msg +"\n" +phase_msg) if phase_msg else plan_msg
         return prompt_add, msg
@@ -696,7 +686,13 @@ class Agent:
             # 打印思考信息
             reasoning = result.get("reasoning_content", "")
             if reasoning:
-                self._log(f"\n\033[90m 💭 {reasoning[:500]}{'...(截断)' if len(reasoning) > 500 else ''}\033[0m", always=True)
+                print(f"[debug] model={self.config.llm.model}, reasoning={len(reasoning)} chars")
+                if self.eqm:
+                    sentences = reasoning.split("。")
+                    for s in sentences:
+                        s = s.strip()
+                        if s:
+                            self.eqm.send_display(s, mode="task", style=MsgStyle.THINKING)
             # 获取非工具返回内容
             content_text = result.get("content", "")
             if content_text:
@@ -719,8 +715,7 @@ class Agent:
                             self._save_llm_context(subtask_index, base_prompt)
                             self._log(f"\n  {self.task_manager._stage_progress.format_status()}", always=True)
                             self.task_manager.update_task_list(self.task_dir) 
-                            return {TaskField.JUDGE: "false", "content": exec_result["summary"]}
-
+                            return TaskField.RET_JSON_FALSE(exec_result["summary"])
                         
                         all_done = all(
                             sub.plan_steps.get(p['name']) and
@@ -743,7 +738,7 @@ class Agent:
                             self._log(f"\n任务总结: {exec_result['summary']}")
                             self.task_manager.update_task_list(self.task_dir)
                             
-                            return {"judge": "true", "content": exec_result["summary"]}
+                            return TaskField.RET_JSON_TRUE(exec_result["summary"])
                     else:
                         self.task_llm.submit_tool_result(call["id"], str(exec_result))
 
@@ -768,14 +763,13 @@ class Agent:
 
             elif result["type"] == "error":
                 self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
-                return {TaskField.JUDGE: "false", "content": result.get("message", "API错误")}
-            
+                return TaskField.RET_JSON_FALSE(result.get("message", "API错误"))
             continue
 
         if num+1 >= self.max_rounds:
             self._save_llm_context(subtask_index, base_prompt)
 
-        return {TaskField.JUDGE: "false", "content": f"达到最大轮次 ({self.max_rounds})，任务未完成"}
+        return TaskField.RET_JSON_FALSE(f"达到最大轮次 ({self.max_rounds})，任务未完成")
 
     def _generate_skills_index(self):
         """扫描 skills_dir，生成 skills_index.json"""

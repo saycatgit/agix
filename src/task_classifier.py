@@ -1,5 +1,5 @@
 """任务分类器 —— 对用户任务进行分解归类"""
-
+from meta import TaskField
 
 class TaskClassifier:
     """任务分类器
@@ -55,7 +55,7 @@ class TaskClassifier:
         result = self.llm.chat_json(system_prompt, task_input, use_memory=False)
 
         if "parse_error" in result:
-            return None
+            return TaskField.RET_JSON_FALSE(str(result))
         return result
 
 

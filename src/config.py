@@ -21,6 +21,8 @@ class LLMConfig:
     memory_enabled: bool = True
     memory_size: int = 40
     llm_max_allowed_rounds: int = 40
+    label: str = ""
+    active: bool = True
 
 
 @dataclass
@@ -70,6 +72,7 @@ TRUNCATION = {
 @dataclass
 class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
+    llm_list: list = field(default_factory=list)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     log: LogConfig = field(default_factory=LogConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
@@ -79,6 +82,9 @@ class AppConfig:
         self._init_paths()
         self._init_dirs()
         self._init_api_key()
+        # Ensure llm_list has at least the current config
+        if not self.llm_list:
+            self.llm_list = [asdict(self.llm)]
 
     def _init_paths(self):
         """将相对路径转为绝对路径（相对于 config.py 所在目录）"""
@@ -165,19 +171,77 @@ class AppConfig:
     @classmethod
     def load(cls, path: str = "") -> "AppConfig":
         """从 JSON 加载配置，合并用户设置后执行 __post_init__"""
-        cfg = cls()  # defaults → __post_init__ 会在构造时触发
+        cfg = cls()
         p = Path(path) if path else CONFIG_PATH
         if p.exists():
             user = json.loads(open(p, encoding="utf-8").read())
             cfg._merge(user)
-            cfg.__post_init__()  # 合并后重新初始化
+            if "llm_list" in user and user["llm_list"]:
+                cfg.llm_list = user["llm_list"]
+            else:
+                cfg.llm_list = [asdict(cfg.llm)]
+            # Ensure one is active AND has a valid key
+            has_active = any(e.get("active") and e.get("api_key") for e in cfg.llm_list)
+            if not has_active:
+                for e in cfg.llm_list:
+                    if e.get("api_key"):
+                        e["active"] = True
+                        break
+                else:
+                    cfg.llm_list[0]["active"] = True
+            # Deactivate entries without key
+            for e in cfg.llm_list:
+                if not e.get("api_key"):
+                    e["active"] = False
+            active_entry = next((e for e in cfg.llm_list if e.get("active") and e.get("api_key")), cfg.llm_list[0])
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
+                if k in active_entry:
+                    setattr(cfg.llm, k, active_entry[k])
+            cfg.__post_init__()
         return cfg
+
+    def add_llm_entry(self, entry: dict):
+        """添加一个新 LLM 配置到列表"""
+        entry["active"] = False
+        self.llm_list.append(entry)
+
+    def switch_llm(self, index: int):
+        """切换到指定索引的 LLM 配置"""
+        if 0 <= index < len(self.llm_list):
+            for i, e in enumerate(self.llm_list):
+                e["active"] = (i == index)
+            active = self.llm_list[index]
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
+                if k in active:
+                    setattr(self.llm, k, active[k])
+            self._init_api_key()  # re-decrypt
+
+            label = active.get("label") or f"{active.get("provider","")}/{active.get("model","")}"
+            print(f"\n🔄 切换模型 → {label}")
+    def remove_llm_entry(self, index: int):
+        if 0 <= index < len(self.llm_list) and len(self.llm_list) > 1:
+            was_active = self.llm_list[index].get("active", False)
+            del self.llm_list[index]
+            if was_active:
+                self.llm_list[0]["active"] = True
+                self.switch_llm(0)
 
     def save(self, path: str = ""):
         """保存到 JSON 文件"""
         p = Path(path) if path else CONFIG_PATH
+        d = self.to_dict()
+        d["llm_list"] = self.llm_list
+        del d["llm"]  # Only use llm_list
+        if "memory" in d: del d["memory"]  # Backward compat
+        # Re-encrypt keys for safe storage
+        from aes_crypto import is_encrypted, encrypt
+        for e in d["llm_list"]:
+            key = e.get("api_key", "")
+            if key and not is_encrypted(key):
+                try: e["api_key"] = encrypt(key)
+                except: pass
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+            json.dump(d, f, ensure_ascii=False, indent=2)
 
     def _merge(self, user: dict):
         """深度合并用户配置到默认值上"""

@@ -1,0 +1,236 @@
+[
+  {
+    "name": "aes_crypto.py",
+    "path": "/home/agent_native/src/aes_crypto.py",
+    "relpath": "aes_crypto.py",
+    "size": 4815
+  },
+  {
+    "name": "agent.py",
+    "path": "/home/agent_native/src/agent.py",
+    "relpath": "agent.py",
+    "size": 41804
+  },
+  {
+    "name": "auth.py",
+    "path": "/home/agent_native/src/auth.py",
+    "relpath": "auth.py",
+    "size": 8313
+  },
+  {
+    "name": "auth_token.py",
+    "path": "/home/agent_native/src/auth_token.py",
+    "relpath": "auth_token.py",
+    "size": 1325
+  },
+  {
+    "name": "config.py",
+    "path": "/home/agent_native/src/config.py",
+    "relpath": "config.py",
+    "size": 10718
+  },
+  {
+    "name": "event_queue_manager.py",
+    "path": "/home/agent_native/src/event_queue_manager.py",
+    "relpath": "event_queue_manager.py",
+    "size": 5922
+  },
+  {
+    "name": "flet_app.py",
+    "path": "/home/agent_native/src/flet_app.py",
+    "relpath": "flet_app.py",
+    "size": 31056
+  },
+  {
+    "name": "llm_client.py",
+    "path": "/home/agent_native/src/llm_client.py",
+    "relpath": "llm_client.py",
+    "size": 25393
+  },
+  {
+    "name": "logger.py",
+    "path": "/home/agent_native/src/logger.py",
+    "relpath": "logger.py",
+    "size": 2680
+  },
+  {
+    "name": "main.py",
+    "path": "/home/agent_native/src/main.py",
+    "relpath": "main.py",
+    "size": 10566
+  },
+  {
+    "name": "meta.py",
+    "path": "/home/agent_native/src/meta.py",
+    "relpath": "meta.py",
+    "size": 1298
+  },
+  {
+    "name": "node.py",
+    "path": "/home/agent_native/src/node.py",
+    "relpath": "node.py",
+    "size": 2391
+  },
+  {
+    "name": "prompts.py",
+    "path": "/home/agent_native/src/prompts.py",
+    "relpath": "prompts.py",
+    "size": 19992
+  },
+  {
+    "name": "requirements.txt",
+    "path": "/home/agent_native/src/requirements.txt",
+    "relpath": "requirements.txt",
+    "size": 65
+  },
+  {
+    "name": "run_flet.py",
+    "path": "/home/agent_native/src/run_flet.py",
+    "relpath": "run_flet.py",
+    "size": 2831
+  },
+  {
+    "name": "scheduler.py",
+    "path": "/home/agent_native/src/scheduler.py",
+    "relpath": "scheduler.py",
+    "size": 7831
+  },
+  {
+    "name": "stage_progress.py",
+    "path": "/home/agent_native/src/stage_progress.py",
+    "relpath": "stage_progress.py",
+    "size": 3679
+  },
+  {
+    "name": "task_attribute_manager.py",
+    "path": "/home/agent_native/src/task_attribute_manager.py",
+    "relpath": "task_attribute_manager.py",
+    "size": 27806
+  },
+  {
+    "name": "task_classifier.py",
+    "path": "/home/agent_native/src/task_classifier.py",
+    "relpath": "task_classifier.py",
+    "size": 2357
+  },
+  {
+    "name": "task_manager.py",
+    "path": "/home/agent_native/src/task_manager.py",
+    "relpath": "task_manager.py",
+    "size": 24315
+  },
+  {
+    "name": "tools.py",
+    "path": "/home/agent_native/src/tools.py",
+    "relpath": "tools.py",
+    "size": 31551
+  },
+  {
+    "name": "workspace_index.json",
+    "path": "/home/agent_native/src/workspace_index.json",
+    "relpath": "workspace_index.json",
+    "size": 7876
+  },
+  {
+    "name": "aes_crypto.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/aes_crypto.cpython-312.pyc",
+    "relpath": "__pycache__/aes_crypto.cpython-312.pyc",
+    "size": 5922
+  },
+  {
+    "name": "agent.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/agent.cpython-312.pyc",
+    "relpath": "__pycache__/agent.cpython-312.pyc",
+    "size": 54181
+  },
+  {
+    "name": "auth.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/auth.cpython-312.pyc",
+    "relpath": "__pycache__/auth.cpython-312.pyc",
+    "size": 10078
+  },
+  {
+    "name": "auth_token.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/auth_token.cpython-312.pyc",
+    "relpath": "__pycache__/auth_token.cpython-312.pyc",
+    "size": 2228
+  },
+  {
+    "name": "config.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/config.cpython-312.pyc",
+    "relpath": "__pycache__/config.cpython-312.pyc",
+    "size": 16604
+  },
+  {
+    "name": "event_queue_manager.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/event_queue_manager.cpython-312.pyc",
+    "relpath": "__pycache__/event_queue_manager.cpython-312.pyc",
+    "size": 8977
+  },
+  {
+    "name": "flet_app.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/flet_app.cpython-312.pyc",
+    "relpath": "__pycache__/flet_app.cpython-312.pyc",
+    "size": 64217
+  },
+  {
+    "name": "llm_client.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/llm_client.cpython-312.pyc",
+    "relpath": "__pycache__/llm_client.cpython-312.pyc",
+    "size": 29732
+  },
+  {
+    "name": "logger.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/logger.cpython-312.pyc",
+    "relpath": "__pycache__/logger.cpython-312.pyc",
+    "size": 4685
+  },
+  {
+    "name": "meta.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/meta.cpython-312.pyc",
+    "relpath": "__pycache__/meta.cpython-312.pyc",
+    "size": 2529
+  },
+  {
+    "name": "prompts.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/prompts.cpython-312.pyc",
+    "relpath": "__pycache__/prompts.cpython-312.pyc",
+    "size": 21021
+  },
+  {
+    "name": "scheduler.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/scheduler.cpython-312.pyc",
+    "relpath": "__pycache__/scheduler.cpython-312.pyc",
+    "size": 11209
+  },
+  {
+    "name": "stage_progress.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/stage_progress.cpython-312.pyc",
+    "relpath": "__pycache__/stage_progress.cpython-312.pyc",
+    "size": 5490
+  },
+  {
+    "name": "task_attribute_manager.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/task_attribute_manager.cpython-312.pyc",
+    "relpath": "__pycache__/task_attribute_manager.cpython-312.pyc",
+    "size": 30682
+  },
+  {
+    "name": "task_classifier.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/task_classifier.cpython-312.pyc",
+    "relpath": "__pycache__/task_classifier.cpython-312.pyc",
+    "size": 2970
+  },
+  {
+    "name": "task_manager.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/task_manager.cpython-312.pyc",
+    "relpath": "__pycache__/task_manager.cpython-312.pyc",
+    "size": 32212
+  },
+  {
+    "name": "tools.cpython-312.pyc",
+    "path": "/home/agent_native/src/__pycache__/tools.cpython-312.pyc",
+    "relpath": "__pycache__/tools.cpython-312.pyc",
+    "size": 32878
+  }
+]

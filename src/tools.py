@@ -1,3 +1,4 @@
+from meta import MsgStyle
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
 
 import os, sys, threading , re, subprocess, json
@@ -226,9 +227,10 @@ class ToolExecutor:
 
         try:
             result = method(args)
-            self._log_message(
-                f"\033[90m🔧  {str(args.get("note","")).replace('\n',' ')}({name}:{str(args)[9:100].replace('\n',' ')} )\033[0m"
-            )            
+            tool_msg = f"🔧 {str(args.get('note','')).replace(chr(10),' ')} ({name}: {str(args)[9:100].replace(chr(10),' ')})"
+            if self.agent and self.agent.eqm:
+                mode = "task" if "task" in threading.current_thread().name else "chat"
+                self.agent.eqm.send_display(tool_msg, mode=mode, style=MsgStyle.ACTION)
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
             return str(result)
@@ -318,7 +320,7 @@ class ToolExecutor:
             return "start_task 需要 task 参数"
         if not self.agent:
             return "start_task 不可用：未关联 agent 实例"
-        if getattr(self.agent, '_in_task_mode', False):
+        if "task" in threading.current_thread().name:
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
 
         first_time = args.get("first_execution_time", "") or "now"
@@ -698,6 +700,8 @@ class ToolExecutor:
         # 打印更新后的进度
         if self.logger:
             self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}", always=True)
+        if self.agent and self.agent.eqm:
+            self.agent.eqm.send_display(progress.format_status(), mode="task" if ("task" in threading.current_thread().name) else "chat", style=MsgStyle.STATUS)
 
         result = {
             "stage": stage,

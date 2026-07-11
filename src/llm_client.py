@@ -95,7 +95,7 @@ class LLMClient:
         if not api_key:
             print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
             print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
-            raise SystemExit(1)
+            print("（可在设置中配置密钥后重试）")
 
         valid_models = provider_info.get("models", [])
         if valid_models and self.model not in valid_models:
@@ -361,7 +361,7 @@ class LLMClient:
             "tools": tools,
             "tool_choice": "auto",
         }
-
+        print("self model:",self.model)
         self.last_system_prompt = prompt
         try:
             response = self.client.chat.completions.create(**kwargs)

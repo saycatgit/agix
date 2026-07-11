@@ -21,27 +21,7 @@ import uuid
 from enum import Enum
 
 
-class MsgType(str, Enum):
-    USER_INPUT = "user_input"
-    DISPLAY = "display"
-    ASK = "ask"
-    RESPONSE = "response"
-
-
-class MsgField:
-    CONTENT = "content"
-    TYPE = "message_type"
-    ID = "message_id"
-    STYLE = "style"
-
-
-class MsgStyle:
-    USER = "user"
-    ASSISTANT = "assistant"
-    ASK = "ask"
-    ERROR = "error"
-    WARN = "warn"
-
+from meta import MsgType, MsgField, MsgStyle
 
 class EventQueueManager:
     """统一管理所有队列及同步事件"""
