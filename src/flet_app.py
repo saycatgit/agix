@@ -34,7 +34,7 @@ class AgixUI:
         self.page = page; self.eqm = eqm; self.agent = agent
         self._panel_pos = [420, 60]; self._drag_start = [420, 60]
         self._hover_cnt = [0]; self._chat_ticks = [0]; self._task_ticks = [0]
-        self._max_btn_ref = ft.Ref[ft.IconButton](); self._setup_window(); self._build_title_bar()
+        self._max_btn_ref = ft.Ref[ft.IconButton](); self._task_name_ref = ft.Ref[ft.Text](); self._setup_window(); self._build_title_bar()
         self._build_task_panel(); self._build_chat_panel()
         self._build_settings_panel(); self._build_system_settings_panel(); self._assemble_page()
         self._start_poll_loop()
@@ -87,7 +87,8 @@ class AgixUI:
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color=ft.Colors.BLACK26),
             content=ft.Column([
                 ft.GestureDetector(content=ft.Container(
-                    content=ft.Row([ft.Text("📋 任务", weight=ft.FontWeight.W_600, size=13),
+                    content=ft.Row([ft.Text("📋 任务",width=60 ,weight=ft.FontWeight.W_600, size=13),
+                        ft.Text("", size=12, weight=ft.FontWeight.W_600, ref=self._task_name_ref, overflow=ft.TextOverflow.ELLIPSIS),
                         ft.IconButton(icon=ft.Icons.CLOSE, icon_size=16, on_click=lambda e: self._close_task_panel()),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     padding=ft.Padding(12, 8, 8, 8), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10, 10, 0, 0)),
@@ -95,7 +96,7 @@ class AgixUI:
                 ft.Container(content=ft.Row([
                     ft.Container(content=ft.Column([ft.Text("进度", size=10, color=ft.Colors.GREY_500, weight=ft.FontWeight.W_600),
                         ft.Container(content=self.task_status_list, expand=True)], spacing=2),
-                        width=150, padding=ft.Padding(6, 0, 6, 0), bgcolor=ft.Colors.BLUE_50, clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                        width=200, padding=ft.Padding(6, 0, 6, 0), bgcolor=ft.Colors.BLUE_50, clip_behavior=ft.ClipBehavior.HARD_EDGE),
                     ft.VerticalDivider(width=1, color=ft.Colors.GREY_300),
                     ft.Container(content=ft.Column([
                         ft.Column([ft.Text("步骤", size=10, color=ft.Colors.GREY_500, weight=ft.FontWeight.W_600),
@@ -188,7 +189,7 @@ class AgixUI:
             ft.Row([self.ca], alignment=ft.MainAxisAlignment.START),
             ft.Container(content=ft.Row([self.ci,
                 ft.IconButton(icon=ft.Icons.SEND, on_click=lambda e: self._send(), icon_size=20),
-                ft.IconButton(icon=ft.Icons.STOP, on_click=lambda e: self.eqm.request_cancel("chat"), icon_size=20, tooltip="停止执行"),
+                ft.IconButton(icon=ft.Icons.STOP, on_click=lambda e: self._stop(), icon_size=20, tooltip="停止执行"),
             ]), padding=ft.Padding(left=10, right=10, top=6, bottom=4)),
             sb_ctrl], expand=True)
 
@@ -207,6 +208,11 @@ class AgixUI:
             await self.ci.focus()
             self.page.update()
         self.page.run_task(_refocus)
+
+    def _stop(self):
+        self.eqm.request_cancel("chat")
+        self.cl.controls.append(_r(_msg("正在停止...", is_user=False)))
+        self.page.update()
 
     def _build_settings_panel(self):
         cfg = self.agent.config; self._s_provider_val = cfg.llm.provider; self._s_model_val = cfg.llm.model
@@ -304,7 +310,7 @@ class AgixUI:
             content=ft.Column([
                 ft.Container(content=ft.Row([ft.Text("⚙ 模型设置", weight=ft.FontWeight.W_600, size=14),
                     ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, on_click=lambda e: self._close_settings()),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,10,10,10), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,7,10,7), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
                 ft.Container(content=ft.Row([
                     ft.Container(content=ft.Column([ft.Text("供应商", weight=ft.FontWeight.W_600, size=11, color=ft.Colors.GREY_500),
                         _plist], spacing=4), width=130, bgcolor=ft.Colors.BLUE_50, padding=ft.Padding(8,4,8,4)),
@@ -353,7 +359,7 @@ class AgixUI:
             content=ft.Column([
                 ft.Container(content=ft.Row([ft.Text("🔧 系统配置", weight=ft.FontWeight.W_600, size=14),
                     ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, on_click=lambda e: self._close_sys_settings()),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,10,10,10), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,7,10,7), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
                 ft.Container(content=ft.Column([
                     ft.Text("执行", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
                     ft.Row([self._sys_timeout, self._sys_enable_history], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -412,6 +418,19 @@ class AgixUI:
                 task_msgs = self.eqm.drain_display("task")
                 for m in task_msgs:
                     content = m.get(MsgField.CONTENT, ""); st = m.get(MsgField.STYLE, ""); t = m.get(MsgField.TYPE, "")
+                    if t == MsgType.TASK_NAME:
+                        # find the task name Text widget in title bar and update it
+                        for ctrl in self.task_panel.content.controls:
+                            if isinstance(ctrl, ft.GestureDetector):
+                                title_row = ctrl.content.content
+                                if isinstance(title_row, ft.Row):
+                                    for child in title_row.controls:
+                                        if isinstance(child, ft.Text) and not child.value.startswith("📋"):
+                                            truncated = content[:50] + "..." if len(content) > 50 else content
+                                            child.value = truncated
+                                            break
+                                break
+                        continue
                     if st == MsgStyle.STATUS or t == MsgType.STATUS: self.task_status_text.value = content
                     elif st == MsgStyle.ACTION or t == MsgType.ACTION: self.task_action_list.controls.append(_task_msg(content, style=MsgStyle.ACTION))
                     elif st == MsgStyle.THINKING or t == MsgType.THINKING: self.task_think_list.controls.append(_task_msg(content, style=MsgStyle.THINKING))

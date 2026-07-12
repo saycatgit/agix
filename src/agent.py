@@ -205,6 +205,8 @@ class Agent:
             related_subtask_relation = sub.get("related_subtask_relation", "change")
 
             self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
+            if self.eqm:
+                self.eqm.send_display(sub_task, mode="task", msg_type=MsgType.TASK_NAME)
 
             # ── 每个子任务独立的日志和计数器 ──
             self.task_llm.history.clear()

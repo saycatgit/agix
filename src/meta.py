@@ -7,6 +7,7 @@ class MsgType(str, Enum):
     ASK = "ask"
     RESPONSE = "response"
     STATUS = "status"
+    TASK_NAME = "task_name"
     ACTION = "action"
     THINKING = "thinking"
 
@@ -25,6 +26,7 @@ class MsgStyle:
     ERROR = "error"
     WARN = "warn"
     STATUS = "status"
+    TASK_NAME = "task_name"
     ACTION = "action"
     THINKING = "thinking"
 

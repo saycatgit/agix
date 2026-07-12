@@ -57,10 +57,11 @@ class EventQueueManager:
     # ---------- display 消息 ----------
 
     def send_display(self, content: str, *, mode: str = "chat",
-                     style: MsgStyle | None = None):
+                     style: MsgStyle | None = None,
+                     msg_type: MsgType | None = None):
         """工作线程 -> UI 线程: 发送展示内容"""
         actual_style = style or MsgStyle.ASSISTANT
-        msg = self.make_msg(content, MsgType.DISPLAY, style=actual_style)
+        msg = self.make_msg(content, msg_type or MsgType.DISPLAY, style=actual_style)
         if mode == "chat":
             self.chat_display_queue.put(msg)
         else:
