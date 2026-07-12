@@ -341,12 +341,12 @@ class ToolExecutor:
                    f"{' (周期: ' + period + ')' if is_periodic else ''}"
                    f"\n任务提交成功，任务结束。")
             if self.logger:
-                self.logger.log(msg, always=True)
+                self.logger.log(msg)
             return msg
         else:
             msg = f"添加任务失败: {r['error']}"
             if self.logger:
-                self.logger.log(msg, always=True)
+                self.logger.log(msg)
             return msg
 
 
@@ -673,7 +673,7 @@ class ToolExecutor:
     def _log_message(self, msg: str):
         """统一处理日志输出。"""
         if self.logger:
-            self.logger.log(msg, always=True)
+            self.logger.log(msg)
         else:
             print(msg)
 
@@ -699,7 +699,7 @@ class ToolExecutor:
 
         # 打印更新后的进度
         if self.logger:
-            self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}", always=True)
+            self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}")
         if self.agent and self.agent.eqm:
             self.agent.eqm.send_display(progress.format_status(), mode="task" if ("task" in threading.current_thread().name) else "chat", style=MsgStyle.STATUS)
 

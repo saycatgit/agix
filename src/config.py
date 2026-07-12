@@ -1,4 +1,4 @@
-"""配置管理 —— 基于 dataclass 的类型安全配置"""
+"""配置管理"""
 
 import json
 import os
@@ -6,8 +6,46 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 from llm_client import PROVIDERS
+import sys
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.json"
+
+# 标准用户配置目录
+USER_HOME = Path.home() / ".agix"
+USER_HOME.mkdir(parents=True, exist_ok=True)
+
+
+# ── PathConfig: 全部路径由 EFFECTIVE_ROOT 计算，不存入 config.json ──
+
+@dataclass
+class PathConfig:
+    """所有文件系统路径，基于 EFFECTIVE_ROOT 自动构建。"""
+    root: str = ""
+    work_dir: str = ""
+    inner_space_dir: str = ""
+    skills_dir: str = ""
+    spc_dir: str = ""
+    task_dir: str = ""
+    config_file_path: str = ""
+    token_file: str = ""
+    task_config_file_path: str = ""
+    pending_tasks_file_path: str = ""
+    log_dir: str = ""
+
+    def __post_init__(self):
+        import os as _os
+        r = self.root
+        self.root = r
+        self.work_dir = r
+        isd = _os.path.join(r, "inner_space")
+        self.inner_space_dir = isd
+        self.spc_dir = _os.path.join(isd, "spc")
+        self.skills_dir = _os.path.join(isd, "skills")
+        self.task_dir = _os.path.join(isd, "task")
+        self.config_file_path = _os.path.join(r, "config.json")
+        self.token_file = _os.path.join(r, "auth_token.json")
+        self.task_config_file_path = _os.path.join(self.task_dir, "task_config.json")
+        self.pending_tasks_file_path = _os.path.join(self.task_dir, "pending_tasks.json")
+        self.log_dir = _os.path.join(r, "workspace", "log")
 
 
 @dataclass
@@ -28,21 +66,12 @@ class LLMConfig:
 @dataclass
 class ExecutionConfig:
     timeout: int = 60
-    work_dir: str = "./workspace"
-    skills_dir: str = ""
-    spc_dir: str = ""
     enable_history_association: bool = True
-    task_config_file_path: str = ""
-    pending_tasks_file_path: str = ""
-    task_dir: str = ""
-    inner_space_dir: str = "./inner_space"
 
 
 @dataclass
 class LogConfig:
-    dir: str = "./workspace/log"
-    log_to_terminal: bool = False
-    log_to_file: bool = True
+    enabled: bool = True
     history: bool = True
 
 
@@ -67,94 +96,94 @@ TRUNCATION = {
 }
 
 
-# ── AppConfig ────────────────────────────────────────────────────
+# ── AppConfig ──
 
-@dataclass
 class AppConfig:
-    llm: LLMConfig = field(default_factory=LLMConfig)
-    llm_list: list = field(default_factory=list)
-    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    log: LogConfig = field(default_factory=LogConfig)
-    auth: AuthConfig = field(default_factory=AuthConfig)
+    """应用配置聚合 — 路径由 PathConfig 计算，不持久化。"""
 
-    def __post_init__(self):
-        """自动初始化：解析 API Key、规范化路径、创建目录"""
-        self._init_paths()
+    # ── 根目录计算 ──
+
+    @staticmethod
+    def _get_root_path() -> Path:
+        if hasattr(sys, "_MEIPASS"):
+            return Path(sys._MEIPASS)
+        else:
+            return Path(__file__).parent.parent
+
+    @staticmethod
+    def _init_user_home() -> Path:
+        """生产环境首次运行时复制资源到 USER_HOME，返回实际根目录。"""
+        if not hasattr(sys, "_MEIPASS"):
+            return AppConfig._get_root_path()
+        user_config = USER_HOME / "config.json"
+        if not user_config.exists():
+            import shutil
+            current_root = AppConfig._get_root_path()
+            try:
+                shutil.copy2(current_root / "config.json", USER_HOME / "config.json")
+                for dirname in ("workspace", "inner_space"):
+                    src = current_root / dirname
+                    dst = USER_HOME / dirname
+                    if src.exists() and not dst.exists():
+                        shutil.copytree(src, dst)
+            except FileNotFoundError as e:
+                print(f"[WARN] 生产环境资源复制失败: {e}", file=sys.stderr)
+        return USER_HOME
+
+    # ── 初始化 ──
+
+    def __init__(self,
+                 llm: LLMConfig | None = None,
+                 llm_list: list | None = None,
+                 execution: ExecutionConfig | None = None,
+                 log: LogConfig | None = None,
+                 auth: AuthConfig | None = None):
+        self.llm = llm or LLMConfig()
+        self.llm_list = llm_list or []
+        self.execution = execution or ExecutionConfig()
+        self.log = log or LogConfig()
+        self.auth = auth or AuthConfig()
+
+        # 平台检测
+        _sys = sys.platform
+        self.system = "windows" if _sys == "win32" else "darwin" if _sys == "darwin" else "linux"
+
+        # 构建路径、创建目录、解析 API Key
+        effective_root = str(AppConfig._init_user_home())
+        self.paths = PathConfig(root=effective_root)
         self._init_dirs()
         self._init_api_key()
-        # Ensure llm_list has at least the current config
         if not self.llm_list:
             self.llm_list = [asdict(self.llm)]
 
-    def _init_paths(self):
-        """将相对路径转为绝对路径（相对于 config.py 所在目录）"""
-        import os as _os
-        root = str(Path(__file__).parent.parent)
-        isd = self.execution.inner_space_dir
-
-        if not self.execution.spc_dir:
-            self.execution.spc_dir = isd + "/spc"
-        if not self.execution.skills_dir:
-            self.execution.skills_dir = isd + "/skills"
-        if not self.execution.task_dir:
-            self.execution.task_dir = isd + "/task"
-        if not self.execution.task_config_file_path:
-            self.execution.task_config_file_path = self.execution.spc_dir + "/task_config.json"
-        if not self.execution.pending_tasks_file_path:
-            self.execution.pending_tasks_file_path = self.execution.task_dir + "/pending_tasks.json"
-
-        self.execution.spc_dir = self._resolve(self.execution.spc_dir, root)
-        self.execution.skills_dir = self._resolve(self.execution.skills_dir, root)
-        self.execution.task_dir = self._resolve(self.execution.task_dir, root)
-        self.execution.task_config_file_path = self._resolve(self.execution.task_config_file_path, root)
-        self.execution.pending_tasks_file_path = self._resolve(self.execution.pending_tasks_file_path, root)
-        self.log.dir = self._resolve(self.log.dir, root)
-
     def _init_dirs(self):
-        """创建必要的目录"""
+        """创建必要的目录。"""
         import os as _os
-        for d in [self.log.dir, self.execution.task_dir]:
+        for d in [self.paths.log_dir, self.paths.task_dir]:
             if d:
                 _os.makedirs(d, exist_ok=True)
 
     def _init_api_key(self):
-        """解析 API Key，失败则抛异常"""
-        from aes_crypto import is_encrypted, decrypt
-        import os as _os
-        key = self.llm.api_key
-        if not key or not key.strip():
-            return
-        if is_encrypted(key):
-            self.llm.api_key = decrypt(key)
-        elif any(key.startswith(p) for p in ("sk-", "fk-", "ak-", "xai-", "hf-")):
-            pass  # 原始 key，直接使用
-        else:
-            resolved = _os.environ.get(key, "")
-            if resolved:
-                self.llm.api_key = resolved
-
-    @staticmethod
-    def _resolve(path: str, root: str) -> str:
-        import os as _os
-        if not _os.path.isabs(path):
-            return _os.path.abspath(_os.path.join(root, path))
-        return _os.path.abspath(path)
+        self.resolve_api_key()
 
     # ── 序列化 ──
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        # 向后兼容：保留 memory 段（读取时仍可用）
-        d["memory"] = {
-            "enabled": self.llm.memory_enabled,
-            "size": self.llm.memory_size,
+        """序列化为 dict（不含 paths）。"""
+        return {
+            "llm": asdict(self.llm),
+            "execution": asdict(self.execution),
+            "log": asdict(self.log),
+            "auth": asdict(self.auth),
+            "memory": {
+                "enabled": self.llm.memory_enabled,
+                "size": self.llm.memory_size,
+            },
         }
-        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
         llm_data = dict(d.get("llm", {}))
-        # 向后兼容：旧 config.json 的 memory 段合并到 llm
         if "memory" in d:
             mem = d["memory"]
             llm_data.setdefault("memory_enabled", mem.get("enabled", True))
@@ -169,10 +198,10 @@ class AppConfig:
     # ── 加载 / 保存 ──
 
     @classmethod
-    def load(cls, path: str = "") -> "AppConfig":
-        """从 JSON 加载配置，合并用户设置后执行 __post_init__"""
+    def load(cls) -> "AppConfig":
+        """从 JSON 加载配置，合并用户设置。"""
         cfg = cls()
-        p = Path(path) if path else CONFIG_PATH
+        p = Path(cfg.paths.config_file_path)
         if p.exists():
             user = json.loads(open(p, encoding="utf-8").read())
             cfg._merge(user)
@@ -180,7 +209,6 @@ class AppConfig:
                 cfg.llm_list = user["llm_list"]
             else:
                 cfg.llm_list = [asdict(cfg.llm)]
-            # Ensure one is active AND has a valid key
             has_active = any(e.get("active") and e.get("api_key") for e in cfg.llm_list)
             if not has_active:
                 for e in cfg.llm_list:
@@ -189,7 +217,6 @@ class AppConfig:
                         break
                 else:
                     cfg.llm_list[0]["active"] = True
-            # Deactivate entries without key
             for e in cfg.llm_list:
                 if not e.get("api_key"):
                     e["active"] = False
@@ -197,16 +224,14 @@ class AppConfig:
             for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
                 if k in active_entry:
                     setattr(cfg.llm, k, active_entry[k])
-            cfg.__post_init__()
+            cfg._init_api_key()
         return cfg
 
     def add_llm_entry(self, entry: dict):
-        """添加一个新 LLM 配置到列表"""
         entry["active"] = False
         self.llm_list.append(entry)
 
     def switch_llm(self, index: int):
-        """切换到指定索引的 LLM 配置"""
         if 0 <= index < len(self.llm_list):
             for i, e in enumerate(self.llm_list):
                 e["active"] = (i == index)
@@ -214,10 +239,10 @@ class AppConfig:
             for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
                 if k in active:
                     setattr(self.llm, k, active[k])
-            self._init_api_key()  # re-decrypt
+            self._init_api_key()
+            label = active.get("label") or f"{active.get('provider','')}/{active.get('model','')}"
+            print(f"\n切换模型 -> {label}")
 
-            label = active.get("label") or f"{active.get("provider","")}/{active.get("model","")}"
-            print(f"\n🔄 切换模型 → {label}")
     def remove_llm_entry(self, index: int):
         if 0 <= index < len(self.llm_list) and len(self.llm_list) > 1:
             was_active = self.llm_list[index].get("active", False)
@@ -226,25 +251,28 @@ class AppConfig:
                 self.llm_list[0]["active"] = True
                 self.switch_llm(0)
 
-    def save(self, path: str = ""):
-        """保存到 JSON 文件"""
-        p = Path(path) if path else CONFIG_PATH
+    def save(self):
+        """保存到 JSON 文件（不含路径字段）。"""
+        p = Path(self.paths.config_file_path)
+        print(f"保存配置到 {p}")
         d = self.to_dict()
         d["llm_list"] = self.llm_list
-        del d["llm"]  # Only use llm_list
-        if "memory" in d: del d["memory"]  # Backward compat
-        # Re-encrypt keys for safe storage
+        del d["llm"]
+        if "memory" in d:
+            del d["memory"]
         from aes_crypto import is_encrypted, encrypt
         for e in d["llm_list"]:
             key = e.get("api_key", "")
             if key and not is_encrypted(key):
-                try: e["api_key"] = encrypt(key)
-                except: pass
+                try:
+                    e["api_key"] = encrypt(key)
+                except Exception:
+                    pass
         with open(p, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=2)
 
     def _merge(self, user: dict):
-        """深度合并用户配置到默认值上"""
+        """深度合并用户配置到默认值上。"""
         for section in ("llm", "execution", "log", "auth"):
             if section in user:
                 s = getattr(self, section)
@@ -252,26 +280,20 @@ class AppConfig:
                     if hasattr(s, k):
                         setattr(s, k, v)
 
-    # ── API Key 解析 ──
-
     def resolve_api_key(self) -> bool:
-        """解析并解密 api_key（AES 加密 / 环境变量 / 原始 key）"""
+        """解析并解密 api_key。"""
         from aes_crypto import is_encrypted, decrypt
         api_key = self.llm.api_key
         if not api_key or not api_key.strip():
             return False
-
         if is_encrypted(api_key):
             try:
                 self.llm.api_key = decrypt(api_key)
                 return True
             except ValueError:
                 return False
-
         if any(api_key.startswith(p) for p in ("sk-", "fk-", "ak-", "xai-", "hf-")):
             return True
-
-        # 尝试作为环境变量名解析
         resolved = os.environ.get(api_key, "")
         if resolved:
             self.llm.api_key = resolved
@@ -279,21 +301,3 @@ class AppConfig:
         return False
 
 
-# ── 兼容旧版 ──
-
-def load_config(path: str = "") -> AppConfig:
-    """兼容旧接口：返回 AppConfig 实例。"""
-    return AppConfig.load(path)
-
-
-def save_config(config: AppConfig, path: str = ""):
-    config.save(path)
-
-
-def get_default_config() -> AppConfig:
-    return AppConfig()
-
-
-def list_available_providers() -> list:
-    return [{"id": k, "name": v["name"], "models": v["models"], "base_url": v["base_url"]}
-            for k, v in PROVIDERS.items()]

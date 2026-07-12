@@ -58,20 +58,18 @@ class Agent:
 
         self.max_rounds = config.llm.llm_max_allowed_rounds
 
-        self.chat_logger = Logger(config.log, eqm=self.eqm)
-        self.task_logger = Logger(config.log, eqm=self.eqm)
-        self.logger = Logger(config.log, eqm=self.eqm)
+        self.logger = Logger(config.log, log_dir=config.paths.log_dir)
 
-        self.chat_llm = LLMClient(config.llm, logger=self.chat_logger)
-        self.task_llm = LLMClient(config.llm, logger=self.task_logger)
+        self.chat_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history)
+        self.task_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history)
 
         self.project_root = os.path.dirname(os.path.abspath(__file__))
         self.work_dir = os.getcwd()
 
         # 路径由 AppConfig.__post_init__ 解析为绝对路径并创建目录
-        self.spc_dir = config.execution.spc_dir
-        self.skills_dir = config.execution.skills_dir
-        self.task_dir = config.execution.task_dir
+        self.spc_dir = config.paths.spc_dir
+        self.skills_dir = config.paths.skills_dir
+        self.task_dir = config.paths.task_dir
 
         self.proj_path = os.path.join(self.work_dir, "temp")
         self.docs_dir = None
@@ -79,25 +77,22 @@ class Agent:
         self.task_manager = TaskManager()
         self.enable_history_association = config.execution.enable_history_association
 
-        self.prompts = Prompts(self.spc_dir, self.config.execution.task_config_file_path)
+        self.prompts = Prompts(self.spc_dir, self.config.paths.task_config_file_path)
 
         self.scheduler = TaskScheduler(
-            self.config.execution.pending_tasks_file_path,
+            self.config.paths.pending_tasks_file_path,
             self
         )
         self.scheduler.start()
         self.is_interactive = False  # 当前任务是否为交互模式
 
-        if self.config.log.history:
-            self.chat_llm.history_log_path = os.path.join(self.config.log.dir, "history_chat.log")
-            self.task_llm.history_log_path = os.path.join(self.config.log.dir, "history_task.log")
 
 
         if self.eqm:
             self.start_chat_worker()
             self.start_task_worker()
     def _log(self, msg: str, always: bool = False):
-        self.logger.log(msg, always)
+        self.logger.log(msg)
     def start_task_worker(self):
         """启动后台工作线程：轮询调度器的到期任务队列并执行"""
         def _task_worker():
@@ -109,7 +104,7 @@ class Agent:
                     self.is_interactive = rt.get("is_interactive", False)
                     if task_name:
                         mode = rt.get("mode", "task")
-                        self._log("=" * 30, always=True)
+                        self._log("=" * 30)
                         self.run(task_name, mode=mode)
                 time.sleep(1)
         t = threading.Thread(target=_task_worker, daemon=True)
@@ -134,18 +129,6 @@ class Agent:
 
     def run(self, user_task: str, mode: str = "chat") -> dict:
         """主入口
-        if self.eqm:
-            self.eqm.reset_cancel(mode)
-        if mode == "chat":
-            Logger.mark_thread("chat")
-            ret= self._run_chat(user_task)
-        if self.eqm:
-
-            self._log(f"\n{ret['content']}\n",always=True)
-            return ret
-
-        每次新消息重置取消标志。
-
         mode="chat": 对话模式（默认），无任务分解，直接进入工具调用对话
         mode="task": 任务模式，执行完整流水线（分类→分解→执行）
 
@@ -153,23 +136,17 @@ class Agent:
         """
         if self.eqm:
             self.eqm.reset_cancel(mode)
+
         if mode == "chat":
-            Logger.mark_thread("chat")
             ret= self._run_chat(user_task)
 
-            self._log(f"\n{ret['content']}\n",always=True)
+            self._log(f"\n{ret['content']}\n")
             return ret
         else:
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
-            Logger.mark_thread("task")
-
             ret= self._run_task(user_task)
 
-            self._log(ret["content"],always=True)
-            Logger.mark_thread("chat")
-
-            ret= self._run_chat(f"任务模式返回结果(无论成败禁止继续此任务内容)："+ret["content"])
-
+            self.eqm.send_user_input("根据任务模式返回内容总结(无论成功禁止继续执行这个子任务):"+str(ret), mode="chat")
             return ret
 
     def _run_task(self, user_task: str) -> dict:
@@ -202,7 +179,7 @@ class Agent:
         classification = tc.classify_with_history(user_task, self.task_dir, enable_history=enable_history)
         self.task_llm.history.clear()
         if TaskField.IS_FALSE(classification):
-            self._log("\n❌ 任务分类失败", always=True)
+            self._log("\n❌ 任务分类失败")
             return TaskField.RET_JSON_FALSE(f"任务:{user_task} 分类失败")
 
         main_task = classification.get("main_task", user_task)
@@ -261,7 +238,7 @@ class Agent:
                         subtask_index = new_idx
                 else:
                     # 历史文件不可用，跳过该子任务并报告错误
-                    self._log(f"  ❌ 历史文件未找到: {state_file}", always=True)
+                    self._log(f"  ❌ 历史文件未找到: {state_file}")
                     total_results.append({
                         TaskField.JUDGE: "false",
                         TaskField.SUB_TASK: sub_task,
@@ -316,7 +293,6 @@ class Agent:
                 TaskField.SUB_TYPE: sub_type,
                 TaskField.SUBTASK_INDEX: subtask_index,
                 TaskField.PROJECT_PATH: self.proj_path,
-                TaskField.LOG_PATH: self.task_logger.path,
                 TaskField.TASK_STATE: self.task_manager._save_path,
                 TaskField.COST: cost_str,
                 TaskField.CONTENT: result["content"],
@@ -327,7 +303,6 @@ class Agent:
                 self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.COMPLETED)
                 self.task_manager.finish(True)
                 self._log(f"\n子任务{subtask_index}完成 — " +cost_str)
-                self._log(f"  日志: {self.task_logger.path}")
             else:
                 self.task_manager.set_subtask_status(subtask_index, SubTaskStatus.FAILED)
                 self.task_manager.save_plan_steps(self.task_manager._stage_progress)
@@ -342,8 +317,6 @@ class Agent:
             summary_lines.append(f"{icon} [{r.get(TaskField.TASK_TYPE, "")}] {sub}")
             if project:
                 summary_lines.append(f"     项目: {project}")
-            if r.get(TaskField.LOG_PATH):
-                summary_lines.append(f"     日志: {r[TaskField.LOG_PATH]}")
             if r.get(TaskField.CONTENT):
                 cnt = r[TaskField.CONTENT]
                 summary_lines.append(f"     结果: {cnt[:200]}{'...' if len(cnt) > 200 else ''}")
@@ -361,7 +334,7 @@ class Agent:
         """
         sub = self.task_manager.get_subtask(subtask_index)
         if sub is None:
-            self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过", always=True)
+            self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过")
             return False
         
         # 恢复之前中断的子任务
@@ -372,7 +345,7 @@ class Agent:
         
         result = self._get_phases_and_extra_prompt(sub.task_type, sub.sub_type)
         if result is None:
-            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过", always=True)
+            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过")
             return False
         phases = result['phases']
         
@@ -445,13 +418,13 @@ class Agent:
         """
         if not hasattr(self, '_attr_mgr'):
             from task_attribute_manager import TaskAttributeManager
-            json_path = self.config.execution.task_config_file_path
+            json_path = self.config.paths.task_config_file_path
             self._attr_mgr = TaskAttributeManager(json_path)
         result = self._attr_mgr.get_phases_and_extra_prompt(task_type_key, sub_type)
         if result is None:
             self._log(
                 f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
-                always=True,
+                
             )
         return result
 
@@ -515,7 +488,7 @@ class Agent:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
         self.is_interactive = True  # chat 模式默认为交互模式
-        executor = ToolExecutor(self.work_dir, logger=self.chat_logger, agent=self, eqm=self.eqm, mode="chat")
+        executor = ToolExecutor(self.work_dir, logger=self.logger, agent=self, eqm=self.eqm, mode="chat")
 
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
@@ -554,7 +527,7 @@ class Agent:
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         summary = exec_result["summary"]
                         if summary:
-                            # self._log(f"\n 🏆： {summary}",always=True)
+                            # self._log(f"\n 🏆： {summary}")
                             return {"judge": "true", "content": summary}
 
                     responses.append(str(exec_result))
@@ -565,7 +538,8 @@ class Agent:
             else:
                 content_text = result.get("content", "")
                 # if content_text:
-                #     self._log(f"\n  🤖: {content_text}\n",always=True)
+                self.eqm.send_display(content_text, mode="chat")
+
                 return {"judge": "true", "content": content_text}
 
     def _build_phase_msg(self, sub) -> tuple[str, str]:
@@ -662,7 +636,7 @@ class Agent:
             if ctx_msgs:
                 self.task_llm.history = ctx_msgs
 
-        executor = ToolExecutor(sub.project_path, logger=self.task_logger, agent=self, eqm=self.eqm, mode="task")
+        executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self, eqm=self.eqm, mode="task")
 
         self._log(f"工作目录proj: {sub.project_path}")
 
@@ -675,7 +649,7 @@ class Agent:
             prompt_add, msg = self._build_phase_msg(sub)
             prompt += prompt_add
 
-            self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}", always=True)
+            self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}")
 
 
         for num in range(self.max_rounds):
@@ -713,7 +687,7 @@ class Agent:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
                             self._save_llm_context(subtask_index, base_prompt)
-                            self._log(f"\n  {self.task_manager._stage_progress.format_status()}", always=True)
+                            self._log(f"\n  {self.task_manager._stage_progress.format_status()}")
                             self.task_manager.update_task_list(self.task_dir) 
                             return TaskField.RET_JSON_FALSE(exec_result["summary"])
                         
@@ -762,7 +736,7 @@ class Agent:
                     msg = base + "\n" + convergence
 
             elif result["type"] == "error":
-                self._log(f"\n❌ API错误: {result.get('message', '')}\n", always=True)
+                self._log(f"\n❌ API错误: {result.get('message', '')}\n")
                 return TaskField.RET_JSON_FALSE(result.get("message", "API错误"))
             continue
 

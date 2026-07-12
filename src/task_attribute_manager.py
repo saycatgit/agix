@@ -591,7 +591,7 @@ __all__ = ["TaskAttributeManager"]
 if __name__ == "__main__":
     import os, shutil
 
-    TMP= "/home/agent_native/inner_space/spc/spec.json"
+    TMP = os.path.join(os.path.dirname(os.path.dirname(__file__)), "inner_space", "spc", "spec.json")
     mgr = TaskAttributeManager(TMP)
     print(mgr.summary())
     # # -- data loading --

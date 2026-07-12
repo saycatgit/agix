@@ -56,7 +56,7 @@ PROVIDERS = {
 
 class LLMClient:
 
-    def __init__(self, config, logger=None):
+    def __init__(self, config, logger=None, log_history=False):
         # 支持 LLMConfig 或 dict
         if hasattr(config, "provider"):
             # LLMConfig
@@ -79,32 +79,16 @@ class LLMClient:
             memory_enabled = config.get("memory_enabled", True)
             memory_size = config.get("memory_size", 20)
 
-        provider_info = PROVIDERS.get(provider, PROVIDERS["custom"])
-        # 如果 api_key 不是以标准前缀开头，视为环境变量名
-        if api_key and not any(api_key.startswith(p) for p in ("sk-", "fk-", "ak-", "SECRET:")):
-            api_key = os.environ.get(api_key, api_key)
-        if not base_url:
-            base_url = provider_info["base_url"]
-        if not model:
-            model = provider_info["models"][0] if provider_info["models"] else ""
-
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
 
+        provider_info = PROVIDERS[provider]
         if not api_key:
             print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
             print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
             print("（可在设置中配置密钥后重试）")
 
-        valid_models = provider_info.get("models", [])
-        if valid_models and self.model not in valid_models:
-            msg = f"警告: 模型 '{self.model}' 不在已知列表 {valid_models} 中\n   如果 API 返回 400 错误，请检查 config.json 中的 model 字段"
-            if logger:
-                logger.log(msg, always=True)
-            else:
-                print(f"警告: 模型 '{self.model}' 不在已知列表 {valid_models} 中")
-                print(f"   如果 API 返回 400 错误，请检查 config.json 中的 model 字段")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.provider = provider
@@ -121,7 +105,8 @@ class LLMClient:
         self.total_completion_tokens = 0
         self.total_cost = 0.0
         self._balance_before = None  # 任务前余额快照
-        self.history_log_path = ""  # 历史日志路径
+        self.logger = logger
+        self.log_history = log_history
         self.last_system_prompt = ""  # 最近一次系统提示词
 
     # ---- 核心聊天 ----
@@ -294,14 +279,10 @@ class LLMClient:
             self.history.append({"role": "assistant", "content": content})
         # 写入独立历史日志
         self.last_system_prompt = prompt
-        if self.history_log_path:
-            try:
-                self._write_history_log(
-                    f"\n{'='*60}\n[{self.call_count}] SYSTEM:\n{prompt[:5000]}\n\n"
-                    f"[{self.call_count}] USER:\n{user_message[:5000]}\n\n"
-                    f"[{self.call_count}] ASSISTANT:\n{content[:5000]}\n")
-            except Exception:
-                pass
+        if self.log_history:
+            self.logger.log(f"\n{'='*60}\n[{self.call_count}] SYSTEM:\n{prompt[:5000]}\n\n"
+                            f"[{self.call_count}] USER:\n{user_message[:5000]}\n\n"
+                            f"[{self.call_count}] ASSISTANT:\n{content[:5000]}")
 
         return content
 
@@ -361,12 +342,11 @@ class LLMClient:
             "tools": tools,
             "tool_choice": "auto",
         }
-        print("self model:",self.model)
         self.last_system_prompt = prompt
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:
-            self._write_history_log(f"❌ API调用失败: {e}\n")
+            self.logger.log(f"❌ API调用失败: {e}")
             return {"type": "error", "message": f"LLM API错误: {e}"}
 
         msg = response.choices[0].message
@@ -375,10 +355,8 @@ class LLMClient:
 
         self._track_usage(getattr(response, 'usage', None))
         # 记录用户消息
-        if self.history_log_path:
-            self._write_history_log(
-                f"\n{'='*60}\n[{self.call_count}] TOOLS USER:\n{user_message[:2000]}\n"
-            )
+        if self.log_history:
+            self.logger.log(f"\n{'='*60}\n[{self.call_count}] TOOLS USER:\n{user_message[:2000]}")
 
         # ---------- 处理工具调用 ----------
         if msg.tool_calls:
@@ -391,11 +369,9 @@ class LLMClient:
                 except ValueError as e:
                     # 解析失败，记录详细日志
                     error_msg = f"工具 '{tc.function.name}' 参数解析失败: {e}"
-                    if self.history_log_path:
-                        self._write_history_log(
-                            f"❌ {error_msg}\n"
-                            f"原始参数: {tc.function.arguments}\n"
-                        )
+                    if self.log_history:
+                        self.logger.log(f"❌ {error_msg}\n"
+                                        f"原始参数: {tc.function.arguments}")
                     # 可以选择继续（用空字典）或直接返回错误
                     # 这里我们标记失败并跳过该调用，或抛出自定义异常让上层重试
                     # 为了稳健，我们返回错误信息，由上层决定是否重试
@@ -414,14 +390,11 @@ class LLMClient:
                 })
 
             # 记录工具调用日志
-            if self.history_log_path:
-                try:
-                    lines = [f"[{self.call_count}] TOOLS CALL\n"]
-                    for c in calls:
-                        lines.append(f"  → {c['name']}[{c['id']}]({json.dumps(c['args'], ensure_ascii=False)})\n")
-                    self._write_history_log(''.join(lines))
-                except Exception:
-                    pass
+            if self.log_history:
+                lines = [f"[{self.call_count}] TOOLS CALL\n"]
+                for c in calls:
+                    lines.append(f"  → {c['name']}[{c['id']}]({json.dumps(c['args'], ensure_ascii=False)})\n")
+                self.logger.log(''.join(lines))
 
             # 更新历史（包括工具调用消息）
             if self.memory_enabled:
@@ -451,13 +424,8 @@ class LLMClient:
         # ---------- 普通文本回复 ----------
         content = msg.content or ""
         self.last_raw_response = content
-        if self.history_log_path:
-            try:
-                self._write_history_log(
-                    f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:20000]}\n"
-                )
-            except Exception:
-                pass
+        if self.log_history:
+            self.logger.log(f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:20000]}")
 
         if self.memory_enabled:
             self.history.append({"role": "user", "content": user_message})
@@ -466,14 +434,6 @@ class LLMClient:
         return {"type": "text", "content": content, "reasoning_content": reasoning}
 
 
-    def _write_history_log(self, content: str):
-        """写入历史日志，自动创建目录"""
-        if not self.history_log_path:
-            return
-
-        os.makedirs(os.path.dirname(self.history_log_path), exist_ok=True)
-        with open(self.history_log_path, 'a', encoding='utf-8') as hf:
-            hf.write(content)
 
     def _snap_to_valid_start(self, start: int) -> int:
         """Ensure the history slice doesn't start with orphaned tool messages.
@@ -504,7 +464,7 @@ class LLMClient:
         if not filepath:
             import time
             ts = time.strftime("%Y%m%d_%H%M%S")
-            log_dir = os.path.dirname(self.history_log_path) if self.history_log_path else "."
+            log_dir = self.logger._log_dir if self.logger and getattr(self.logger, "_log_dir", "") else "."
             filepath = os.path.join(log_dir, f"history_dump_{ts}.json")
         os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
         # 将系统提示词放在最前面
@@ -523,12 +483,8 @@ class LLMClient:
             "tool_call_id": tool_call_id,
             "content": result,
         })
-        if self.history_log_path:
-            try:
-                self._write_history_log(
-                    f"  TOOL RESULT[{tool_call_id}] :\n{result[:2000]}\n")
-            except Exception:
-                pass
+        if self.log_history:
+            self.logger.log(f"  TOOL RESULT[{tool_call_id}] :\n{result[:2000]}")
 
     # ---- 记忆管理 ----
 

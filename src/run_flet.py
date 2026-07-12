@@ -5,16 +5,13 @@ import os
 import sys
 import urllib.request
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-
 import flet as ft
 from config import AppConfig
 from agent import Agent
 from auth import AuthHandler
 from event_queue_manager import EventQueueManager
 from flet_app import build_ui, build_login_view
-from auth_token import load_token, save_token, clear_token
-
+from auth_token import AuthToken
 
 def _verify_token(server_url: str, token: str) -> bool:
     """向认证服务器验证 token 是否有效。"""
@@ -33,8 +30,7 @@ def _verify_token(server_url: str, token: str) -> bool:
 
 def main(page: ft.Page):
     """Flet 桌面应用入口 —— 先检查本地 token，有效则跳过登录。"""
-    config_path = Path(__file__).parent.parent / "config.json"
-    config = AppConfig.load(str(config_path)) if config_path.exists() else AppConfig()
+    config = AppConfig.load()
     auth_handler = AuthHandler(
         interactive=config.auth.interactive,
         sensitive_command_check=config.auth.sensitive_command_check,
@@ -49,7 +45,8 @@ def main(page: ft.Page):
     print(f"   认证服务: {server_url}")
 
     # 检查本地缓存的 token
-    saved_token = load_token()
+    auth_token = AuthToken(config.paths.token_file)
+    saved_token = auth_token.load()
     if saved_token:
         print("   检查本地 token...")
         if _verify_token(server_url, saved_token):
@@ -61,11 +58,11 @@ def main(page: ft.Page):
             return
         else:
             print("   ✗ token 无效，需要重新登录")
-            clear_token()
+            auth_token.clear()
 
     def on_login(token: str, expires_at: float = 0):
         print(f"\n✓ 登录成功 (token: {token[:8]}...)")
-        save_token(token, expires_at=expires_at)
+        auth_token.save(token, expires_at=expires_at)
         page.clean()
         page.window.width = 900
         page.window.height = 600

@@ -1,6 +1,6 @@
 """Flet UI 主模块 —— Agix 桌面界面（类封装版）"""
 
-import asyncio, uuid, subprocess, webbrowser, flet as ft
+import asyncio, os, uuid, subprocess, webbrowser, flet as ft
 from event_queue_manager import EventQueueManager
 from meta import MsgType, MsgField, MsgStyle
 from llm_client import PROVIDERS
@@ -18,7 +18,7 @@ _STYLE_VISUALS = {
 }
 
 _AVATAR_DATA = {
-    MsgStyle.USER:      ("👤", ft.Colors.BLUE),
+    MsgStyle.USER:      ("👤", None),
     MsgStyle.ASSISTANT: ("👾", None),
     MsgStyle.ASK:       ("?",  ft.Colors.ORANGE),
     MsgStyle.ERROR:     ("!",  ft.Colors.RED),
@@ -28,14 +28,13 @@ _AVATAR_DATA = {
     MsgStyle.THINKING:  ("💭", ft.Colors.PURPLE),
 }
 
-
 class AgixUI:
     """Agix 桌面 UI 管理器"""
     def __init__(self, page: ft.Page, eqm: EventQueueManager, agent):
         self.page = page; self.eqm = eqm; self.agent = agent
         self._panel_pos = [420, 60]; self._drag_start = [420, 60]
         self._hover_cnt = [0]; self._chat_ticks = [0]; self._task_ticks = [0]
-        self._setup_window(); self._build_title_bar()
+        self._max_btn_ref = ft.Ref[ft.IconButton](); self._setup_window(); self._build_title_bar()
         self._build_task_panel(); self._build_chat_panel()
         self._build_settings_panel(); self._build_system_settings_panel(); self._assemble_page()
         self._start_poll_loop()
@@ -45,6 +44,13 @@ class AgixUI:
         p.window.title_bar_hidden = True; p.window.frameless = True
         p.title = "Agix"; p.window.width = 900; p.window.height = 600; p.padding = 0
     def _minimize(self, e): self.page.window.minimized = True
+    def _maximize(self, e):
+        self.page.window.maximized = not self.page.window.maximized
+        btn = self._max_btn_ref.current
+        if btn:
+            btn.icon = ft.Icons.FILTER_NONE if self.page.window.maximized else ft.Icons.CROP_SQUARE
+            btn.tooltip = "还原" if self.page.window.maximized else "最大化"
+        self.page.update()
     def _close(self, e):
         async def _do(): await self.page.window.close()
         self.page.run_task(_do)
@@ -62,6 +68,7 @@ class AgixUI:
             ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="模型设置", on_click=lambda e: self._open_settings()),
             ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self._open_sys_settings()),
             ft.IconButton(icon=ft.Icons.MINIMIZE, icon_size=18, tooltip="最小化", on_click=self._minimize),
+            ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化", on_click=self._maximize, ref=self._max_btn_ref),
             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=self._close),
         ], spacing=4), bgcolor=ft.Colors.SURFACE, padding=ft.Padding(left=12, right=4, top=4, bottom=4), height=40)
 
@@ -75,7 +82,7 @@ class AgixUI:
         self._task_ask_container = ft.Container(
             content=ft.Row([self.task_ask_input, ft.IconButton(icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._task_send())], spacing=4),
             padding=ft.Padding(0, 4, 0, 0), visible=False)
-        self.task_panel = ft.Container(opacity=1.0, width=640, height=400,
+        self.task_panel = ft.Container(opacity=1.0, width=800, height=500,
             border_radius=ft.BorderRadius(10, 10, 10, 10), bgcolor=ft.Colors.WHITE,
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color=ft.Colors.BLACK26),
             content=ft.Column([
@@ -135,7 +142,7 @@ class AgixUI:
             border_radius=10, min_lines=1, max_lines=5, expand=True, text_size=14)
         self.ci.on_submit = lambda e: self._send()
 
-        def _open_work_dir(e): subprocess.Popen(['xdg-open', self.agent.work_dir])
+        def _open_work_dir(e): os.startfile(self.agent.work_dir) if self.agent.config.system == 'windows' else subprocess.Popen(['xdg-open', self.agent.work_dir])
 
         def _get_active_label():
             for e in self.agent.config.llm_list:
@@ -314,23 +321,22 @@ class AgixUI:
     def _build_system_settings_panel(self):
         cfg = self.agent.config
         tf = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300}
-        self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=100, **tf)
-        self._sys_work_dir = ft.TextField(value=cfg.execution.work_dir, read_only=True, **tf)
-        self._sys_enable_history = ft.Switch(label="启用历史关联", value=cfg.execution.enable_history_association)
+        self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=120, **tf)
+        
+        self._sys_work_dir = ft.TextField(value=cfg.paths.work_dir, read_only=True, **tf)
+        self._sys_enable_history = ft.Switch(label="启用历史关联", height=30, value=cfg.execution.enable_history_association)
 
-        self._sys_log_terminal = ft.Switch(label="输出到终端", value=cfg.log.log_to_terminal)
-        self._sys_log_file = ft.Switch(label="写入文件", value=cfg.log.log_to_file)
-        self._sys_log_history = ft.Switch(label="记录历史", value=cfg.log.history)
-        self._sys_auth_interactive = ft.Switch(label="交互模式", value=cfg.auth.interactive)
-        self._sys_auth_sensitive = ft.Switch(label="敏感命令检查", value=cfg.auth.sensitive_command_check)
+        self._sys_log_enabled = ft.Switch(label="启用日志", height=30, value=cfg.log.enabled)
+        self._sys_log_history = ft.Switch(label="记录历史", height=30, value=cfg.log.history)
+        self._sys_auth_interactive = ft.Switch(label="交互模式", height=30, value=cfg.auth.interactive)
+        self._sys_auth_sensitive = ft.Switch(label="敏感命令检查", height=30, value=cfg.auth.sensitive_command_check)
 
         def _save_sys(e):
             try:
                 cfg.execution.timeout = int(self._sys_timeout.value)
-                cfg.execution.work_dir = self._sys_work_dir.value.strip()
+                cfg.paths.work_dir = self._sys_work_dir.value.strip()
                 cfg.execution.enable_history_association = self._sys_enable_history.value
-                cfg.log.log_to_terminal = self._sys_log_terminal.value
-                cfg.log.log_to_file = self._sys_log_file.value
+                cfg.log.enabled = self._sys_log_enabled.value
                 cfg.log.history = self._sys_log_history.value
                 cfg.auth.interactive = self._sys_auth_interactive.value
                 cfg.auth.sensitive_command_check = self._sys_auth_sensitive.value
@@ -349,14 +355,14 @@ class AgixUI:
                     ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, on_click=lambda e: self._close_sys_settings()),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,10,10,10), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
                 ft.Container(content=ft.Column([
-                    ft.Text("执行", weight=ft.FontWeight.W_600, size=12, color=ft.Colors.GREY_700),
+                    ft.Text("执行", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
                     ft.Row([self._sys_timeout, self._sys_enable_history], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Row([self._sys_work_dir, ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择目录", on_click=lambda e: self._pick_dir())], spacing=4),
                     ft.Divider(height=1),
-                    ft.Text("日志", weight=ft.FontWeight.W_600, size=12, color=ft.Colors.GREY_700),
-                    ft.Row([self._sys_log_terminal, self._sys_log_file, self._sys_log_history], spacing=16, wrap=True),
+                    ft.Text("日志", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
+                    ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=16, wrap=True),
                     ft.Divider(height=1),
-                    ft.Text("安全", weight=ft.FontWeight.W_600, size=12, color=ft.Colors.GREY_700),
+                    ft.Text("安全", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
                     ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=16, wrap=True),
                     ft.Container(content=ft.Row([ft.ElevatedButton("保存", on_click=_save_sys, height=32)], alignment=ft.MainAxisAlignment.END), padding=ft.Padding(0,6,0,0)),
                 ], spacing=8), expand=True, padding=ft.Padding(16,12,16,12)),
@@ -366,19 +372,37 @@ class AgixUI:
     def _close_sys_settings(self): self._sys_settings_panel.visible = False; self.page.update()
 
     def _pick_dir(self):
-        r = subprocess.run(
-            ["zenity", "--file-selection", "--directory", "--title=选择工作目录"],
-            capture_output=True, text=True)
-        path = r.stdout.strip()
-        if path:
-            self._sys_work_dir.value = path
-            self.page.update()
+        """打开目录选择对话框"""
+        if self.agent.config.system == "windows":
+            import ctypes
+            from ctypes import wintypes
+            BIF_RETURNONLYFSDIRS = 0x00000001
+            pidl = ctypes.windll.shell32.SHBrowseForFolderW(
+                ctypes.byref(wintypes.HWND()), None, BIF_RETURNONLYFSDIRS)
+            if pidl:
+                buf = ctypes.create_unicode_buffer(260)
+                ctypes.windll.shell32.SHGetPathFromIDListW(pidl, buf)
+                ctypes.windll.ole32.CoTaskMemFree(pidl)
+                path = buf.value
+                if path:
+                    self._sys_work_dir.value = path
+                    self.page.update()
+        else:
+            r = subprocess.run(
+                ["zenity", "--file-selection", "--directory", "--title=选择工作目录"],
+                capture_output=True, text=True)
+            path = r.stdout.strip()
+            if path:
+                self._sys_work_dir.value = path
+                self.page.update()
 
     def _assemble_page(self):
         self.page.add(ft.Stack([ft.Column([self.tb, self.cp], expand=True), self._task_panel_wrapper, self._settings_panel, self._sys_settings_panel], expand=True))
         self.page.window.visible = True; self.page.update()
         self.cl.controls.append(_msg("你好！我是 Agix，你的 AI 开发助手。\n我可以帮你写代码、管理任务、回答问题。"))
-        self.page.window.icon = "/home/agent_native/logo.ico"; self.page.update()
+        logo = os.path.join(self.agent.config.paths.root, "logo.ico")
+        if os.path.exists(logo):
+            self.page.window.icon = logo; self.page.update()
 
     def _start_poll_loop(self):
         async def _poll():

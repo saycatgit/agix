@@ -95,9 +95,9 @@ class AuthHandler:
             encoding="utf-8"
         )
 
-    def _log(self, msg: str, always: bool = True):
+    def _log(self, msg: str):
         if getattr(self, "logger", None):
-            self.logger.log(msg, always=always)
+            self.logger.log(msg)
 
     def add_rule(self, action: str, target: str, policy: str):
         """添加/覆盖规则

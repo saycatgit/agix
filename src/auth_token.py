@@ -1,45 +1,42 @@
-"""Token 本地持久化 —— 存储到 ~/.agix/auth_token.json，支持过期检查"""
+"""Token 本地持久化。"""
 
 import json
 import time
 from pathlib import Path
 
-TOKEN_DIR = Path.home() / ".agix"
-TOKEN_FILE = TOKEN_DIR / "auth_token.json"
 
+class AuthToken:
+    """管理认证 token 的本地存储。"""
 
-def save_token(token: str, phone: str = "", expires_at: float = 0) -> None:
-    """持久化 token 到本地文件。"""
-    TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-    data = {"token": token, "phone": phone, "expires_at": expires_at}
-    with open(TOKEN_FILE, "w") as f:
-        json.dump(data, f)
+    def __init__(self, path: str | Path):
+        self._path = Path(path)
 
+    def save(self, token: str, phone: str = "", expires_at: float = 0) -> None:
+        """持久化 token 到本地文件。"""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"token": token, "phone": phone, "expires_at": expires_at}
+        with open(self._path, "w") as f:
+            json.dump(data, f)
 
-def load_token() -> str | None:
-    """从本地文件加载 token。
-
-    不存在、损坏或已过期都返回 None。
-    """
-    if not TOKEN_FILE.exists():
-        return None
-    try:
-        with open(TOKEN_FILE) as f:
-            data = json.load(f)
-        token = data.get("token")
-        expires_at = data.get("expires_at", 0)
-        if not token:
+    def load(self) -> str | None:
+        """加载 token，不存在、损坏或已过期返回 None。"""
+        if not self._path.exists():
             return None
-        # 本地过期判断（服务端也会校验，这里提前过滤避免无效请求）
-        if expires_at and time.time() > expires_at:
-            clear_token()
+        try:
+            with open(self._path) as f:
+                data = json.load(f)
+            token = data.get("token")
+            expires_at = data.get("expires_at", 0)
+            if not token:
+                return None
+            if expires_at and time.time() > expires_at:
+                self.clear()
+                return None
+            return token
+        except (json.JSONDecodeError, KeyError):
             return None
-        return token
-    except (json.JSONDecodeError, KeyError):
-        return None
 
-
-def clear_token() -> None:
-    """清除本地 token（登出）。"""
-    if TOKEN_FILE.exists():
-        TOKEN_FILE.unlink()
+    def clear(self) -> None:
+        """清除本地 token（登出）。"""
+        if self._path.exists():
+            self._path.unlink()

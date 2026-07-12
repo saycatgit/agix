@@ -114,7 +114,7 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
     c = parts[0].lower()
 
     if c == "/exit":
-        agent.logger.log("👋 再见！", always=True)
+        agent.logger.log("👋 再见！")
         return False
 
     elif c == "/help":
@@ -160,7 +160,7 @@ def _handle_command(cmd: str, config: dict, agent: Agent):
         return None
 
     elif c == "/history":
-        wd = config.execution.inner_space_dir
+        wd = config.paths.inner_space_dir
         task_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), wd, "task")
         history_ctx = TaskManager.build_history_context(task_dir)
         if history_ctx:
@@ -240,7 +240,7 @@ def interactive_mode():
                         })
                     ).strip()
         except (EOFError, KeyboardInterrupt):
-            agent.logger.log("\n👋 再见！", always=True)
+            agent.logger.log("\n👋 再见！")
             break
 
         if not raw:
@@ -264,7 +264,7 @@ def interactive_mode():
         try:
             result = agent.run(raw, mode="chat")
         except Exception as e:
-            agent.logger.log(f"\n❌ 执行出错: {e}", always=True)
+            agent.logger.log(f"\n❌ 执行出错: {e}")
             import traceback
             traceback.print_exc()
             continue
@@ -295,4 +295,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
