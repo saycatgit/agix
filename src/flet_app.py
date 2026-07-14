@@ -7,8 +7,8 @@ from llm_client import PROVIDERS
 MsgStyle.STATUS = "status"; MsgStyle.ACTION = "action"; MsgStyle.THINKING = "thinking"
 
 _STYLE_VISUALS = {
-    MsgStyle.USER:      {"bg": ft.Colors.GREEN_50},
-    MsgStyle.ASSISTANT: {"bg": ft.Colors.DEEP_ORANGE_50},
+    MsgStyle.USER:      {"bg": ft.Colors.GREEN_50,"size":16},
+    MsgStyle.ASSISTANT: {"bg": ft.Colors.DEEP_ORANGE_50,"size":16},
     MsgStyle.ASK:       {"bg": ft.Colors.ORANGE_50},
     MsgStyle.ERROR:     {"bg": ft.Colors.RED_50},
     MsgStyle.WARN:      {"bg": ft.Colors.AMBER_50},

@@ -226,7 +226,7 @@ class ToolExecutor:
 
         try:
             result = method(args)
-            tool_msg = f"🔧 {str(args.get('note','')).replace(chr(10),' ')} ({name}: {str(args)[9:100].replace(chr(10),' ')})"
+            tool_msg = f"{str(args.get('note','')).replace(chr(10),' ')} ({name}: {str(args)[9:100].replace(chr(10),' ')})"
             if self.agent and self.agent.eqm:
                 mode = "task" if "task" in threading.current_thread().name else "chat"
                 self.agent.eqm.send_display(tool_msg, mode=mode, style=MsgStyle.ACTION)
@@ -283,8 +283,6 @@ class ToolExecutor:
         end = min(total, start + limit) if limit else total
         selected = lines_data[start:end]
         content = "".join(selected)
-        if len(content) > 5000:
-            content = content[:5000] + "\n...(已截断)"
         if limit:
             return f"(共{total}行, 读取第{start+1}-{end}行)\n{content}"
         else:
@@ -299,7 +297,7 @@ class ToolExecutor:
         needs_sudo = bool(re.search(r'\bsudo\b', command))
         sudo_password = None
         if needs_sudo:
-            sudo_password = self._resolve_sudo_password(command)
+            sudo_password = self._resolve_sudo_password(command,note=args.get("note"))
             if sudo_password is None:
                 return "用户取消 sudo 密码输入，命令未执行"
             command = re.sub(r'(^|\s)sudo\b', r'\1sudo -S', command)
@@ -326,16 +324,17 @@ class ToolExecutor:
         except subprocess.TimeoutExpired:
             return "命令超时"
 
-    def _resolve_sudo_password(self, command: str):
+    def _resolve_sudo_password(self, command: str, note: str = ""):
         """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""
         eqm = getattr(self, "eqm", None)
         agent = getattr(self, "agent", None)
         config = agent.config if agent else None
+        Utils.play_notification()
 
         if config and config.sudo_password:
             if eqm is not None:
                 answer = eqm.ask_for_confirmation(
-                    "是否使用已保存的 sudo 密码？",
+                    note+"\n是否使用已保存的 sudo 密码？",
                     mode=getattr(self, "mode", "chat"),
                 )
                 if answer.strip() in ("是", "yes", "y", "1"):
@@ -344,7 +343,7 @@ class ToolExecutor:
 
         if eqm is not None:
             password = eqm.ask_for_password(
-                "请输入 sudo 密码",
+                note+"\n请输入 sudo 密码",
                 mode=getattr(self, "mode", "chat"),
             )
             if not password or not password.strip():
