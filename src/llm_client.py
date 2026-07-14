@@ -230,6 +230,8 @@ class LLMClient:
     def chat(self, prompt: str, user_message: str,
              json_mode: bool = False, use_memory: Optional[bool] = None) -> str:
 
+        self._save_memory()
+
         messages = [{"role": "system", "content": prompt}]
 
         if self.history:
@@ -278,7 +280,6 @@ class LLMClient:
 
         self.history.append({"role": "user", "content": user_message})
         self.history.append({"role": "assistant", "content": content})
-        self._save_memory()
         # 写入独立历史日志
         self.last_system_prompt = prompt
         if self.log_history:
@@ -327,6 +328,9 @@ class LLMClient:
         {"type": "tool_calls", "calls": [{"id":..., "name":..., "args":...}]}
         若解析失败，返回 {"type": "error", "message": "..."}
         """
+        # 入口落盘保留完整历史记录，防止孤儿tool
+        self._save_memory()
+
         messages = [{"role": "system", "content": prompt}]
 
         if self.history:
@@ -431,7 +435,6 @@ class LLMClient:
             self.history.append({"role": "assistant", "content": content})
             result = {"type": "text", "content": content, "reasoning_content": reasoning}
 
-        self._save_memory()
         return result
 
 
