@@ -50,8 +50,7 @@ class EventQueueManager:
         msg = {MsgField.CONTENT: content, MsgField.TYPE: msg_type}
         if style is not None:
             msg[MsgField.STYLE] = str(style)
-        if msg_type in (MsgType.ASK, MsgType.RESPONSE):
-            msg[MsgField.ID] = msg_id or str(uuid.uuid4())
+        msg[MsgField.ID] = msg_id or str(uuid.uuid4())
         return msg
 
     # ---------- display 消息 ----------
@@ -84,7 +83,25 @@ class EventQueueManager:
         """工作线程调用: 向 UI 发提问并阻塞等待用户回答。"""
         msg_id = str(uuid.uuid4())
         msg = self.make_msg(question, MsgType.ASK, msg_id)
+        return self._wait_for_response(msg, msg_id, mode, timeout)
 
+    def ask_for_password(self, question: str = "请输入密码", *, mode: str = "chat",
+                         timeout: float = None) -> str:
+        """弹出密码输入框，阻塞等待用户输入。"""
+        msg_id = str(uuid.uuid4())
+        msg = self.make_msg(question, MsgType.ASK_FOR_PASSWORD, msg_id)
+        return self._wait_for_response(msg, msg_id, mode, timeout)
+
+    def ask_for_confirmation(self, question: str, *, mode: str = "chat",
+                             timeout: float = None) -> str:
+        """弹出确认按钮（是/否），阻塞等待用户选择。默认返回\"否\"。"""
+        msg_id = str(uuid.uuid4())
+        msg = self.make_msg(question, MsgType.ASK_FOR_CONFIRMATION, msg_id)
+        return self._wait_for_response(msg, msg_id, mode, timeout)
+
+    def _wait_for_response(self, msg: dict, msg_id: str, mode: str,
+                           timeout: float = None) -> str:
+        """内部: 发送 ask 消息并阻塞等待响应。"""
         if mode == "chat":
             self._chat_pending_ask_id = msg_id
             target_q = self.chat_display_queue
@@ -153,6 +170,8 @@ class EventQueueManager:
 
     def request_cancel(self, mode: str = "chat"):
         """UI 线程调用：请求取消指定模式的执行"""
+
+        self.send_user_input("取消执行",mode=mode)
         if mode == "task":
             self.task_cancel_event.set()
         else:

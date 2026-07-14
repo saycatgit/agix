@@ -1,22 +1,27 @@
 from enum import Enum
 import uuid
 
+
+class MsgField:
+    TYPE = "message_type"
+    CONTENT = "content"
+    ID = "message_id"
+    STYLE = "style"
+
+    
+
 class MsgType(str, Enum):
     USER_INPUT = "user_input"
     DISPLAY = "display"
     ASK = "ask"
+    ASK_FOR_CONFIRMATION = "ask_for_confirmation"
+    ASK_FOR_PASSWORD = "ask_for_password"
     RESPONSE = "response"
     STATUS = "status"
     TASK_NAME = "task_name"
     ACTION = "action"
     THINKING = "thinking"
 
-
-class MsgField:
-    CONTENT = "content"
-    TYPE = "message_type"
-    ID = "message_id"
-    STYLE = "style"
 
 
 class MsgStyle:

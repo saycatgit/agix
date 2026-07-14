@@ -1,8 +1,8 @@
 from meta import MsgStyle
+from utils import Utils
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
 
 import os, sys, threading , re, subprocess, json
-from prompt_toolkit import prompt as _prompt
 
 
 def get_tools_excluding(*names: str) -> list:
@@ -186,7 +186,6 @@ TOOLS = [
 ]
 
 
-
 class ToolExecutor:
     """工具执行器：将 tool_call 转换为实际操作"""
 
@@ -292,14 +291,28 @@ class ToolExecutor:
             return f"(共{total}行)\n{content}"
 
     def _tool_run_shell(self, args: dict) -> str:
+        command = args["command"]
+        cwd = args.get("workdir", self.work_dir)
+        timeout = args.get("timeout", 30)
+
+        # 检测 sudo 命令，智能获取密码
+        needs_sudo = bool(re.search(r'\bsudo\b', command))
+        sudo_password = None
+        if needs_sudo:
+            sudo_password = self._resolve_sudo_password(command)
+            if sudo_password is None:
+                return "用户取消 sudo 密码输入，命令未执行"
+            command = re.sub(r'(^|\s)sudo\b', r'\1sudo -S', command)
+
         try:
             r = subprocess.run(
-                args["command"],
+                command,
                 shell=True,
-                cwd=args.get("workdir", self.work_dir),
+                cwd=cwd,
                 capture_output=True,
                 text=True,
-                timeout=args.get("timeout", 30)
+                input=(sudo_password + '\n') if sudo_password else None,
+                timeout=timeout,
             )
             out = r.stdout.strip()
             err = r.stderr.strip()
@@ -312,6 +325,34 @@ class ToolExecutor:
             return "\n".join(parts)
         except subprocess.TimeoutExpired:
             return "命令超时"
+
+    def _resolve_sudo_password(self, command: str):
+        """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""
+        eqm = getattr(self, "eqm", None)
+        agent = getattr(self, "agent", None)
+        config = agent.config if agent else None
+
+        if config and config.sudo_password:
+            if eqm is not None:
+                answer = eqm.ask_for_confirmation(
+                    "是否使用已保存的 sudo 密码？",
+                    mode=getattr(self, "mode", "chat"),
+                )
+                if answer.strip() in ("是", "yes", "y", "1"):
+                    return config.sudo_password
+            # 用户选了"否"，继续要求输入
+
+        if eqm is not None:
+            password = eqm.ask_for_password(
+                "请输入 sudo 密码",
+                mode=getattr(self, "mode", "chat"),
+            )
+            if not password or not password.strip():
+                return None
+            if config is not None:
+                config.sudo_password = password
+            return password
+        return None
 
     def _tool_start_task(self, args: dict) -> str:
         """将任务提交到调度器，由工作线程统一执行（立即或定时）"""
@@ -356,51 +397,17 @@ class ToolExecutor:
         if not question.strip():
             return "ask_user 需要 question 参数"
 
+        Utils.play_notification()
+
         # 优先使用 EventQueueManager 进行交互
         eqm = getattr(self, "eqm", None)
         if eqm is not None:
             return eqm.ask_user(question, mode=getattr(self, "mode", "chat"))
 
-        # 回退到 CLI 交互
-                # [eqm patched] if not question:
-        # [eqm patched] return "ask_user 需要 question 参数"
-
-        # 非交互模式任务直接返回问题原文
+        # 回退: 无 eqm 时返回错误提示
         if self.agent and not getattr(self.agent, "is_interactive", False):
             return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
-
-        # 检查是否为交互式终端
-        if not sys.stdin.isatty():
-            return (
-                f"无法获取用户输入: 当前运行环境不支持交互式输入（非 TTY）。\n"
-                f"原问题: {question}"
-            )
-
-        # 输出问题（统一用 logger 或 print）
-        self._log_message(f"\033[96m🤔 {question}\033[0m")
-
-        # 获取用户输入，优先使用 prompt_toolkit（提供更好的交互体验）
-        try:
-            answer = _prompt("📝 ").strip()
-        except ImportError:
-            try:
-                answer = input("   > ").strip()
-            except (EOFError, KeyboardInterrupt):
-                answer = None
-        except (EOFError, KeyboardInterrupt):
-            answer = None
-        except Exception as e:
-            self._log_message(f"获取用户输入时发生异常: {e}")
-            return f"获取用户输入失败: {e}"
-
-        # 输出空行分隔
-        self._log_message("")
-
-        if answer is None:
-            return "用户取消了输入"
-        if answer == "":
-            return "用户未提供回答（空输入）"
-        return f"用户回答: {answer}"
+        return f"无法获取用户输入: 交互功能不可用。\n原问题: {question}"
 
     def _tool_file_patch(self, args: dict) -> str:
         """通过 unified diff patch 精确修改文件，上下文匹配。"""
@@ -713,5 +720,3 @@ class ToolExecutor:
     def _tool_finish(self, args: dict) -> dict:
         """特殊工具：返回 dict 而非 str，由调用方处理"""
         return {"type": "finish", "success": args["success"], "summary": args["summary"]}
-
-

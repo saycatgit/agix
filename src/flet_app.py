@@ -8,24 +8,26 @@ MsgStyle.STATUS = "status"; MsgStyle.ACTION = "action"; MsgStyle.THINKING = "thi
 
 _STYLE_VISUALS = {
     MsgStyle.USER:      {"bg": ft.Colors.GREEN_50},
-    MsgStyle.ASSISTANT: {"bg": ft.Colors.GREY_50},
+    MsgStyle.ASSISTANT: {"bg": ft.Colors.DEEP_ORANGE_50},
     MsgStyle.ASK:       {"bg": ft.Colors.ORANGE_50},
     MsgStyle.ERROR:     {"bg": ft.Colors.RED_50},
     MsgStyle.WARN:      {"bg": ft.Colors.AMBER_50},
     MsgStyle.STATUS:    {"bg": ft.Colors.BLUE_50},
     MsgStyle.ACTION:    {"bg": ft.Colors.TEAL_50},
     MsgStyle.THINKING:  {"bg": ft.Colors.PURPLE_50},
+
+    # MsgStyle.THINKING:  {"bg": ft.Colors.PURPLE_50, "italic": True, "size": 12},
 }
 
 _AVATAR_DATA = {
     MsgStyle.USER:      ("👤", None),
     MsgStyle.ASSISTANT: ("👾", None),
-    MsgStyle.ASK:       ("?",  ft.Colors.ORANGE),
-    MsgStyle.ERROR:     ("!",  ft.Colors.RED),
-    MsgStyle.WARN:      ("⚡", ft.Colors.AMBER),
-    MsgStyle.STATUS:    ("📊", ft.Colors.BLUE),
-    MsgStyle.ACTION:    ("▶",  ft.Colors.TEAL),
-    MsgStyle.THINKING:  ("💭", ft.Colors.PURPLE),
+    MsgStyle.ASK:       ("🔍",  None),
+    MsgStyle.ERROR:     ("⚠️",  None),
+    MsgStyle.WARN:      ("⚡", None),
+    MsgStyle.STATUS:    ("📊", None),
+    MsgStyle.ACTION:    ("🔧",  None),
+    MsgStyle.THINKING:  ("🤔", None),
 }
 
 class AgixUI:
@@ -79,9 +81,11 @@ class AgixUI:
         self.task_think_list = ft.ListView(expand=True, spacing=4, padding=0, auto_scroll=True)
         self.task_ask_input = ft.TextField(hint_text="回答 Agent...", border=ft.InputBorder.OUTLINE,
             border_color=ft.Colors.GREY_300, border_radius=6, min_lines=1, max_lines=3, expand=True, text_size=12, dense=True)
+        self.task_ask_send_btn = ft.IconButton(icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._task_send())
         self._task_ask_container = ft.Container(
-            content=ft.Row([self.task_ask_input, ft.IconButton(icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._task_send())], spacing=4),
+            content=ft.Row([self.task_ask_input, self.task_ask_send_btn], spacing=4),
             padding=ft.Padding(0, 4, 0, 0), visible=False)
+
         self.task_panel = ft.Container(opacity=1.0, width=800, height=500,
             border_radius=ft.BorderRadius(10, 10, 10, 10), bgcolor=ft.Colors.WHITE,
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=12, color=ft.Colors.BLACK26),
@@ -133,7 +137,52 @@ class AgixUI:
         if not t: return
         self.task_action_list.controls.append(_task_msg(t, style=MsgStyle.USER))
         self.eqm.respond_to_ask(t, msg_id=self.eqm.get_pending_ask_id("task"), mode="task")
-        self.task_ask_input.value = ""; self.page.update()
+        self.task_ask_input.value = ""
+        self.page.update()
+
+    def _show_password_dialog(self, question: str, msg_id: str, mode: str):
+        """在聊天输入框上方弹出密码输入栏。"""
+        pwd_field = ft.TextField(
+            password=True, can_reveal_password=True,
+            border=ft.InputBorder.OUTLINE, border_radius=6,
+            autofocus=True, expand=True, text_size=14,
+        )
+        def _submit(e):
+            self.eqm.respond_to_ask(pwd_field.value or "", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+        def _cancel(e):
+            self.eqm.respond_to_ask("", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+        pwd_field.on_submit = _submit
+        self._inline_dialog.content = ft.Row([
+            ft.Text(question + "：", size=14),
+            pwd_field,
+            ft.TextButton("取消", on_click=_cancel),
+            ft.ElevatedButton("确认", on_click=_submit),
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self._inline_dialog.visible = True
+        self.page.update()
+
+    def _show_confirm_dialog(self, question: str, msg_id: str, mode: str):
+        """在聊天输入框上方弹出确认栏（是/否）。"""
+        def _yes(e):
+            self.eqm.respond_to_ask("是", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+        def _no(e):
+            self.eqm.respond_to_ask("否", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+        self._inline_dialog.content = ft.Row([
+            ft.Text(question, size=14),
+            ft.Container(expand=True),
+            ft.OutlinedButton("否", on_click=_no),
+            ft.ElevatedButton("是", on_click=_yes),
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self._inline_dialog.visible = True
+        self.page.update()
 
     def _build_chat_panel(self):
         self.cl = ft.ListView(expand=True, spacing=8, padding=15, auto_scroll=True)
@@ -185,7 +234,13 @@ class AgixUI:
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=ft.Colors.GREY_50, height=32, padding=ft.Padding(left=8, right=8, top=4, bottom=4))
 
+        self._inline_dialog = ft.Container(
+            visible=False,
+            bgcolor=ft.Colors.ORANGE_50,
+            padding=ft.padding.Padding(12, 10, 12, 10),
+        )
         self.cp = ft.Column([ft.Container(content=self.cl, expand=True), ft.Divider(height=1),
+            self._inline_dialog,
             ft.Row([self.ca], alignment=ft.MainAxisAlignment.START),
             ft.Container(content=ft.Row([self.ci,
                 ft.IconButton(icon=ft.Icons.SEND, on_click=lambda e: self._send(), icon_size=20),
@@ -414,10 +469,25 @@ class AgixUI:
         async def _poll():
             while True:
                 chat_msgs = self.eqm.drain_display("chat")
-                for m in chat_msgs: _al(self.cl, m)
+                for m in chat_msgs:
+                    t = m.get(MsgField.TYPE, ""); content = m.get(MsgField.CONTENT, ""); msg_id = m.get(MsgField.ID, "")
+                    if t == MsgType.ASK_FOR_PASSWORD:
+                        self._show_password_dialog(content, msg_id, "chat")
+                        continue
+                    elif t == MsgType.ASK_FOR_CONFIRMATION:
+                        self._show_confirm_dialog(content, msg_id, "chat")
+                        continue
+                    _al(self.cl, m)
                 task_msgs = self.eqm.drain_display("task")
                 for m in task_msgs:
                     content = m.get(MsgField.CONTENT, ""); st = m.get(MsgField.STYLE, ""); t = m.get(MsgField.TYPE, "")
+                    msg_id = m.get(MsgField.ID, "")
+                    if t == MsgType.ASK_FOR_PASSWORD:
+                        self._show_password_dialog(content, msg_id, "task")
+                        continue
+                    elif t == MsgType.ASK_FOR_CONFIRMATION:
+                        self._show_confirm_dialog(content, msg_id, "task")
+                        continue
                     if t == MsgType.TASK_NAME:
                         # find the task name Text widget in title bar and update it
                         for ctrl in self.task_panel.content.controls:
@@ -461,7 +531,11 @@ def _msg(text, is_user=False, is_ask=False, style=""):
     elif is_ask: style_type = MsgStyle.ASK
     elif style in _STYLE_VISUALS: style_type = style
     v = _STYLE_VISUALS[style_type]; avatar = _avatar(style_type)
-    bubble = ft.Container(content=ft.Text(text, size=14, selectable=True), bgcolor=v["bg"], border_radius=10, padding=ft.Padding(left=14, right=14, top=10, bottom=10))
+    italic = v.get("italic", False)
+    size = v.get("size", 14)
+    bubble = ft.Container(content=ft.Text(text, size=size, selectable=True, no_wrap=False,
+        italic=italic), bgcolor=v["bg"], border_radius=10,
+        padding=ft.Padding(left=14, right=14, top=10, bottom=10))
     if is_user: return ft.Row([bubble, avatar], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.END)
     return ft.Row([avatar, bubble], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.START)
 def _task_msg(text, style):
@@ -485,7 +559,10 @@ def build_login_view(page: ft.Page, on_login_success, server_url="http://127.0.0
     def _login(e):
         try:
             login_btn.disabled = True; login_btn.text = "等待浏览器登录..."; st.value = "正在打开登录页..."; page.update()
-            sid = uuid.uuid4().hex[:12]; webbrowser.open(f"{server_url}/login?session_id={sid}")
+            sid = uuid.uuid4().hex[:12]
+            import platform
+            client_system = platform.system()
+            webbrowser.open(f"{server_url}/login?session_id={sid}&client_system={client_system}")
             st.value = "已打开浏览器"; page.update()
             import urllib.request as _ur
             async def _p():

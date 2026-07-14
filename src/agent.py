@@ -38,6 +38,7 @@ from event_queue_manager import EventQueueManager
 from scheduler import TaskScheduler
 
 from meta import TaskField, MsgType, MsgField, MsgStyle
+from utils import Utils
 from task_classifier import TaskClassifier
 
 
@@ -143,6 +144,7 @@ class Agent:
             self._log(f"\n{ret['content']}\n")
             return ret
         else:
+            Utils.play_notification()
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
             ret= self._run_task(user_task)
 
@@ -521,6 +523,14 @@ class Agent:
                 msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
            
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
+            reasoning = result.get("reasoning_content", "")
+            if reasoning:
+                if self.eqm:
+                    sentences = reasoning.split("。")
+                    for s in sentences:
+                        s = s.strip()
+                        if s:
+                            self.eqm.send_display(s, mode="chat", style=MsgStyle.THINKING)
             if result["type"] == "tool_calls":
                 responses = []
                 for i, call in enumerate(result["calls"]):
@@ -858,6 +868,7 @@ class Agent:
                 prompt = f"子任务 [{subtask_index}] 请输入项目目录名 [{suggested}]"
                 if self.eqm is not None:
                     try:
+                        Utils.play_notification()
                         user_input = self.eqm.ask_user(prompt, mode="task").strip()
                         if user_input:
                             proj_name = user_input

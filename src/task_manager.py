@@ -23,13 +23,6 @@ from typing import Any
 # 枚举定义
 # ================================================================
 
-class TaskType(Enum):
-    """任务大类枚举"""
-    DEV   = "开发类"
-    DEBUG = "调试类"
-    TEXT  = "文本类"
-    OTHER = "其他"
-
 
 class SubTaskStatus(Enum):
     """子任务生命周期状态

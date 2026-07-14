@@ -96,6 +96,7 @@
 
 <script>
 const SESSION_ID = "{{ session_id }}";
+const CLIENT_SYSTEM = "{{ client_system }}";
 const debugEl = document.getElementById("debugInfo");
 
 function log(msg) {
@@ -133,6 +134,16 @@ function sendCode() {
       btn.textContent = sec + "s";
     }
   }, 1000);
+  // Request server to send real SMS
+  fetch("/api/send_sms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone: phone })
+  }).then(r => r.json()).then(data => {
+    log("sendSMS response: " + JSON.stringify(data));
+  }).catch(e => {
+    log("sendSMS error: " + e.message);
+  });
 }
 
 function showError(msg) {
@@ -161,7 +172,7 @@ async function doLogin() {
   btn.textContent = "登录中...";
 
   try {
-    const body = JSON.stringify({ phone: phone, code: code, session_id: SESSION_ID });
+    const body = JSON.stringify({ phone: phone, code: code, session_id: SESSION_ID, client_system: CLIENT_SYSTEM });
     log("POST /api/login body=" + body.substring(0, 80));
     const resp = await fetch("/api/login", {
       method: "POST",

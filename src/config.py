@@ -143,6 +143,7 @@ class AppConfig:
         self.execution = execution or ExecutionConfig()
         self.log = log or LogConfig()
         self.auth = auth or AuthConfig()
+        self.sudo_password: str = ""  # 不落盘，仅内存
 
         # 平台检测
         _sys = sys.platform
@@ -260,12 +261,12 @@ class AppConfig:
         del d["llm"]
         if "memory" in d:
             del d["memory"]
-        from aes_crypto import is_encrypted, encrypt
+        from utils import Utils
         for e in d["llm_list"]:
             key = e.get("api_key", "")
-            if key and not is_encrypted(key):
+            if key and not Utils.is_encrypted(key):
                 try:
-                    e["api_key"] = encrypt(key)
+                    e["api_key"] = Utils.encrypt(key)
                 except Exception:
                     pass
         with open(p, "w", encoding="utf-8") as f:
@@ -282,13 +283,13 @@ class AppConfig:
 
     def resolve_api_key(self) -> bool:
         """解析并解密 api_key。"""
-        from aes_crypto import is_encrypted, decrypt
+        from utils import Utils
         api_key = self.llm.api_key
         if not api_key or not api_key.strip():
             return False
-        if is_encrypted(api_key):
+        if Utils.is_encrypted(api_key):
             try:
-                self.llm.api_key = decrypt(api_key)
+                self.llm.api_key = Utils.decrypt(api_key)
                 return True
             except ValueError:
                 return False
@@ -299,5 +300,3 @@ class AppConfig:
             self.llm.api_key = resolved
             return True
         return False
-
-
