@@ -57,11 +57,12 @@ class Agent:
         self.eqm = eqm
         self.auth = auth_handler
 
-        self.max_rounds = config.llm.llm_max_allowed_rounds
+        self.max_rounds = config.execution.max_rounds
 
         self.logger = Logger(config.log, log_dir=config.paths.log_dir)
 
-        self.chat_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history)
+        memory_file = os.path.join(config.paths.memory_dir, "chat_context.md") if config.execution.memory_enabled else None
+        self.chat_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history, memory_file=memory_file)
         self.task_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history)
 
         self.project_root = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +77,7 @@ class Agent:
         self.docs_dir = None
 
         self.task_manager = TaskManager()
-        self.enable_history_association = config.execution.enable_history_association
+        self.enable_history_task_association = config.execution.enable_history_task_association
 
         self.prompts = Prompts(self.spc_dir, self.config.paths.task_config_file_path)
 
@@ -173,7 +174,7 @@ class Agent:
         self._log(f"模型: {self.task_llm.provider_name} / {self.task_llm.model}")
         self._log(f"{'='*60}\n")
 
-        enable_history = self.enable_history_association
+        enable_history = self.enable_history_task_association
         self._log("阶段 0: " + ("任务分类与分解（含历史关联判断）" if enable_history else "任务分解"))
 
         self.task_llm.prepend_system_info()

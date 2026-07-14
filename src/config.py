@@ -46,6 +46,7 @@ class PathConfig:
         self.task_config_file_path = _os.path.join(self.task_dir, "task_config.json")
         self.pending_tasks_file_path = _os.path.join(self.task_dir, "pending_tasks.json")
         self.log_dir = _os.path.join(r, "workspace", "log")
+        self.memory_dir = _os.path.join(r, "workspace", "memory")
 
 
 @dataclass
@@ -56,9 +57,8 @@ class LLMConfig:
     model: str = "deepseek-v4-pro"
     temperature: float = 0.7
     max_tokens: int = 10240
-    memory_enabled: bool = True
-    memory_size: int = 40
-    llm_max_allowed_rounds: int = 40
+
+    context_window: int = 40
     label: str = ""
     active: bool = True
 
@@ -66,7 +66,9 @@ class LLMConfig:
 @dataclass
 class ExecutionConfig:
     timeout: int = 60
-    enable_history_association: bool = True
+    enable_history_task_association: bool = True
+    max_rounds: int = 40
+    memory_enabled: bool = True  # chat 模式持久记忆
 
 
 @dataclass
@@ -172,13 +174,12 @@ class AppConfig:
     def to_dict(self) -> dict:
         """序列化为 dict（不含 paths）。"""
         return {
-            "llm": asdict(self.llm),
             "execution": asdict(self.execution),
             "log": asdict(self.log),
             "auth": asdict(self.auth),
             "memory": {
-                "enabled": self.llm.memory_enabled,
-                "size": self.llm.memory_size,
+                "enabled": self.execution.memory_enabled,
+                "size": self.llm.context_window,
             },
         }
 
@@ -187,11 +188,18 @@ class AppConfig:
         llm_data = dict(d.get("llm", {}))
         if "memory" in d:
             mem = d["memory"]
-            llm_data.setdefault("memory_enabled", mem.get("enabled", True))
-            llm_data.setdefault("memory_size", mem.get("size", 40))
+            exec_data.setdefault("memory_enabled", mem.get("enabled", True))
+            llm_data.setdefault("context_window", mem.get("size", 40))
+        exec_data = dict(d.get("execution", {}))
+        # Backward compat: migrate llm_max_allowed_rounds
+        if "max_rounds" not in exec_data and "llm_max_allowed_rounds" in llm_data:
+            exec_data["max_rounds"] = llm_data.pop("llm_max_allowed_rounds")
+        # Backward compat: migrate memory_enabled
+        if "memory_enabled" not in exec_data and "memory_enabled" in llm_data:
+            exec_data["memory_enabled"] = llm_data.pop("memory_enabled")
         return cls(
             llm=LLMConfig(**llm_data),
-            execution=ExecutionConfig(**d.get("execution", {})),
+            execution=ExecutionConfig(**exec_data),
             log=LogConfig(**d.get("log", {})),
             auth=AuthConfig(**d.get("auth", {})),
         )
@@ -222,9 +230,13 @@ class AppConfig:
                 if not e.get("api_key"):
                     e["active"] = False
             active_entry = next((e for e in cfg.llm_list if e.get("active") and e.get("api_key")), cfg.llm_list[0])
-            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window"):
                 if k in active_entry:
                     setattr(cfg.llm, k, active_entry[k])
+            if "llm_max_allowed_rounds" in active_entry:
+                cfg.execution.max_rounds = active_entry["llm_max_allowed_rounds"]
+            if "memory_enabled" in active_entry:
+                cfg.execution.memory_enabled = active_entry["memory_enabled"]
             cfg._init_api_key()
         return cfg
 
@@ -237,9 +249,13 @@ class AppConfig:
             for i, e in enumerate(self.llm_list):
                 e["active"] = (i == index)
             active = self.llm_list[index]
-            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "memory_enabled", "memory_size", "llm_max_allowed_rounds"):
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window"):
                 if k in active:
                     setattr(self.llm, k, active[k])
+            if "llm_max_allowed_rounds" in active:
+                self.execution.max_rounds = active["llm_max_allowed_rounds"]
+            if "memory_enabled" in active:
+                self.execution.memory_enabled = active["memory_enabled"]
             self._init_api_key()
             label = active.get("label") or f"{active.get('provider','')}/{active.get('model','')}"
             print(f"\n切换模型 -> {label}")
@@ -258,7 +274,7 @@ class AppConfig:
         print(f"保存配置到 {p}")
         d = self.to_dict()
         d["llm_list"] = self.llm_list
-        del d["llm"]
+        d.pop("llm", None)
         if "memory" in d:
             del d["memory"]
         from utils import Utils

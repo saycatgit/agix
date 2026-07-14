@@ -14,7 +14,7 @@ _STYLE_VISUALS = {
     MsgStyle.WARN:      {"bg": ft.Colors.AMBER_50},
     MsgStyle.STATUS:    {"bg": ft.Colors.BLUE_50},
     MsgStyle.ACTION:    {"bg": ft.Colors.TEAL_50},
-    MsgStyle.THINKING:  {"bg": ft.Colors.PURPLE_50},
+    MsgStyle.THINKING:  {"bg": ft.Colors.YELLOW_50},
 
     # MsgStyle.THINKING:  {"bg": ft.Colors.PURPLE_50, "italic": True, "size": 12},
 }
@@ -27,7 +27,7 @@ _AVATAR_DATA = {
     MsgStyle.WARN:      ("⚡", None),
     MsgStyle.STATUS:    ("📊", None),
     MsgStyle.ACTION:    ("🔧",  None),
-    MsgStyle.THINKING:  ("🤔", None),
+    MsgStyle.THINKING:  ("🧠", None),
 }
 
 class AgixUI:
@@ -44,6 +44,8 @@ class AgixUI:
     def _setup_window(self):
         p = self.page
         p.window.title_bar_hidden = True; p.window.frameless = True
+        p.window.bgcolor = ft.Colors.TRANSPARENT; p.window.shadow = True
+        p.bgcolor = ft.Colors.TRANSPARENT
         p.title = "Agix"; p.window.width = 900; p.window.height = 600; p.padding = 0
     def _minimize(self, e): self.page.window.minimized = True
     def _maximize(self, e):
@@ -59,9 +61,9 @@ class AgixUI:
 
     def _build_title_bar(self):
         self.chat_light = ft.Container(width=16, height=16, border_radius=8, bgcolor=ft.Colors.GREEN, opacity=0.15)
-        self.chat_light.tooltip = "Chat"; self.chat_light.on_click = lambda e: None
+        self.chat_light.tooltip = "Chat模式呼吸灯"; self.chat_light.on_click = lambda e: None
         self.task_light = ft.Container(width=16, height=16, border_radius=8, bgcolor=ft.Colors.BLUE, opacity=0.15)
-        self.task_light.tooltip = "Task"; self.task_light.on_click = lambda e: None
+        self.task_light.tooltip = "Task模式呼吸灯"; self.task_light.on_click = lambda e: None
         self.task_switch = ft.Switch(value=False, height=32, on_change=self._toggle_task, scale=0.8)
         self.task_switch.tooltip = "任务面板开关"
         self.tb = ft.Container(content=ft.Row([
@@ -313,15 +315,13 @@ class AgixUI:
         self._s_base_url = ft.TextField(label="Base URL", value=cfg.llm.base_url, **tf)
         self._s_temp = ft.TextField(label="Temperature", value=str(cfg.llm.temperature), **tf)
         self._s_max_tok = ft.TextField(label="Max Tokens", value=str(cfg.llm.max_tokens), **tf)
-        self._s_rounds = ft.TextField(label="对话轮数上限", value=str(cfg.llm.llm_max_allowed_rounds), **tf)
-        self._s_mem_en = ft.Switch(label="启用记忆", value=cfg.llm.memory_enabled)
-        self._s_mem_size = ft.TextField(label="记忆条数", value=str(cfg.llm.memory_size), **tf)
+        self._s_mem_size = ft.TextField(label="上下文窗口", value=str(cfg.llm.context_window), **tf)
         self._s_custom_model = ft.TextField(label="自定义模型", value="" if cfg.llm.model in PROVIDERS.get(cfg.llm.provider, {}).get("models", []) else cfg.llm.model, hint_text="输入其他模型名称", **tf)
 
         right_top = ft.Column([ft.Text("模型与参数", weight=ft.FontWeight.W_600, size=12, color=ft.Colors.GREY_700),
             _mlist, self._s_custom_model, ft.Divider(height=1),
-            self._s_temp, self._s_max_tok, self._s_rounds,
-            ft.Row([self._s_mem_size, self._s_mem_en], spacing=8)], spacing=8, scroll=ft.ScrollMode.AUTO)
+            self._s_temp, self._s_max_tok,
+            ft.Row([self._s_mem_size], spacing=8)], spacing=8, scroll=ft.ScrollMode.AUTO)
         right_bot = ft.Column([ft.Text("密钥配置", weight=ft.FontWeight.W_600, size=12, color=ft.Colors.GREY_700),
             self._s_apikey, self._s_base_url], spacing=8)
 
@@ -334,21 +334,17 @@ class AgixUI:
                 cfg.llm.base_url = self._s_base_url.value.strip()
                 cfg.llm.temperature = float(self._s_temp.value)
                 cfg.llm.max_tokens = int(self._s_max_tok.value)
-                cfg.llm.llm_max_allowed_rounds = int(self._s_rounds.value)
-                cfg.llm.memory_enabled = self._s_mem_en.value
-                cfg.llm.memory_size = int(self._s_mem_size.value)
+                cfg.llm.context_window = int(self._s_mem_size.value)
                 # Upsert entry: match by provider+model, not just provider
                 existing = next((e for e in cfg.llm_list if e.get("provider") == self._s_provider_val and e.get("model") == cfg.llm.model), None)
                 if existing:
                     existing.update({"api_key": cfg.llm.api_key, "base_url": cfg.llm.base_url,
                         "temperature": cfg.llm.temperature, "max_tokens": cfg.llm.max_tokens,
-                        "llm_max_allowed_rounds": cfg.llm.llm_max_allowed_rounds,
-                        "memory_enabled": cfg.llm.memory_enabled, "memory_size": cfg.llm.memory_size})
+                        "context_window": cfg.llm.context_window})
                 else:
                     cfg.llm_list.append({"provider": self._s_provider_val, "model": cfg.llm.model, "api_key": cfg.llm.api_key,
                         "base_url": cfg.llm.base_url, "temperature": cfg.llm.temperature, "max_tokens": cfg.llm.max_tokens,
-                        "llm_max_allowed_rounds": cfg.llm.llm_max_allowed_rounds, "memory_enabled": cfg.llm.memory_enabled,
-                        "memory_size": cfg.llm.memory_size, "active": True, "label": ""})
+                        "context_window": cfg.llm.context_window, "active": True, "label": ""})
                 for e in cfg.llm_list: e["active"] = False
                 first = next((e for e in cfg.llm_list if e.get("provider") == self._s_provider_val and e.get("model") == cfg.llm.model), None)
                 if first: first["active"] = True
@@ -382,10 +378,12 @@ class AgixUI:
     def _build_system_settings_panel(self):
         cfg = self.agent.config
         tf = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300}
-        self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=120, **tf)
+        self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=80, **tf)
+        self._sys_mem_en = ft.Switch(label="启用记忆", height=30, value=cfg.execution.memory_enabled)
+        self._sys_rounds = ft.TextField(label="调用上限", value=str(cfg.execution.max_rounds), width=100, **tf)
         
         self._sys_work_dir = ft.TextField(value=cfg.paths.work_dir, read_only=True, **tf)
-        self._sys_enable_history = ft.Switch(label="启用历史关联", height=30, value=cfg.execution.enable_history_association)
+        self._sys_enable_history = ft.Switch(label="历史关联", height=30, value=cfg.execution.enable_history_task_association)
 
         self._sys_log_enabled = ft.Switch(label="启用日志", height=30, value=cfg.log.enabled)
         self._sys_log_history = ft.Switch(label="记录历史", height=30, value=cfg.log.history)
@@ -395,8 +393,10 @@ class AgixUI:
         def _save_sys(e):
             try:
                 cfg.execution.timeout = int(self._sys_timeout.value)
+                cfg.execution.max_rounds = int(self._sys_rounds.value)
+                cfg.execution.memory_enabled = self._sys_mem_en.value
                 cfg.paths.work_dir = self._sys_work_dir.value.strip()
-                cfg.execution.enable_history_association = self._sys_enable_history.value
+                cfg.execution.enable_history_task_association = self._sys_enable_history.value
                 cfg.log.enabled = self._sys_log_enabled.value
                 cfg.log.history = self._sys_log_history.value
                 cfg.auth.interactive = self._sys_auth_interactive.value
@@ -417,8 +417,8 @@ class AgixUI:
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,7,10,7), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
                 ft.Container(content=ft.Column([
                     ft.Text("执行", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
-                    ft.Row([self._sys_timeout, self._sys_enable_history], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Row([self._sys_work_dir, ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择目录", on_click=lambda e: self._pick_dir())], spacing=4),
+                    ft.Row([self._sys_timeout, self._sys_rounds, self._sys_mem_en, self._sys_enable_history], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Divider(height=1),
                     ft.Text("日志", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
                     ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=16, wrap=True),
@@ -458,7 +458,13 @@ class AgixUI:
                 self.page.update()
 
     def _assemble_page(self):
-        self.page.add(ft.Stack([ft.Column([self.tb, self.cp], expand=True), self._task_panel_wrapper, self._settings_panel, self._sys_settings_panel], expand=True))
+        self.page.add(ft.Container(
+            content=ft.Stack([ft.Column([self.tb, self.cp], expand=True), self._task_panel_wrapper, self._settings_panel, self._sys_settings_panel], expand=True),
+            bgcolor=ft.Colors.WHITE,
+            border_radius=ft.BorderRadius(3, 3, 3, 3),
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            expand=True,
+        ))
         self.page.window.visible = True; self.page.update()
         self.cl.controls.append(_msg("你好！我是 Agix，你的 AI 开发助手。\n我可以帮你写代码、管理任务、回答问题。"))
         logo = os.path.join(self.agent.config.paths.root, "logo.ico")
@@ -536,8 +542,11 @@ def _msg(text, is_user=False, is_ask=False, style=""):
     bubble = ft.Container(content=ft.Text(text, size=size, selectable=True, no_wrap=False,
         italic=italic), bgcolor=v["bg"], border_radius=10,
         padding=ft.Padding(left=14, right=14, top=10, bottom=10))
-    if is_user: return ft.Row([bubble, avatar], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.END)
-    return ft.Row([avatar, bubble], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.START)
+    if is_user:
+        return ft.Row([ft.Column([bubble], expand=True, horizontal_alignment=ft.CrossAxisAlignment.END), avatar],
+                      spacing=8, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    return ft.Row([avatar, ft.Column([bubble], expand=True, horizontal_alignment=ft.CrossAxisAlignment.START)],
+                  spacing=8, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 def _task_msg(text, style):
     v = _STYLE_VISUALS.get(style, _STYLE_VISUALS[MsgStyle.ASSISTANT])
     return ft.Container(content=ft.Text(text, size=12, selectable=True), bgcolor=v["bg"], border_radius=6, clip_behavior=ft.ClipBehavior.HARD_EDGE, padding=ft.Padding(left=8, right=8, top=4, bottom=4))

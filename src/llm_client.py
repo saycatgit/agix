@@ -10,7 +10,7 @@
 
 from typing import Optional
 from openai import OpenAI
-import re , os, time,locale, platform,json 
+import re , os, sys, time,locale, platform,json 
 from typing import Optional, List, Dict, Any
 
 from openai import BadRequestError
@@ -56,7 +56,7 @@ PROVIDERS = {
 
 class LLMClient:
 
-    def __init__(self, config, logger=None, log_history=False):
+    def __init__(self, config, logger=None, log_history=False, memory_file=None):
         # 支持 LLMConfig 或 dict
         if hasattr(config, "provider"):
             # LLMConfig
@@ -66,8 +66,7 @@ class LLMClient:
             model = config.model
             temperature = config.temperature
             max_tokens = config.max_tokens
-            memory_enabled = config.memory_enabled
-            memory_size = config.memory_size
+            context_window = config.context_window
         else:
             # dict (兼容)
             provider = config.get("provider", "deepseek")
@@ -76,8 +75,7 @@ class LLMClient:
             model = config.get("model", "")
             temperature = config.get("temperature", 0.7)
             max_tokens = config.get("max_tokens", 10240)
-            memory_enabled = config.get("memory_enabled", True)
-            memory_size = config.get("memory_size", 20)
+            context_window = config.get("context_window", 20)
 
         self.model = model
         self.temperature = temperature
@@ -98,8 +96,12 @@ class LLMClient:
         # 会话记忆
         self.history: list[dict] = []
         self.last_raw_response: str = ""
-        self.memory_enabled = memory_enabled
-        self.memory_size = memory_size
+        self.context_window = context_window
+        self.memory_file = memory_file
+        self._last_saved_count = 0
+        if self.memory_file:
+            self._load_memory()
+            self._last_saved_count = len(self.history)
         self.call_count = 0  # LLM 交互次数统计
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
@@ -230,8 +232,8 @@ class LLMClient:
 
         messages = [{"role": "system", "content": prompt}]
 
-        if self.memory_enabled and self.history:
-            start = max(0, len(self.history) - (self.memory_size * 2))
+        if self.history:
+            start = max(0, len(self.history) - (self.context_window * 2))
             start = self._snap_to_valid_start(start)
             messages.extend(self.history[start:])
 
@@ -274,9 +276,9 @@ class LLMClient:
         self.call_count += 1
         self._track_usage(getattr(response, 'usage', None))
 
-        if self.memory_enabled:
-            self.history.append({"role": "user", "content": user_message})
-            self.history.append({"role": "assistant", "content": content})
+        self.history.append({"role": "user", "content": user_message})
+        self.history.append({"role": "assistant", "content": content})
+        self._save_memory()
         # 写入独立历史日志
         self.last_system_prompt = prompt
         if self.log_history:
@@ -327,8 +329,8 @@ class LLMClient:
         """
         messages = [{"role": "system", "content": prompt}]
 
-        if self.memory_enabled and self.history:
-            start = max(0, len(self.history) - (self.memory_size * 2))
+        if self.history:
+            start = max(0, len(self.history) - (self.context_window * 2))
             start = self._snap_to_valid_start(start)
             messages.extend(self.history[start:])
 
@@ -397,41 +399,40 @@ class LLMClient:
                 self.logger.log(''.join(lines))
 
             # 更新历史（包括工具调用消息）
-            if self.memory_enabled:
-                self.history.append({"role": "user", "content": user_message})
-                # 保存 assistant 消息，但截断超大 function.arguments 的 content 字段
-                # 阿里云 API 对回放历史中过长的 arguments 有严格限制
-                msg_dict = msg.model_dump()
-                MAX_ARG_SIZE = 32768  # 32KB，只截断真正超大的工具参数
-                for tc in msg_dict.get("tool_calls", []):
-                    fn = tc.get("function", {})
-                    args = fn.get("arguments", "")
-                    if isinstance(args, str) and len(args) > MAX_ARG_SIZE:
-                        try:
-                            parsed = json.loads(args)
-                            if isinstance(parsed, dict) and "content" in parsed:
-                                parsed["content"] = (
-                                    f"[超大内容已省略，见工具执行结果。"
-                                    f"文件: {parsed.get('path', '?')}, "
-                                    f"原 {len(parsed['content'])} 字符]")
-                                fn["arguments"] = json.dumps(parsed, ensure_ascii=False)
-                        except (json.JSONDecodeError, TypeError):
-                            pass  # 非法的 JSON 参数保持原样
-                self.history.append(msg_dict)
+            self.history.append({"role": "user", "content": user_message})
+            # 保存 assistant 消息，但截断超大 function.arguments 的 content 字段
+            # 阿里云 API 对回放历史中过长的 arguments 有严格限制
+            msg_dict = msg.model_dump()
+            MAX_ARG_SIZE = 32768  # 32KB，只截断真正超大的工具参数
+            for tc in msg_dict.get("tool_calls", []):
+                fn = tc.get("function", {})
+                args = fn.get("arguments", "")
+                if isinstance(args, str) and len(args) > MAX_ARG_SIZE:
+                    try:
+                        parsed = json.loads(args)
+                        if isinstance(parsed, dict) and "content" in parsed:
+                            parsed["content"] = (
+                                f"[超大内容已省略，见工具执行结果。"
+                                f"文件: {parsed.get('path', '?')}, "
+                                f"原 {len(parsed['content'])} 字符]")
+                            fn["arguments"] = json.dumps(parsed, ensure_ascii=False)
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # 非法的 JSON 参数保持原样
+            self.history.append(msg_dict)
+            result = {"type": "tool_calls", "calls": calls, "reasoning_content": reasoning}
 
-            return {"type": "tool_calls", "calls": calls, "reasoning_content": reasoning}
-
-        # ---------- 普通文本回复 ----------
-        content = msg.content or ""
-        self.last_raw_response = content
-        if self.log_history:
-            self.logger.log(f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:20000]}")
-
-        if self.memory_enabled:
+        else:
+            # ---------- 普通文本回复 ----------
+            content = msg.content or ""
+            self.last_raw_response = content
+            if self.log_history:
+                self.logger.log(f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:20000]}")
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "assistant", "content": content})
+            result = {"type": "text", "content": content, "reasoning_content": reasoning}
 
-        return {"type": "text", "content": content, "reasoning_content": reasoning}
+        self._save_memory()
+        return result
 
 
 
@@ -453,6 +454,33 @@ class LLMClient:
             i += 1
         return i
 
+
+    def _load_memory(self):
+        """从 memory_file（JSONL 格式）加载历史记录。"""
+        if not self.memory_file:
+            return
+        try:
+            if os.path.exists(self.memory_file):
+                with open(self.memory_file, "r", encoding="utf-8") as f:
+                    self.history = [json.loads(line) for line in f if line.strip()]
+        except Exception as e:
+            print(f"[WARN] 加载记忆文件失败: {e}", file=sys.stderr)
+
+    def _save_memory(self):
+        """增量追加新增的 history 条目到 memory_file（JSONL 格式）。"""
+        if not self.memory_file:
+            return
+        try:
+            new_entries = self.history[self._last_saved_count:]
+            if not new_entries:
+                return
+            os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+            with open(self.memory_file, "a", encoding="utf-8") as f:
+                for entry in new_entries:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._last_saved_count = len(self.history)
+        except Exception as e:
+            print(f"[WARN] 保存记忆文件失败: {e}", file=sys.stderr)
 
     def dump_history(self, filepath: str = ""):
         """导出当前历史记录到文件，方便调试（包含系统提示词）。
