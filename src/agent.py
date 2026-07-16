@@ -35,6 +35,7 @@ from tools import TOOLS, ToolExecutor, get_tools_excluding
 from markdown_it import MarkdownIt
 from event_queue_manager import EventQueueManager
 from scheduler import TaskScheduler
+from config import  MAX_HISTORY_CONTENT
 
 from meta import TaskField, MsgType, MsgField, MsgStyle
 from utils import Utils
@@ -146,11 +147,12 @@ class Agent:
             Utils.play_notification()
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
             ret= self._run_task(user_task)
-
             ret_str = str(ret)
+
             if len(ret_str) > MAX_HISTORY_CONTENT:
                 ret_str = ret_str[:MAX_HISTORY_CONTENT] + f"\n[... 省略 {len(ret_str) - MAX_HISTORY_CONTENT} 字符 ...]"
-            self.eqm.send_user_input("根据任务模式返回内容总结(无论成功禁止继续执行这个子任务):"+ret_str, mode="chat")
+            if self.eqm:
+                self.eqm.send_user_input("根据任务模式返回内容总结(无论成功禁止继续执行这个子任务):"+ret_str, mode="chat")
             return ret
 
     def _run_task(self, user_task: str) -> dict:
@@ -349,7 +351,7 @@ class Agent:
             self.task_manager.save_plan_steps(self.task_manager._stage_progress)
             return result
         
-        result = self._get_phases_and_extra_prompt(sub.task_type, sub.sub_type)
+        result = self._get_subtask_phases_and_prompt(sub.task_type, sub.sub_type)
         if result is None:
             self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过")
             return False
@@ -374,6 +376,11 @@ class Agent:
             )
         extra_prompt_add+=f"当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。\n"
         extra_prompt= extra_prompt_add+extra_prompt+"\n"
+        extra_prompt+= "- 任务需要分阶段分步骤规划完成，不可忽略已经存在的阶段，但可根据需求新增阶段"\
+                        "- 如果阶段缺少详细步骤，先调用 update_plan 规划。\n"\
+                        "- 每个步骤完成后及时更新状态。\n"\
+                        "- 所有步骤完成后调用 finish 结束本任务。"
+
 
         # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
         task_tools = get_tools_excluding("start_task")
@@ -385,7 +392,8 @@ class Agent:
         if extra_prompt:
             system_prompt += "\n" + extra_prompt
 
-    
+       
+            
         print(f"[DEBUG] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分:\n {extra_prompt}\n")
 
         # 预构建各 phase 消息（仅包含当前阶段名 + [M] 内容 + [P] 内容）
@@ -393,7 +401,6 @@ class Agent:
         for phase_idx, phase in enumerate(phases):
             phase_name = phase['name']
             phase_msg_items = phase.get('phase_msg', [])
-            phase_prompt_items = phase.get('phase_prompt', [])
 
             lines_p = []
             for item in phase_msg_items:
@@ -403,9 +410,8 @@ class Agent:
             phase_msgs.append({
                 "name": phase_name,
                 "msg": full_msg,
-                "phase_prompt": '\n'.join(phase_prompt_items) if phase_prompt_items else "",
             })
-            print(f"[DEBUG _run_landscape] phase '{phase_name}': phase_prompt='{phase_msgs[-1]['phase_prompt']}', msg={full_msg[:100]}")
+            print(f"[DEBUG _run_landscape] phase '{phase_name}': msg={full_msg[:100]}")
             self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
 
         self.task_manager.set_subtask_phase_msgs(subtask_index, phase_msgs)
@@ -415,18 +421,18 @@ class Agent:
         self.task_manager.save_plan_steps(self.task_manager._stage_progress)
         return result
 
-    def _get_phases_and_extra_prompt(self, task_type_key: str, sub_type: str = ""):
+    def _get_subtask_phases_and_prompt(self, task_type_key: str, sub_type: str = ""):
         """从 TaskAttributeManager 获取指定 task type 的阶段列表
 
         Returns:
-            {"phases": [{"name": ..., "phase_prompt": [...], "phase_msg": [...]}], "extra_prompt": "..."}
+            {"phases": [{"name": ..., "phase_msg": [...]}], "extra_prompt": "..."}
             或 None（未找到匹配项或 sub_type 不匹配）
         """
         if not hasattr(self, '_attr_mgr'):
             from task_attribute_manager import TaskAttributeManager
             json_path = self.config.paths.task_config_file_path
             self._attr_mgr = TaskAttributeManager(json_path)
-        result = self._attr_mgr.get_phases_and_extra_prompt(task_type_key, sub_type)
+        result = self._attr_mgr.get_subtask_phases_and_prompt(task_type_key, sub_type)
         if result is None:
             self._log(
                 f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
@@ -514,15 +520,16 @@ class Agent:
 
             # 检查是否有新消息进来（工具执行期间用户可能发了新消息）
             drained = ""
-            try:
-                while True:
-                    m = self.eqm.to_chat_queue.get_nowait()
-                    if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
-                        drained += m.get(MsgField.CONTENT, "") + "\n"
-            except queue.Empty:
-                pass
-            if drained.strip():
-                msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
+            if self.eqm:
+                try:
+                    while True:
+                        m = self.eqm.to_chat_queue.get_nowait()
+                        if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                            drained += m.get(MsgField.CONTENT, "") + "\n"
+                except queue.Empty:
+                    pass
+                if drained.strip():
+                    msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
            
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
             reasoning = result.get("reasoning_content", "")
@@ -548,46 +555,10 @@ class Agent:
                 continue
             else:
                 content_text = result.get("content", "")
-                # if content_text:
-                self.eqm.send_display(content_text, mode="chat")
+                if content_text and self.eqm:
+                    self.eqm.send_display(content_text, mode="chat")
 
                 return {"judge": "true", "content": content_text}
-
-    def _build_phase_msg(self, sub) -> tuple[str, str]:
-        """从 sub 构建当前阶段的 prompt_add 和 msg，返回 (prompt_add, msg)"""
-        phases = sub.phase_msgs
-        plan_steps = sub.plan_steps
-
-        current_idx = 0
-        for idx, p in enumerate(phases):
-            steps = plan_steps.get(p["name"], [])
-            if not steps or any(s.get("status", "") != "completed" for s in steps):
-                current_idx = idx
-                break
-
-        entering = current_idx > 0
-        phase = phases[current_idx]
-        pp = phase.get("phase_prompt", "")
-        header = f"\n# 当前子任务: {sub.task} \n## 阶段: {phase.get('name', '')}"
-        if pp:
-            prompt_add = header + "\n" + pp
-        else:
-            prompt_add = header
-        prompt_add += ("\n- 如果本阶段缺少详细执行步骤，先调用 update_plan 规划。"
-                       "\n- 每个步骤完成后及时更新状态。"
-                       "\n- 所有步骤完成后调用 finish 结束本阶段。")
-
-        action = "进入新阶段" if entering else "当前阶段"
-        status= self.task_manager._stage_progress.format_status()
-        plan_msg = (
-            f"{action}: {phase['name']}\n"
-            f"所有阶段进度:\n{status}\n"
-            f"如果「{phase['name']}」阶段缺少详细步骤，请先调用 update_plan 规划。\n"
-            f"如果所有步骤完成调用 finish 结束本阶段。"
-        )
-        phase_msg = phase.get('msg', '')
-        msg = (plan_msg +"\n" +phase_msg) if phase_msg else plan_msg
-        return prompt_add, msg
 
     def _load_llm_context(self, sub) -> tuple[str, list]:
         """从 context_prompt.json 恢复 base_prompt 和 LLM 上下文"""
@@ -640,12 +611,12 @@ class Agent:
         """
 
         sub = self.task_manager.get_subtask(subtask_index)
-        phases = sub.phase_msgs if sub else []
-
+        
         if not base_prompt:
             base_prompt, ctx_msgs = self._load_llm_context(sub)
             if ctx_msgs:
                 self.task_llm.history = ctx_msgs
+       
 
         executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self, eqm=self.eqm, mode="task")
 
@@ -653,21 +624,21 @@ class Agent:
 
         task_tools = get_tools_excluding("start_task")
         
-        prompt = base_prompt
-        if phases:
-            stage_names = [p["name"] for p in phases]
-            self.task_manager._stage_progress = self.task_manager.load_stage_progress(stage_names)
-            prompt_add, msg = self._build_phase_msg(sub)
-            prompt += prompt_add
+        if sub and sub.phase_msgs:
+            self.task_manager._stage_progress = self.task_manager.load_stage_progress(
+                [p["name"] for p in sub.phase_msgs])
+            status = self.task_manager._stage_progress.format_status()
+            msg = f"# 当前任务: {sub.task}\n\n{status}\n\n"
+                   
 
-            self._log(f"[PHASE] prompt={len(prompt)}chars | msg= {msg}")
+            self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
 
 
         for num in range(self.max_rounds):
             if self.eqm and self.eqm.is_cancelled("task"):
                 self.eqm.send_display("⏹ 已取消", mode="task")
                 return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
-            result = self.task_llm.chat_with_tools(prompt, msg, task_tools)
+            result = self.task_llm.chat_with_tools(base_prompt, msg, task_tools)
             # 打印思考信息
             reasoning = result.get("reasoning_content", "")
             if reasoning:
@@ -708,14 +679,7 @@ class Agent:
                             for p in sub.phase_msgs
                         ) if sub.plan_steps else False
 
-                        if sub.phase_msgs and not all_done:
-                            prompt_add, msg = self._build_phase_msg(sub)
-                            prompt = base_prompt + prompt_add
-
-                            self._log(f"[PHASE] 切换后 prompt={len(prompt)}chars |\n msg= {msg}")
-                            self._log(f"[PHASE] prompt= {prompt}")
-
-                        else:
+                        if all_done:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
                             

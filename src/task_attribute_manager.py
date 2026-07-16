@@ -7,7 +7,7 @@
   2. 管理各类别的 [P] 标签内容（分类级提示词）
   3. 管理各流程阶段及其 [P]/[M] 标签内容
   4. 提供 plan_classify / combined_classify prompt 构建
-  5. 提供 get_phases_and_extra_prompt 接口，替代 Agent._get_phases_and_extra_prompt()
+  5. 提供 get_subtask_phases_and_prompt 接口，替代 Agent._get_subtask_phases_and_prompt()
 
 数据文件：spc/spec.json
 """
@@ -29,7 +29,7 @@ class TaskAttributeManager:
         mgr = TaskAttributeManager("spc/spec.json")
         categories = mgr.get_categories()
         prompt = mgr.build_plan_prompt()
-        phases = mgr.get_phases_and_extra_prompt("开发类", "web应用")
+        phases = mgr.get_subtask_phases_and_prompt("开发类", "web应用")
         mgr.add_subtype("开发类", "新类型", "描述")
         mgr.save()
     """
@@ -100,19 +100,14 @@ class TaskAttributeManager:
         """所有大类名称列表。"""
         return [c["name"] for c in self._data[self.KEY_CATEGORIES]]
 
-    def add_category(self, name: str, prompt: str = "",
+    def add_category(self, name: str,
                      subtypes: list[dict] | None = None,
-                     phases: list[dict] | None = None,
-                     phase_groups: list[dict] | None = None) -> dict:
+                     subtask_config: list[dict] | None = None) -> dict:
         """添加一个新的大类。
 
-            description: 类别描述，用于 prompt 中展示
             name: 类别名（如"开发类"）
-            description: 类别描述，用于 prompt 中展示
-            prompt: 类别级 [P] 标签内容
             subtypes: 子类型列表 [{"name": "...", "description": "..."}]
-            phases: 默认阶段列表（当 phase_groups 无匹配时生效）
-            phase_groups: 子类分组阶段列表 [{"match_subtypes": [...], "prompt": "", "phases": [...]}]
+            subtask_config: 子类分组阶段列表 [{"match_subtypes": [...], "prompt": "", "phases": [...]}]
                           match_subtypes 中使用 "..." 匹配剩余子类
 
         Returns:
@@ -124,12 +119,9 @@ class TaskAttributeManager:
         if self._cat_index(name) is not None:
             raise ValueError(f"类别 '{name}' 已存在")
         cat = {
-            "description": description,
             "name": name,
-            "prompt": prompt,
             "subtypes": subtypes or [],
-            "phases": phases or [],
-            "phase_groups": phase_groups or [],
+            "subtask_config": subtask_config or [],
         }
         self._data[self.KEY_CATEGORIES].append(cat)
         return cat
@@ -140,21 +132,6 @@ class TaskAttributeManager:
         if idx is None:
             return False
         self._data[self.KEY_CATEGORIES].pop(idx)
-        return True
-
-    # ── 类别级 [P] 标签（prompt） ──
-
-    def get_category_prompt(self, name: str) -> str | None:
-        """获取类别的 prompt（类别级 [P] 标签内容）。"""
-        cat = self._get_cat(name)
-        return cat["prompt"] if cat else None
-
-    def set_category_prompt(self, name: str, prompt: str) -> bool:
-        """设置类别的 prompt。"""
-        cat = self._get_cat(name)
-        if cat is None:
-            return False
-        cat["prompt"] = prompt
         return True
 
     # ── 类别描述 ──
@@ -216,9 +193,7 @@ class TaskAttributeManager:
     # ── 阶段 增删改查 ──
 
     def add_phase(self, cat_name: str, phase_name: str,
-                  phase_prompt: list[str] | None = None,
-                  phase_msg: list[str] | None = None,
-                  config: list[str] | None = None) -> bool:
+                  phase_msg: list[str] | None = None) -> bool:
         """在指定类别下添加阶段。
 
         Raises:
@@ -231,9 +206,7 @@ class TaskAttributeManager:
             raise ValueError(f"阶段 '{phase_name}' 在 '{cat_name}' 中已存在")
         cat["phases"].append({
             "name": phase_name,
-            "phase_prompt": phase_prompt or [],
             "phase_msg": phase_msg or [],
-            "config": config or [],
         })
         return True
 
@@ -243,15 +216,6 @@ class TaskAttributeManager:
         if idx is None:
             return False
         self._get_cat(cat_name)["phases"].pop(idx)
-        return True
-
-    def set_phase_prompt(self, cat_name: str, phase_name: str,
-                         phase_prompt: list[str]) -> bool:
-        """设置阶段的 [P] 标签内容。"""
-        idx = self._phase_index(cat_name, phase_name)
-        if idx is None:
-            return False
-        self._get_cat(cat_name)["phases"][idx]["phase_prompt"] = phase_prompt
         return True
 
     def set_phase_msg(self, cat_name: str, phase_name: str,
@@ -269,15 +233,6 @@ class TaskAttributeManager:
         if idx is None:
             return None
         return dict(self._get_cat(cat_name)["phases"][idx])
-
-    def set_phase_config(self, cat_name: str, phase_name: str,
-                         config: list[str]) -> bool:
-        """设置阶段的 config（旧版 code_block 兼容）。"""
-        idx = self._phase_index(cat_name, phase_name)
-        if idx is None:
-            return False
-        self._get_cat(cat_name)["phases"][idx]["config"] = config
-        return True
 
     # ── 兼容 Prompts._load_categories ──
 
@@ -435,14 +390,14 @@ class TaskAttributeManager:
 
     # ── 阶段分组 增删改查 ──
 
-    def add_phase_group(self, cat_name: str,
+    def add_subtask_config(self, cat_name: str,
                         match_subtypes: list[str],
                         phases: list[dict] | None = None,
                         prompt: str = "") -> bool:
         """为指定大类添加一个子类阶段分组。
 
         match_subtypes 列出该分组覆盖的子类名。
-        未匹配到任何 phase_group 的子类将使用类别的默认 phases。
+        未匹配到任何 subtask_config 的子类将使用类别的默认 phases。
 
         Raises:
             ValueError: 类别不存在
@@ -455,29 +410,29 @@ class TaskAttributeManager:
             "prompt": prompt,
             "phases": phases or [],
         }
-        cat.setdefault("phase_groups", []).append(group)
+        cat.setdefault("subtask_config", []).append(group)
         return True
 
-    def remove_phase_group(self, cat_name: str, index: int) -> bool:
+    def remove_subtask_config(self, cat_name: str, index: int) -> bool:
         """删除指定大类下的第 index 个阶段分组（0-based）。"""
         cat = self._get_cat(cat_name)
-        if cat is None or "phase_groups" not in cat:
+        if cat is None or "subtask_config" not in cat:
             return False
-        groups = cat["phase_groups"]
+        groups = cat["subtask_config"]
         if 0 <= index < len(groups):
             groups.pop(index)
             return True
         return False
 
-    def update_phase_group(self, cat_name: str, index: int,
+    def update_subtask_config(self, cat_name: str, index: int,
                            match_subtypes: list[str] | None = None,
                            phases: list[dict] | None = None,
                            prompt: str | None = None) -> bool:
         """更新指定大类下的第 index 个阶段分组。"""
         cat = self._get_cat(cat_name)
-        if cat is None or "phase_groups" not in cat:
+        if cat is None or "subtask_config" not in cat:
             return False
-        groups = cat["phase_groups"]
+        groups = cat["subtask_config"]
         if not (0 <= index < len(groups)):
             return False
         if match_subtypes is not None:
@@ -488,20 +443,20 @@ class TaskAttributeManager:
             groups[index]["prompt"] = prompt
         return True
 
-    def get_phase_groups(self, cat_name: str) -> list[dict] | None:
+    def get_subtask_config(self, cat_name: str) -> list[dict] | None:
         """获取大类下所有阶段分组。"""
         cat = self._get_cat(cat_name)
         if cat is None:
             return None
-        return list(cat.get("phase_groups", []))
+        return list(cat.get("subtask_config", []))
 
-    # ── 兼容 Agent._get_phases_and_extra_prompt ──
+    # ── 兼容 Agent._get_subtask_phases_and_prompt ──
 
-    def get_phases_and_extra_prompt(self, task_type_key: str, sub_type: str = "") -> dict | None:
+    def get_subtask_phases_and_prompt(self, task_type_key: str, sub_type: str = "") -> dict | None:
         """获取指定 task type 的阶段列表。
 
         匹配优先级：
-        1. phase_groups 中与 sub_type 精确匹配的分组
+        1. subtask_config 中与 sub_type 精确匹配的分组
         2. 未匹配时回退到类别默认 phases
 
         Args:
@@ -509,35 +464,30 @@ class TaskAttributeManager:
             sub_type: 子类名称（如"web应用"）
 
         Returns:
-            {"phases": [{"name": ..., "phase_prompt": [...], "phase_msg": [...]}],
-             "extra_prompt": "..."}
+            {"phases": [{"name": ..., "phase_msg": [...]}],
+             "phases": [...], "extra_prompt": "..."}
             或 None（未找到匹配项）
         """
         cat = self._get_cat(task_type_key)
         if cat is None:
             return None
 
-        # 1. 先查 phase_groups 精确匹配
-        for group in cat.get("phase_groups", []):
+        # 1. 先查 subtask_config 精确匹配
+        for group in cat.get("subtask_config", []):
             match_list = group.get("match_subtypes", [])
             if sub_type in match_list:
-                prompt = group.get("prompt", "") or cat.get("prompt", "")
-                if isinstance(prompt, list):
-                    prompt = "\n".join(prompt)
                 return {
                     "phases": group.get("phases", []),
-                    "extra_prompt": prompt,
+                    "extra_prompt": group.get("prompt", "") or "",
                 }
 
-        # 2. 回退到类别默认 phases（即通配回退）
-        if cat.get("phases"):
-            prompt = cat.get("prompt", "")
-            if isinstance(prompt, list):
-                prompt = "\n".join(prompt)
-            return {
-                "phases": cat["phases"],
-                "extra_prompt": prompt,
-            }
+        # 2. 无 subtask_config 匹配，尝试子类型通配
+        for group in cat.get("subtask_config", []):
+            if "..." in group.get("match_subtypes", []):
+                return {
+                    "phases": group.get("phases", []),
+                    "extra_prompt": group.get("prompt", "") or "",
+                }
 
         # 3. 无匹配
         all_subtype_names = [st["name"] for st in cat.get("subtypes", [])]
@@ -555,33 +505,27 @@ class TaskAttributeManager:
         for cat in self._data.get(self.KEY_CATEGORIES, []):
             desc = cat.get("description", "")
             lines.append(f"## {cat['name']}" + (f" ({desc})" if desc else ""))
-            if cat["prompt"]:
-                lines.append(f"  prompt: {cat['prompt'][:80]}")
             subs = [f"{st['name']}" + (f": {st['description']}" if st.get('description') else '')
                     for st in cat.get("subtypes", [])]
             lines.append(f"  subtypes: {', '.join(subs)}")
-            # Show phase_groups (overrides)
-            for gi, grp in enumerate(cat.get("phase_groups", [])):
+            # Show subtask_config (overrides)
+            for gi, grp in enumerate(cat.get("subtask_config", [])):
                 match = ', '.join(grp.get("match_subtypes", []))
                 lines.append(f"  [override {gi}] → {match}")
                 if grp.get("prompt"):
                     lines.append(f"    prompt: {grp['prompt'][:80]}")
                 for ph in grp.get("phases", []):
                     lines.append(f"    ─ {ph['name']}")
-                    for p in ph.get("phase_prompt", []):
-                        lines.append(f"       [P] {p}")
                     for m in ph.get("phase_msg", []):
                         lines.append(f"       [M] {m}")
             # Show default phases
             default_phases = cat.get("phases", [])
             if default_phases:
-                label = "  [phases]  " if cat.get("phase_groups") else "  [phases]"
+                label = "  [phases]  " if cat.get("subtask_config") else "  [phases]"
                 for ph in default_phases:
-                    pp = ph.get("phase_prompt", [])
+                    pm = ph.get("phase_msg", [])
                     pm = ph.get("phase_msg", [])
                     lines.append(f"  ─ {ph['name']}")
-                    for p in pp:
-                        lines.append(f"     [P] {p}")
                     for m in pm:
                         lines.append(f"     [M] {m}")
         return "\n".join(lines)
@@ -599,19 +543,19 @@ if __name__ == "__main__":
     # print('-- data loading --')
     # cats = mgr.get_categories()
  
-    # # -- get_phases_and_extra_prompt --
+    # # -- get_subtask_phases_and_prompt --
     # print()
-    # print('-- get_phases_and_extra_prompt --')
+    # print('-- get_subtask_phases_and_prompt --')
 
-    # r = mgr.get_phases_and_extra_prompt('开发类', 'web应用')
+    # r = mgr.get_subtask_phases_and_prompt('开发类', 'web应用')
 
-    # r = mgr.get_phases_and_extra_prompt('开发类', '游戏')
+    # r = mgr.get_subtask_phases_and_prompt('开发类', '游戏')
 
-    # r = mgr.get_phases_and_extra_prompt('skill', 'cskill')
+    # r = mgr.get_subtask_phases_and_prompt('skill', 'cskill')
    
-    # r = mgr.get_phases_and_extra_prompt('文本类', '文案')
+    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
  
-    # r = mgr.get_phases_and_extra_prompt('not_exist', 'x')
+    # r = mgr.get_subtask_phases_and_prompt('not_exist', 'x')
     
     # # -- prompt building --
     # print()
@@ -627,9 +571,9 @@ if __name__ == "__main__":
     mgr.add_category('学习', prompt='先了解目录结构，然后提炼主要文档内容，如果有代码最后看代码，提炼文档内容禁止全部读取所有文档，仅需要用head提取目录或概要介绍，如果是pdf、word、excel、ppt等格式可调用相关工具，\
                      对于代码，如果有用户手册或需求、架构说明书等仅需要了解大概内容，在没有用户进一步指令之前禁止读取全部代码',
                      subtypes=[{'name': '代码文档学习', 'description': '对现有的文档资料和代码等资料提炼总结'}],
-                     phases=[{'name': '代码文档学习并提炼内容', 'phase_prompt': [''], 'phase_msg': ['将学到的内容存入learn.le'], 'config': []}])
+                     phases=[{'name': '代码文档学习并提炼内容', 'phase_msg': ['将学到的内容存入learn.le']}])
 
-    # r = mgr.get_phases_and_extra_prompt('test_cat', 'test_sub')
+    # r = mgr.get_subtask_phases_and_prompt('test_cat', 'test_sub')
    
     # mgr.add_subtype('test_cat', 'test_sub2', 'desc2')
 
@@ -649,7 +593,7 @@ if __name__ == "__main__":
     # ph = mgr.get_phase('调试类', 'new_phase')
     # mgr.save()
 
-    # mgr.set_phase_prompt('调试类', 'new_phase', ['updatedP'])
+    # pass  # set_phase_prompt removed
     # ph = mgr.get_phase('调试类', 'new_phase')
 
     # mgr.set_phase_msg('调试类', 'new_phase', ['updatedM'])
@@ -664,27 +608,27 @@ if __name__ == "__main__":
     # mgr.set_category_prompt('调试类', '')
     # mgr.save()
 
-    # # -- phase_group CRUD --
+    # # -- subtask_config CRUD --
     # print()
-    # print('-- phase_group CRUD --')
+    # print('-- subtask_config CRUD --')
 
-    # mgr.add_phase_group('文本类', ['文案'],
-    #     phases=[{'name': 'copywriting_only', 'phase_prompt': ['customP'], 'phase_msg': ['customM'], 'config': []}],
+    # mgr.add_subtask_config('文本类', ['文案'],
+    #     phases=[{'name': 'copywriting_only', 'phase_msg': ['customM']}],
     #     prompt='copywriting_prompt')
 
-    # r = mgr.get_phases_and_extra_prompt('文本类', '文案')
+    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
     
-    # r = mgr.get_phases_and_extra_prompt('文本类', '报告')
+    # r = mgr.get_subtask_phases_and_prompt('文本类', '报告')
 
-    # groups = mgr.get_phase_groups('文本类')
+    # groups = mgr.get_subtask_config('文本类')
 
-    # mgr.update_phase_group('文本类', 0,
-    #     phases=[{'name': 'updated_phase', 'phase_prompt': [], 'phase_msg': [], 'config': []}])
-    # r = mgr.get_phases_and_extra_prompt('文本类', '文案')
+    # mgr.update_subtask_config('文本类', 0,
+    #     phases=[{'name': 'updated_phase', 'phase_msg': []}])
+    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
     # mgr.save()
 
-    # mgr.remove_phase_group('文本类', 0)
-    # r = mgr.get_phases_and_extra_prompt('文本类', '文案')
+    # mgr.remove_subtask_config('文本类', 0)
+    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
     # mgr.save()
     # print(mgr.remove_category('其他类'))
     mgr.save()
