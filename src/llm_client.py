@@ -9,50 +9,13 @@
 """
 
 from typing import Optional
+from config import PROVIDERS, MAX_HISTORY_CONTENT
+
 from openai import OpenAI
 import re , os, sys, time,locale, platform,json 
 from typing import Optional, List, Dict, Any
 
 from openai import BadRequestError
-
-PROVIDERS = {
-    "deepseek": {
-        "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com/v1",
-        "balance_url": "https://api.deepseek.com/user/balance",
-        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
-    },
-    "qwen": {
-        "name": "通义千问",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "balance_url": "",
-        "models": ["qwen3.7-max", "qwen3.7-plus"],
-    },
-    "openai": {
-        "name": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "balance_url": "",
-        "models": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
-    },
-    "zhipu": {
-        "name": "智谱 GLM",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "balance_url": "https://open.bigmodel.cn/api/paas/v4/account/balance",
-        "models": ["glm-5", "glm-5.1", "glm-5.2"],
-    },
-    "moonshot": {
-        "name": "Moonshot",
-        "base_url": "https://api.moonshot.cn/v1",
-        "balance_url": "",
-        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
-    },
-    "custom": {
-        "name": "自定义",
-        "base_url": "",
-        "balance_url": "",
-        "models": [],
-    },
-}
 
 class LLMClient:
 
@@ -86,7 +49,6 @@ class LLMClient:
             print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
             print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
             print("（可在设置中配置密钥后重试）")
-
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.provider = provider
@@ -283,9 +245,9 @@ class LLMClient:
         # 写入独立历史日志
         self.last_system_prompt = prompt
         if self.log_history:
-            self.logger.log(f"\n{'='*60}\n[{self.call_count}] SYSTEM:\n{prompt[:5000]}\n\n"
-                            f"[{self.call_count}] USER:\n{user_message[:5000]}\n\n"
-                            f"[{self.call_count}] ASSISTANT:\n{content[:5000]}")
+            self.logger.log(f"\n{'='*60}\n[{self.call_count}] SYSTEM:\n{prompt[:self.logger.LOG_LLM_PROMPT]}\n\n"
+                            f"[{self.call_count}] USER:\n{user_message[:self.logger.LOG_LLM_INTERACT]}\n\n"
+                            f"[{self.call_count}] ASSISTANT:\n{content[:self.logger.LOG_RAW_RESPONSE]}")
 
         return content
 
@@ -300,7 +262,6 @@ class LLMClient:
             return json.loads(raw)
         except json.JSONDecodeError:
             return {"raw": raw, "parse_error": True}
-
 
     def chat_with_tools(self, prompt: str, user_message: str,
                         tools: list[dict],
@@ -362,7 +323,7 @@ class LLMClient:
         self._track_usage(getattr(response, 'usage', None))
         # 记录用户消息
         if self.log_history:
-            self.logger.log(f"\n{'='*60}\n[{self.call_count}] TOOLS USER:\n{user_message[:2000]}")
+            self.logger.log(f"\n{'='*60}\n[{self.call_count}] TOOLS USER:\n{user_message[:self.logger.LOG_LLM_INTERACT]}")
 
         # ---------- 处理工具调用 ----------
         if msg.tool_calls:
@@ -430,14 +391,12 @@ class LLMClient:
             content = msg.content or ""
             self.last_raw_response = content
             if self.log_history:
-                self.logger.log(f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:20000]}")
+                self.logger.log(f"[{self.call_count}] TOOLS ASSISTANT:\n{content[:self.logger.LOG_RAW_RESPONSE]}")
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "assistant", "content": content})
             result = {"type": "text", "content": content, "reasoning_content": reasoning}
 
         return result
-
-
 
     def _snap_to_valid_start(self, start: int) -> int:
         """Ensure the history slice doesn't start with orphaned tool messages.
@@ -456,7 +415,6 @@ class LLMClient:
         while i < len(self.history) and self.history[i].get("role") == "tool":
             i += 1
         return i
-
 
     def _load_memory(self):
         """从 memory_file（JSONL 格式）加载历史记录。"""
@@ -509,13 +467,17 @@ class LLMClient:
 
     def submit_tool_result(self, tool_call_id: str, result: str):
         """将函数执行结果追加到 hisry，供 LLM 下一轮使用"""
+        if len(result) > MAX_HISTORY_CONTENT:
+            result = (f"[内容过长已截断，原 {len(result)} 字符]\n"
+                      f"{result[:MAX_HISTORY_CONTENT]}\n"
+                      f"[... 省略 {len(result) - MAX_HISTORY_CONTENT} 字符 ...]")
         self.history.append({
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": result,
         })
         if self.log_history:
-            self.logger.log(f"  TOOL RESULT[{tool_call_id}] :\n{result[:2000]}")
+            self.logger.log(f"  TOOL RESULT[{tool_call_id}] :\n{result[:self.logger.LOG_EXEC_OUTPUT]}")
 
     # ---- 记忆管理 ----
 

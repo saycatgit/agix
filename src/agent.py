@@ -27,7 +27,6 @@ import os, re, time, sys, glob, json, threading, hashlib, queue
 from datetime import datetime
 
 from llm_client import LLMClient
-from config import TRUNCATION
 from logger import Logger
 from task_manager import TaskManager, SubTaskStatus, MainTaskStatus
 from stage_progress import StageProgress
@@ -149,7 +148,10 @@ class Agent:
             # 任务模式：切换到独立 LLM 实例，避免污染对话上下文
             ret= self._run_task(user_task)
 
-            self.eqm.send_user_input("根据任务模式返回内容总结(无论成功禁止继续执行这个子任务):"+str(ret), mode="chat")
+            ret_str = str(ret)
+            if len(ret_str) > MAX_HISTORY_CONTENT:
+                ret_str = ret_str[:MAX_HISTORY_CONTENT] + f"\n[... 省略 {len(ret_str) - MAX_HISTORY_CONTENT} 字符 ...]"
+            self.eqm.send_user_input("根据任务模式返回内容总结(无论成功禁止继续执行这个子任务):"+ret_str, mode="chat")
             return ret
 
     def _run_task(self, user_task: str) -> dict:

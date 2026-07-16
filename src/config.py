@@ -5,8 +5,51 @@ import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
-from llm_client import PROVIDERS
 import sys
+
+# ── LLM 供应商配置 ──
+PROVIDERS = {
+    "deepseek": {
+        "name": "DeepSeek",
+        "base_url": "https://api.deepseek.com/v1",
+        "balance_url": "https://api.deepseek.com/user/balance",
+        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+    },
+    "qwen": {
+        "name": "通义千问",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "balance_url": "",
+        "models": ["qwen3.7-max", "qwen3.7-plus"],
+    },
+    "openai": {
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "balance_url": "",
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+    },
+    "zhipu": {
+        "name": "智谱 GLM",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "balance_url": "https://open.bigmodel.cn/api/paas/v4/account/balance",
+        "models": ["glm-5", "glm-5.1", "glm-5.2"],
+    },
+    "moonshot": {
+        "name": "Moonshot",
+        "base_url": "https://api.moonshot.cn/v1",
+        "balance_url": "",
+        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+    },
+    "custom": {
+        "name": "自定义",
+        "base_url": "",
+        "balance_url": "",
+        "models": [],
+    },
+}
+
+
+# ── 内部截断常量 ──
+MAX_HISTORY_CONTENT = 65535 #262144  # 写入 history 的单个 tool result 最大长度
 
 
 # 标准用户配置目录
@@ -83,19 +126,7 @@ class AuthConfig:
     sensitive_command_check: bool = True
 
 
-# ── 文本截断长度 ──
-TRUNCATION = {
-    "log_raw_response":   10000,
-    "log_exec_output":     5000,
-    "log_llm_interact":    5000,
-    "log_llm_prompt":      10000,
-    "log_task_cmd":        2300,
-    "display_cmd_preview":  120,
-    "display_result":       300,
-    "history_detail":       8000,
-    "evaluate_output":     50000,
-    "skill_dir_list":        10,
-}
+
 
 
 # ── AppConfig ──

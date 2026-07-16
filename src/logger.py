@@ -9,6 +9,13 @@ class Logger:
     """日志管理器 —— 根据线程模式写入 chat_*.log 或 task_*.log"""
     _thread_local = threading.local()
 
+    # 日志截断长度
+    LOG_RAW_RESPONSE = 10000
+    LOG_EXEC_OUTPUT  = 5000
+    LOG_LLM_INTERACT = 5000
+    LOG_LLM_PROMPT   = 10000
+    LOG_TASK_CMD     = 2300
+
     def __init__(self, log_config=None, log_dir=None):
         self.path = ""
         self.enabled = log_config.enabled if log_config is not None else True
