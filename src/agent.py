@@ -394,7 +394,7 @@ class Agent:
 
        
             
-        print(f"[DEBUG] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分:\n {extra_prompt}\n")
+        self._log(f"[DEBUG] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分:\n {extra_prompt}\n")
 
         # 预构建各 phase 消息（仅包含当前阶段名 + [M] 内容 + [P] 内容）
         phase_msgs = []

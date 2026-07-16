@@ -721,4 +721,5 @@ class ToolExecutor:
 
     def _tool_finish(self, args: dict) -> dict:
         """特殊工具：返回 dict 而非 str，由调用方处理"""
+        Utils.play_notification()
         return {"type": "finish", "success": args["success"], "summary": args["summary"]}
