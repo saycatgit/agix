@@ -65,14 +65,13 @@ class Agent:
         self.task_llm = LLMClient(config.llm, logger=self.logger, log_history=self.config.log.history)
 
         self.project_root = os.path.dirname(os.path.abspath(__file__))
-        self.work_dir = os.getcwd()
 
         # 路径由 AppConfig.__post_init__ 解析为绝对路径并创建目录
         self.spc_dir = config.paths.spc_dir
         self.skills_dir = config.paths.skills_dir
         self.task_dir = config.paths.task_dir
 
-        self.proj_path = os.path.join(self.work_dir, "temp")
+        self.proj_path = os.path.join(self.config.execution.work_dir, "temp")
         self.docs_dir = None
 
         self.task_manager = TaskManager()
@@ -164,7 +163,7 @@ class Agent:
            - 每个子任务独立日志、计数器、花费
         """
         # ── 前置准备 ──
-        os.makedirs(self.work_dir, exist_ok=True)
+        os.makedirs(self.config.execution.work_dir, exist_ok=True)
         os.makedirs(self.skills_dir, exist_ok=True)
         self._generate_skills_index()
         self._generate_spc_index()
@@ -270,7 +269,7 @@ class Agent:
 
             # ── 解析项目目录（itself 跳过，直接用历史子任务的路径） ──
             if related_subtask_relation == "itself" and related_sub_task is not None:
-                self.proj_path = related_sub_task.project_path or self.work_dir
+                self.proj_path = related_sub_task.project_path or self.config.execution.work_dir
                 self.docs_dir = os.path.join(self.proj_path, "docs")
             else:
                 self._resolve_subtask_dir(
@@ -495,7 +494,7 @@ class Agent:
         """对话模式：简单的一轮或多轮 LLM 对话，支持工具调用和 start_task"""
 
         self.is_interactive = True  # chat 模式默认为交互模式
-        executor = ToolExecutor(self.work_dir, logger=self.logger, agent=self, eqm=self.eqm, mode="chat")
+        executor = ToolExecutor(self.config.execution.work_dir, logger=self.logger, agent=self, eqm=self.eqm, mode="chat")
 
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
@@ -535,20 +534,17 @@ class Agent:
                         if s:
                             self.eqm.send_display(s, mode="chat", style=MsgStyle.THINKING)
             if result["type"] == "tool_calls":
-                responses = []
-                for i, call in enumerate(result["calls"]):
+                total_len = 0
+                for call in result["calls"]:
                     exec_result = executor.execute(call["name"], call["args"])
-                    self.chat_llm.submit_tool_result(call["id"], str(exec_result))
+                    exec_str = str(exec_result)
+                    self.chat_llm.submit_tool_result(call["id"], exec_str)
+                    total_len += len(exec_str)
                     if isinstance(exec_result, dict) and exec_result.get("type") == "finish":
                         summary = exec_result["summary"]
                         if summary:
-                            # self._log(f"\n 🏆： {summary}")
                             return {"judge": "true", "content": summary}
-
-                    responses.append(str(exec_result))
-                # 总结给用户
-                summary = "\n".join(responses) if isinstance(responses, list) else str(responses)
-                msg=summary
+                msg = f"[工具执行完毕，{len(result['calls'])} 个结果，总计 {total_len} 字符]"
                 continue
             else:
                 content_text = result.get("content", "")
@@ -597,7 +593,7 @@ class Agent:
         """从 context_prompt.json 恢复 base_prompt 和 LLM 上下文"""
         if not sub or not sub.llm_context_info:
             return "", []
-        fpath = os.path.join(sub.project_path or self.work_dir, ".llm_context", "context_prompt.json")
+        fpath = os.path.join(sub.project_path or self.config.execution.work_dir, ".llm_context", "context_prompt.json")
         if not os.path.exists(fpath):
             return "", []
         try:
@@ -622,7 +618,7 @@ class Agent:
         ctx_json = json.dumps(ctx_data, ensure_ascii=False, indent=2)
 
         sub = self.task_manager.get_subtask(subtask_index)
-        proj = sub.project_path if sub and sub.project_path else self.work_dir
+        proj = sub.project_path if sub and sub.project_path else self.config.execution.work_dir
         save_dir = os.path.join(proj, ".llm_context")
         os.makedirs(save_dir, exist_ok=True)
         filepath = os.path.join(save_dir, "context_prompt.json")
@@ -824,7 +820,7 @@ class Agent:
         """扫描 work_dir 全部文件，生成 workspace_index.json"""
 
         index = []
-        wd = self.work_dir
+        wd = self.config.execution.work_dir
         if not os.path.isdir(wd):
             return
         for root, dirs, files in os.walk(wd):
@@ -860,7 +856,7 @@ class Agent:
             if is_continuation and related_project_path:
                 proj_path = related_project_path
             else:
-                proj_path = os.path.join(self.work_dir, "temp")
+                proj_path = os.path.join(self.config.execution.work_dir, "temp")
             proj_name = os.path.basename(proj_path.rstrip("/")) or "temp"
 
         # ── [建议名]: 交互模式询问用户，非交互直接用建议名 ──
@@ -886,12 +882,12 @@ class Agent:
                             proj_name = user_input
                     except (EOFError, KeyboardInterrupt):
                         pass
-            proj_path = os.path.join(self.work_dir, proj_name)
+            proj_path = os.path.join(self.config.execution.work_dir, proj_name)
 
         # ── temp 或其他: 使用 temp 目录 ──
         else:
             proj_name = "temp"
-            proj_path = os.path.join(self.work_dir, "temp")
+            proj_path = os.path.join(self.config.execution.work_dir, "temp")
 
         os.makedirs(proj_path, exist_ok=True)
         docs_dir = os.path.join(proj_path, "docs")
@@ -899,7 +895,7 @@ class Agent:
 
         self.task_manager.set_subtask_project(subtask_index, proj_path, docs_dir)
         self.proj_path = proj_path
-        self.work_dir = proj_path
+        self.config.execution.work_dir = proj_path
         self.docs_dir = docs_dir
 
         self._log(f"   目录策略: {dir_from} → {proj_path}")

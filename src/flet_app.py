@@ -194,7 +194,7 @@ class AgixUI:
             border_radius=10, min_lines=1, max_lines=5, expand=True, text_size=14)
         self.ci.on_submit = lambda e: self._send()
 
-        def _open_work_dir(e): os.startfile(self.agent.work_dir) if self.agent.config.system == 'windows' else subprocess.Popen(['xdg-open', self.agent.work_dir])
+        def _open_work_dir(e): os.startfile(self.agent.config.execution.work_dir) if self.agent.config.system == 'windows' else subprocess.Popen(['xdg-open', self.agent.config.execution.work_dir])
 
         def _get_active_label():
             for e in self.agent.config.llm_list:
@@ -216,7 +216,7 @@ class AgixUI:
         self._model_label = ft.Text(_get_active_label(), size=13, color=ft.Colors.GREY_500)
 
         sb_ctrl = ft.Container(content=ft.Row([
-            ft.Row([ft.Text(f"当前工作目录：{self.agent.work_dir}", size=13, color=ft.Colors.GREY_500, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Row([ft.Text(f"当前工作目录：{self.agent.config.execution.work_dir}", size=13, color=ft.Colors.GREY_500, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.IconButton(icon=ft.Icons.OPEN_IN_NEW, icon_size=14, tooltip="打开工作目录", on_click=_open_work_dir)], spacing=4),
             ft.Row([self._model_label,
                 ft.PopupMenuButton(
@@ -381,9 +381,9 @@ class AgixUI:
         self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=80, **tf)
         self._sys_mem_en = ft.Switch(label="启用记忆", height=30, value=cfg.execution.memory_enabled)
         self._sys_rounds = ft.TextField(label="调用上限", value=str(cfg.execution.max_rounds), width=100, **tf)
-        
-        self._sys_work_dir = ft.TextField(value=cfg.paths.work_dir, read_only=True, **tf)
-        self._sys_enable_history = ft.Switch(label="历史关联", height=30, value=cfg.execution.enable_history_task_association)
+
+        self._sys_work_dir = ft.TextField(value=cfg.execution.work_dir, read_only=True, **tf)
+        self._sys_enable_history = ft.Switch(label="历史任务关联", height=30, value=cfg.execution.enable_history_task_association)
 
         self._sys_log_enabled = ft.Switch(label="启用日志", height=30, value=cfg.log.enabled)
         self._sys_log_history = ft.Switch(label="记录历史", height=30, value=cfg.log.history)
@@ -395,7 +395,7 @@ class AgixUI:
                 cfg.execution.timeout = int(self._sys_timeout.value)
                 cfg.execution.max_rounds = int(self._sys_rounds.value)
                 cfg.execution.memory_enabled = self._sys_mem_en.value
-                cfg.paths.work_dir = self._sys_work_dir.value.strip()
+                cfg.execution.work_dir = self._sys_work_dir.value.strip()
                 cfg.execution.enable_history_task_association = self._sys_enable_history.value
                 cfg.log.enabled = self._sys_log_enabled.value
                 cfg.log.history = self._sys_log_history.value
@@ -417,7 +417,7 @@ class AgixUI:
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.Padding(16,7,10,7), bgcolor=ft.Colors.GREY_100, border_radius=ft.BorderRadius(10,10,0,0)),
                 ft.Container(content=ft.Column([
                     ft.Text("执行", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
-                    ft.Row([self._sys_work_dir, ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择目录", on_click=lambda e: self._pick_dir())], spacing=4),
+                    ft.Row([ft.Text("工作目录:", size=14), self._sys_work_dir, ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择目录", on_click=lambda e: self._pick_dir())], spacing=4),
                     ft.Row([self._sys_timeout, self._sys_rounds, self._sys_mem_en, self._sys_enable_history], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Divider(height=1),
                     ft.Text("日志", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
@@ -425,8 +425,8 @@ class AgixUI:
                     ft.Divider(height=1),
                     ft.Text("安全", weight=ft.FontWeight.W_600, size=16, color=ft.Colors.GREY_700),
                     ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=16, wrap=True),
-                    ft.Container(content=ft.Row([ft.ElevatedButton("保存", on_click=_save_sys, height=32)], alignment=ft.MainAxisAlignment.END), padding=ft.Padding(0,6,0,0)),
-                ], spacing=8), expand=True, padding=ft.Padding(16,12,16,12)),
+                    ft.Container(content=ft.Row([ft.ElevatedButton("保存", on_click=_save_sys, height=32)], alignment=ft.MainAxisAlignment.END), padding=ft.Padding(0,0,0,0)),
+                ], spacing=12), expand=True, padding=ft.Padding(16,12,16,12)),
             ], spacing=0, expand=True))
 
     def _open_sys_settings(self): self._sys_settings_panel.visible = True; self.page.update()

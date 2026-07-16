@@ -112,6 +112,7 @@ class ExecutionConfig:
     enable_history_task_association: bool = True
     max_rounds: int = 40
     memory_enabled: bool = True  # chat 模式持久记忆
+    work_dir: str = ""  # 工作目录，空则默认 os.getcwd()
 
 
 @dataclass
@@ -186,6 +187,8 @@ class AppConfig:
         effective_root = str(AppConfig._init_user_home())
         self.paths = PathConfig(root=effective_root)
         self._init_dirs()
+        if not self.execution.work_dir:
+            self.execution.work_dir = os.getcwd()
         self._init_api_key()
         if not self.llm_list:
             self.llm_list = [asdict(self.llm)]
@@ -208,19 +211,11 @@ class AppConfig:
             "execution": asdict(self.execution),
             "log": asdict(self.log),
             "auth": asdict(self.auth),
-            "memory": {
-                "enabled": self.execution.memory_enabled,
-                "size": self.llm.context_window,
-            },
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
         llm_data = dict(d.get("llm", {}))
-        if "memory" in d:
-            mem = d["memory"]
-            exec_data.setdefault("memory_enabled", mem.get("enabled", True))
-            llm_data.setdefault("context_window", mem.get("size", 40))
         exec_data = dict(d.get("execution", {}))
         # Backward compat: migrate llm_max_allowed_rounds
         if "max_rounds" not in exec_data and "llm_max_allowed_rounds" in llm_data:
@@ -306,8 +301,6 @@ class AppConfig:
         d = self.to_dict()
         d["llm_list"] = self.llm_list
         d.pop("llm", None)
-        if "memory" in d:
-            del d["memory"]
         from utils import Utils
         for e in d["llm_list"]:
             key = e.get("api_key", "")
