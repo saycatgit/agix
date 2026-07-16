@@ -160,7 +160,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_plan",
-            "description": "更新当前子任务的阶段执行计划。用于在每个阶段开始时规划详细步骤，或执行过程中更新步骤状态。stage 来源为 spec.json 中的 phase_name，step 来源为 LLM，status 取值为 pending/in_progress/completed/failed。同一阶段中同时只有一个步骤处于 in_progress。",
+            "description": "更新当前子任务的阶段执行计划。用于在每个阶段开始时规划详细步骤，或执行过程中更新步骤状态。如果是任务模式，部分stage 来源为 spec.json 中的 phase_name，如果是chat模式，stage为llm自己规划，step 来源为 LLM，status 取值为 pending/in_progress/completed/failed。同一阶段中同时只有一个步骤处于 in_progress。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -228,7 +228,7 @@ class ToolExecutor:
             result = method(args)
             tool_msg = f"{str(args.get('note','')).replace(chr(10),' ')} ({name}: {str(args)[9:100].replace(chr(10),' ')})"
             if self.agent and self.agent.eqm:
-                mode = "task" if "task" in threading.current_thread().name else "chat"
+                mode = self.mode
                 self.agent.eqm.send_display(tool_msg, mode=mode, style=MsgStyle.ACTION)
             if isinstance(result, dict) and result.get("type") == "finish":
                 return result
@@ -360,7 +360,7 @@ class ToolExecutor:
             return "start_task 需要 task 参数"
         if not self.agent:
             return "start_task 不可用：未关联 agent 实例"
-        if "task" in threading.current_thread().name:
+        if self.mode == "task":
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
 
         first_time = args.get("first_execution_time", "") or "now"
@@ -693,7 +693,10 @@ class ToolExecutor:
         if not agent:
             return json.dumps({"error": "agent not available"}, ensure_ascii=False)
 
-        progress = getattr(agent.task_manager, "_stage_progress", None)
+        if self.mode == "chat":
+            progress = getattr(agent, "chat_stage_progress", None)
+        else:
+            progress = getattr(agent.task_manager, "_stage_progress", None)
         if not progress:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
@@ -707,7 +710,7 @@ class ToolExecutor:
         if self.logger:
             self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}")
         if self.agent and self.agent.eqm:
-            self.agent.eqm.send_display(progress.format_status(), mode="task" if ("task" in threading.current_thread().name) else "chat", style=MsgStyle.STATUS)
+            self.agent.eqm.send_display(progress.format_status(), mode=self.mode, style=MsgStyle.STATUS)
 
         result = {
             "stage": stage,
