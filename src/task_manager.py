@@ -17,7 +17,7 @@ from stage_progress import StageProgress
 from datetime import datetime
 from enum import Enum
 from typing import Any
-
+from meta import TaskField
 
 # ================================================================
 # 枚举定义
@@ -69,9 +69,10 @@ class SubTaskRecord:
     每个 orchestrate 子任务对应一条记录，追踪从分类到执行完成的全部信息。
     """
     index:          int
-    task:           str
-    task_type:      str
-    sub_type:       str = ""
+    sub_task_name:  str = ""
+    sub_task_detail: str = ""
+    task_type:      str =""
+    task_sub_type:       str = ""
     is_continuation: bool = False
     related_subtask_task: str = ""
     related_project_path: str = ""
@@ -95,9 +96,10 @@ class SubTaskRecord:
         """从 orchestrate 列表项构造记录"""
         return SubTaskRecord(
             index=index,
-            task=item.get("sub_task", ""),
-            task_type=item.get("type", "其他"),
-            sub_type=item.get("sub_type", ""),
+            sub_task_detail=item.get(TaskField.SUB_TASK_DETAIL, ""),
+            sub_task_name=item.get(TaskField.SUB_TASK_NAME, ""),
+            task_type=item.get("task_type", "其他"),
+            task_sub_type=item.get("task_sub_type", ""),
             dir_from=item.get("dir_from", ""),
             created_at=_now_iso(),
         )
@@ -106,7 +108,8 @@ class SubTaskRecord:
 @dataclass
 class MainTaskRecord:
     """主任务记录"""
-    task:          str
+    main_task_name:   str
+    main_task_detail: str = ""
     status:        MainTaskStatus = MainTaskStatus.PENDING
     created_at:    str = ""
     completed_at:  str = ""
@@ -135,10 +138,11 @@ class TaskManager:
 
     # ── 主任务 ──
 
-    def start(self, task: str) -> MainTaskRecord:
+    def start(self, main_task_name: str, main_task_detail: str = "") -> MainTaskRecord:
         """开始一个新主任务"""
         self._main = MainTaskRecord(
-            task=task,
+            main_task_name=main_task_name,
+            main_task_detail=main_task_detail,
             status=MainTaskStatus.IN_PROGRESS,
             created_at=_now_iso(),
         )
@@ -317,9 +321,9 @@ class TaskManager:
             }
 
         def _sub_to_dict(s: SubTaskRecord) -> dict:
-            return {
-                "index": s.index, "task": s.task, "task_type": s.task_type,
-                "sub_type": s.sub_type, "dir_from": s.dir_from, "status": s.status.value,
+            d = {
+                TaskField.SUBTASK_INDEX: s.index, TaskField.SUB_TASK_DETAIL: s.sub_task_detail, "task_type": s.task_type,
+                "task_sub_type": s.task_sub_type, "dir_from": s.dir_from, "status": s.status.value,
                 "project_path": s.project_path,
                 "docs_dir": s.docs_dir, "extra": s.extra,
                 "result_judge": s.result_judge, "result_content": s.result_content,
@@ -333,18 +337,22 @@ class TaskManager:
                 "phase_msgs": s.phase_msgs,
                 "llm_context_info": s.llm_context_info,
             }
+            if s.sub_task_name:
+                d[TaskField.SUB_TASK_NAME] = s.sub_task_name
+            return d
 
         main = self._main
         return {
-            "main_task": {
-                "task": main.task if main else "",
+            "maintask": {
+                TaskField.MAIN_TASK_NAME: main.main_task_name if main else "",
+                TaskField.MAIN_TASK_DETAIL: main.main_task_detail if main else "",
                 "status": main.status.value if main else MainTaskStatus.PENDING.value,
                 "created_at": main.created_at if main else "",
                 "completed_at": main.completed_at if main else "",
             },
             "subtasks": [_sub_to_dict(s) for s in self._subtasks],
             "conversation_log": list(self._conversation_log),
-            "global_messages": [_msg_to_dict(m) for m in self._global_messages],
+            TaskField.GENERAL_MSGS: [_msg_to_dict(m) for m in self._global_messages],
         }
 
     def save(self, path: str = ""):
@@ -363,10 +371,11 @@ class TaskManager:
 
         tm = cls(save_path=path)
 
-        main_data = data.get("main_task", {})
-        if main_data.get("task"):
+        main_data = data.get("maintask", {})
+        if main_data.get(TaskField.MAIN_TASK_NAME):
             tm._main = MainTaskRecord(
-                task=main_data["task"],
+                main_task_name=main_data.get(TaskField.MAIN_TASK_NAME, ""),
+                main_task_detail=main_data.get(TaskField.MAIN_TASK_DETAIL, ""),
                 status=MainTaskStatus(main_data.get("status", "pending")),
                 created_at=main_data.get("created_at", ""),
                 completed_at=main_data.get("completed_at", ""),
@@ -374,10 +383,11 @@ class TaskManager:
 
         for sd in data.get("subtasks", []):
             rec = SubTaskRecord(
-                index=sd["index"],
-                task=sd["task"],
-                task_type=sd["task_type"],
-                sub_type=sd.get("sub_type", ""),
+                index=sd[TaskField.SUBTASK_INDEX],
+                sub_task_detail=sd.get(TaskField.SUB_TASK_DETAIL, ""),
+                task_type=sd[TaskField.TASK_TYPE],
+                sub_task_name=sd.get(TaskField.SUB_TASK_NAME, ""),
+                task_sub_type=sd.get(TaskField.TASK_SUB_TYPE, ""),
                 dir_from=sd.get("dir_from", ""),
                 status=SubTaskStatus(sd.get("status", "pending")),
                                 project_path=sd.get("project_path", ""),
@@ -399,7 +409,7 @@ class TaskManager:
             tm._subtasks.append(rec)
 
         tm._conversation_log = data.get("conversation_log", [])
-        tm._global_messages = [QAMessage(**m) for m in data.get("global_messages", [])]
+        tm._global_messages = [QAMessage(**m) for m in data.get(TaskField.GENERAL_MSGS, [])]
         return tm
 
     # ── 汇总查询 ──
@@ -466,7 +476,8 @@ class TaskManager:
                     break
 
             entry = {
-                "main_task": self.main_task.task if self.main_task else "",
+                TaskField.MAIN_TASK_NAME: self.main_task.main_task_name if self.main_task else "",
+                TaskField.MAIN_TASK_DETAIL: self.main_task.main_task_detail if self.main_task else "",
                 "status": self.main_task.status.value if self.main_task else "",
                 "created_at": self.main_task.created_at if self.main_task else "",
                 "completed_at": self.main_task.completed_at if self.main_task else "",
@@ -503,23 +514,24 @@ class TaskManager:
                     data = json.load(f)
             except Exception:
                 continue
-            main = data.get("main_task", {})
+            main = data.get("maintask", {})
             subtasks = data.get("subtasks", [])
             completed = sum(1 for s in subtasks if s.get("status") == "completed")
             tasks.append({
                 "file": state_file,
                 "file_name": os.path.basename(state_file),
                 "task_num": task_num,
-                "main_task": main.get("task", ""),
+                TaskField.MAIN_TASK_NAME: main.get(TaskField.MAIN_TASK_NAME, ""),
+                TaskField.MAIN_TASK_DETAIL: main.get(TaskField.MAIN_TASK_DETAIL, ""),
                 "status": main.get("status", ""),
                 "created_at": main.get("created_at", ""),
                 "completed_at": main.get("completed_at", ""),
                 "subtasks_count": len(subtasks),
                 "completed_count": completed,
                 "subtasks": [{
-                    "index": s.get("index"),
-                    "task": s.get("task", ""),
-                    "task_type": s.get("task_type", ""),
+                    TaskField.SUBTASK_INDEX: s.get(TaskField.SUBTASK_INDEX),
+                    TaskField.SUB_TASK_DETAIL: s.get(TaskField.SUB_TASK_DETAIL, ""),
+                    TaskField.TASK_TYPE: s.get(TaskField.TASK_TYPE, ""),
                     "status": s.get("status", ""),
                     "result_judge": s.get("result_judge", ""),
                     "result_content": s.get("result_content", ""),
@@ -542,7 +554,7 @@ class TaskManager:
         total = 0
         for ti, t in enumerate(tasks[:15]):
             header = (
-                f"\n### 历史主任务 {ti+1}: {t['main_task']}"
+                f"\n### 历史主任务 {ti+1}: {t[TaskField.MAIN_TASK_DETAIL]}"
                 f" (状态: {t['status']}, {t['completed_count']}/{t['subtasks_count']} 完成, 文件: {t['file_name']})"
             )
             total += len(header)
@@ -555,7 +567,7 @@ class TaskManager:
                 icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
                        .get(s["status"], "?")
                 sline = (
-                    f"  子任务{s['index']} {icon} [{s['task_type']}] {s.get('task', '')[:100]}"
+                    f"  子任务{s[TaskField.SUBTASK_INDEX]} {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
                 )
                 if s.get("result_judge"):
                     sline += f" → 结果: {s['result_judge']}"
@@ -567,7 +579,7 @@ class TaskManager:
             for s in t["subtasks"]:
                 msgs = s.get("messages", [])
                 if msgs:
-                    lines.append(f"  子任务{s['index']} 对话 ({len(msgs)} 条):")
+                    lines.append(f"  子任务{s[TaskField.SUBTASK_INDEX]} 对话 ({len(msgs)} 条):")
                     for m in msgs[-3:]:
                         mline = (
                             f"    [{m.get('timestamp','')[:16]}] "

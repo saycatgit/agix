@@ -188,19 +188,23 @@ class Agent:
             self._log("\n❌ 任务分类失败")
             return TaskField.RET_JSON_FALSE(f"任务:{user_task} 分类失败")
 
-        main_task = classification.get("main_task", user_task)
+        main_task = classification.get("maintask", user_task)
+        main_task_detail = classification.get("main_task_detail", "")
         orchestrate = classification.get("orchestrate", [])
 
         has_continuation = any(sub.get("related_task_file_name", "") for sub in orchestrate)
         self._log(f"  总任务: {main_task}")
+        if main_task_detail:
+            self._log(f"  任务详情: {main_task_detail[:100]}{'...' if len(main_task_detail) > 100 else ''}")
         self._log(f"  拆解为 {len(orchestrate)} 个子任务（{'含延续' if has_continuation else '全新任务'}）：")
         
         total_results = []
         # ── 逐个执行子任务 ──
         for i, sub in enumerate(orchestrate, 1):
-            sub_task = str(sub.get("sub_task", ""))
-            task_type = str(sub.get("type", ""))
-            sub_type = sub.get("sub_type", "")
+            sub_task_name = str(sub.get(TaskField.SUB_TASK_NAME, ""))
+            sub_task_detail = str(sub.get(TaskField.SUB_TASK_DETAIL, ""))
+            task_type = str(sub.get(TaskField.TASK_TYPE, ""))
+            sub_type = sub.get(TaskField.TASK_SUB_TYPE, "")
             dir_from = sub.get("dir_from", "temp")
 
             # 从子任务自身字段判断是否延续
@@ -210,9 +214,9 @@ class Agent:
             related_sub_idx = sub.get("related_sub_idx", 0)
             related_subtask_relation = sub.get("related_subtask_relation", "change")
 
-            self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task}")
+            self._log(f"\n  [{i}/{len(orchestrate)}] {task_type} | {sub_task_detail}")
             if self.eqm:
-                self.eqm.send_display(sub_task, mode="task", msg_type=MsgType.TASK_NAME)
+                self.eqm.send_display(sub_task_detail, mode="task", msg_type=MsgType.TASK_NAME)
 
             # ── 每个子任务独立的日志和计数器 ──
             self.task_llm.history.clear()
@@ -234,7 +238,7 @@ class Agent:
 
                     if related_subtask_relation == "itself" and related_sub_task is not None:
                         # 【本身延续】直接复用历史子任务，不追加新子任务
-                        self._log(f"  恢复历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.task[:50]}")
+                        self._log(f"  恢复历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.sub_task_detail[:50]}")
                         subtask_index = related_sub_idx
                     else:
                         # 【变更延续】追加新子任务到历史主任务下
@@ -242,16 +246,16 @@ class Agent:
                         self.task_manager.set_subtask_extra(
                             new_idx, f"延续自 [{related_task_file_name}/{related_sub_idx}], 理由: {related_reason}"
                         )
-                        self._log(f"  延续自历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.task[:50] if related_sub_task else '?'}")
+                        self._log(f"  延续自历史任务 [{related_task_file_name}/{related_sub_idx}]: {related_sub_task.sub_task_detail[:50] if related_sub_task else '?'}")
                         subtask_index = new_idx
                 else:
                     # 历史文件不可用，跳过该子任务并报告错误
                     self._log(f"  ❌ 历史文件未找到: {state_file}")
                     total_results.append({
                         TaskField.JUDGE: "false",
-                        TaskField.SUB_TASK: sub_task,
+                        TaskField.SUB_TASK_DETAIL: sub_task_detail,
                         TaskField.TASK_TYPE: task_type,
-                        TaskField.SUB_TYPE: sub_type,
+                        TaskField.TASK_SUB_TYPE: sub_type,
                         TaskField.SUBTASK_INDEX: 0,
                         TaskField.PROJECT_PATH: "",
                         TaskField.CONTENT: f"历史任务文件缺失: {state_file}",
@@ -260,7 +264,7 @@ class Agent:
                     continue
             else:
                 # 【全新子任务】创建以子任务名命名的主任务，只含一个子任务
-                self.task_manager.start(sub_task)
+                self.task_manager.start(sub_task_name, main_task_detail=sub_task_detail)
                 self.task_manager.add_subtasks_from_orchestrate([sub])
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 self.task_manager._save_path = os.path.join(self.task_dir, f"task_{ts}_state.json")
@@ -275,7 +279,7 @@ class Agent:
                 self.docs_dir = os.path.join(self.proj_path, "docs")
             else:
                 self._resolve_subtask_dir(
-                    subtask_index, dir_from, subtask_content=sub_task,
+                    subtask_index, dir_from, subtask_content=sub_task_detail,
                     is_continuation=has_related,
                     related_project_path=related_sub_task.project_path if (has_related and related_sub_task) else ""
                 )
@@ -296,9 +300,9 @@ class Agent:
 
             total_results.append({
                 TaskField.JUDGE: result["judge"],
-                TaskField.SUB_TASK: sub_task,
+                TaskField.SUB_TASK_DETAIL: sub_task_detail,
                 TaskField.TASK_TYPE: task_type,
-                TaskField.SUB_TYPE: sub_type,
+                TaskField.TASK_SUB_TYPE: sub_type,
                 TaskField.SUBTASK_INDEX: subtask_index,
                 TaskField.PROJECT_PATH: self.proj_path,
                 TaskField.TASK_STATE: self.task_manager._save_path,
@@ -319,10 +323,10 @@ class Agent:
         summary_lines = [f"✅ 全部 {len(total_results)} 个子任务完成"]
         for r in total_results:
             judge = r.get(TaskField.JUDGE, "false")
-            sub = r.get(TaskField.SUB_TASK, "")
+            sub_detail = r.get(TaskField.SUB_TASK_DETAIL, "")
             icon = "✅" if judge == "true" else "❌"
             project = r.get(TaskField.PROJECT_PATH, "")
-            summary_lines.append(f"{icon} [{r.get(TaskField.TASK_TYPE, "")}] {sub}")
+            summary_lines.append(f"{icon} [{r.get(TaskField.TASK_TYPE, "")}] {sub_detail}")
             if project:
                 summary_lines.append(f"     项目: {project}")
             if r.get(TaskField.CONTENT):
@@ -351,9 +355,9 @@ class Agent:
             self.task_manager.save_plan_steps(self.task_manager._stage_progress)
             return result
         
-        result = self._get_subtask_phases_and_prompt(sub.task_type, sub.sub_type)
+        result = self._get_subtask_phases_and_prompt(sub.task_type, sub.task_sub_type)
         if result is None:
-            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.sub_type}) 的阶段定义，跳过")
+            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.task_sub_type}) 的阶段定义，跳过")
             return False
         phases = result['phases']
         
@@ -365,10 +369,10 @@ class Agent:
         pretask = self._build_pretask_skills()
         extra_prompt_add = "\n" + pretask
         extra_prompt_add += "\n"+"# 当前项目：\n"
-        extra_prompt_add += f"当前任务: {sub.task}\n"
+        extra_prompt_add += f"当前任务: {sub.sub_task_detail}\n"
         extra_prompt_add += f"任务类别: {sub.task_type}\n"
-        if sub.sub_type:
-            extra_prompt_add += f"子类型: {sub.sub_type}\n"
+        if sub.task_sub_type:
+            extra_prompt_add += f"子类型: {sub.task_sub_type}\n"
         if sub.is_continuation:
             extra_prompt_add += (
                 f"关联子任务: {sub.related_subtask_task}\n"
@@ -632,7 +636,7 @@ class Agent:
             self.task_manager._stage_progress = StageProgress()
 
         status = self.task_manager._stage_progress.format_status()
-        msg = f"# 当前任务: {sub.task}\n\n{status}\n\n"
+        msg = f"# 当前任务: {sub.sub_task_detail}\n\n{status}\n\n"
 
         self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
 

@@ -295,12 +295,14 @@ class TaskAttributeManager:
 
 ## 输出格式
 {{
-  "main_task": "总任务",
+  "main_task_name": "总任务简称",
+  "main_task_detail":"总任务的详细描述",
   "orchestrate": [
     {{
-      "sub_task": "子任务描述",
-      "type": "{tenum}",
-      "sub_type": "详见下方 sub_type 对照表",
+      "sub_task_name":"子任务简称"
+      "sub_task_detail": "子任务描述",
+      "task_type": "{tenum}",
+      "task_sub_type": "详见下方 sub_type 对照表",
       "dir_from": "[‘建议项目名’]"|"temp"
 
     }}
@@ -308,12 +310,14 @@ class TaskAttributeManager:
 }}
 
 ## 字段规则
-- main_task: 用户的输入信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
+- main_task_name:总任务简称，3-5个字概括总任务内容,要突出任务的主要内容和特点
+- main_task_detail: 用户的输入需求信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
 - orchestrate: 按执行顺序排列的子任务数组。
-- sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
-- type: 精确{ntypes}选一 → 「{tenum}」。
+- sub_task_name: 子任务简称，3-5个字概括子任务内容
+- sub_task_detail: 单个子任务的具体需求描述，必须是一个完整的功能或产品。
+- task_type: 精确{ntypes}选一 → 「{tenum}」。
 - dir_from 仅两类：无产出填 "temp"，有产出填 "[项目名]"（英文/拼音，如 [snake]）（⚠️ 一对半角方括号是必须的，否则会被当作 temp）。
-- sub_type: 按 type 从下表中选取。
+- task_sub_type: 按 type 从下表中选取。
 
 ## sub_type 对照表
 {table}
@@ -351,12 +355,14 @@ class TaskAttributeManager:
 
 ## 输出格式
 {{
-  "main_task": "总任务",
+  "main_task_name": "总任务简称",
+  "main_task_detail":"总任务的详细描述",
   "orchestrate": [
     {{
-      "sub_task": "子任务描述",
-      "type": "{tenum}",
-      "sub_type": "详见下方 sub_type 对照表",
+      "sub_task_name": "子任务简称"
+      "sub_task_detail": "子任务描述",
+      "task_type": "{tenum}",
+      "task_sub_type": "详见下方 sub_type 对照表",
       "dir_from": "[‘建议项目名’]"|"temp"|"reuse",
       "related_task_file_name": "",
       "related_sub_idx": 0,
@@ -367,15 +373,17 @@ class TaskAttributeManager:
 }}
 
 ## 字段规则
-- main_task: 用户的输入信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
+- main_task_name:总任务简称，3-5个字概括总任务内容,要突出任务的主要内容和特点
+- main_task_detail: 用户的输入需求信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
 - orchestrate: 按执行顺序排列的子任务数组。
-- sub_task: 单个子任务的具体描述，必须是一个完整的功能或产品。
-- type: 精确{ntypes}选一 → 「{tenum}」。
-- sub_type: 按 type 从下表中选取。
+- sub_task_name: 子任务简称，3-5个字概括子任务内容。
+- sub_task_detail: 单个子任务的具体描述，必须是一个完整的功能或产品。
+- task_type: 精确{ntypes}选一 → 「{tenum}」。
+- task_sub_type: 按 type 从下表中选取。
 - dir_from: 若任务无产出填 "temp"；新建项目填 "[项目英文/拼音名]"（⚠️ 一对半角方括号是必须的，否则会被当作 temp）；延续历史项目填 "reuse"。
 - related_task_file_name: 仅当前子任务有关联任务时填写,表示关联的历史主任务文件名（如 task_3_state.json）。
 - related_sub_idx: 仅当前子任务有关联任务时填写，表示关联的历史子任务索引。
-- related_subtask_relation:仅当前子任务有关联任务时填写，表示当前子任务和关联的历史子任务关系，"itself"：当前子任务是关联任务本身(没有需求变化，仅仅用于恢复之前中断的任务);"change"：表示和关联的历史子任务有需求变化。
+- related_subtask_relation:仅当前子任务有关联任务时填写，表示当前子任务和关联的历史子任务关系，"itself"：当前子任务是关联任务本身(没有大的功能变化（修复bug和测试不算是需求变化，也用iteself），仅仅用于恢复之前中断的任务);"change"：表示和关联的历史子任务有需求变化。
 - reason: 当前子任务为延续时必填，简述判断理由。
 
 ## sub_type 对照表

@@ -3,6 +3,7 @@
 import asyncio, os, uuid, subprocess, webbrowser, flet as ft
 from flet_ui.task_panel import TaskPanel
 from flet_ui.chat_panel import ChatPanel
+from flet_ui.status_sidebar import StatusSidebar
 from flet_ui.settings_panel import SettingsPanel
 from flet_ui.sys_settings_panel import SystemSettingsPanel
 from flet_ui.task_config_panel import TaskConfigPanel
@@ -38,19 +39,22 @@ class AgixUI:
     """Agix 桌面 UI 管理器"""
     def __init__(self, page: ft.Page, eqm: EventQueueManager, agent):
         self.page = page; self.eqm = eqm; self.agent = agent
-        self._chat_ticks = [0]; self._task_ticks = [0]; self._max_btn_ref = ft.Ref[ft.IconButton]()
+        self._task_ticks = [0]; self._max_btn_ref = ft.Ref[ft.IconButton]()
 
         # 子面板
         self.task_panel = TaskPanel(
             page, eqm, _STYLE_VISUALS, MsgStyle,
             on_close=lambda: setattr(self.task_switch, 'value', False),
         )
+        self._build_lights_and_switch()
         self.chat_panel = ChatPanel(
             page, eqm, agent, _STYLE_VISUALS, _AVATAR_DATA, MsgStyle, MsgType, PROVIDERS,
         )
         self.settings_panel = SettingsPanel(page, agent.config, PROVIDERS)
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
+        self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir,
+                                            extra_controls=[self.task_light, self.task_switch])
 
         self._setup_window()
         self._build_title_bar()
@@ -82,16 +86,15 @@ class AgixUI:
 
     # ── 标题栏 ──
 
-    def _build_title_bar(self):
-        self.chat_light = ft.Container(width=16, height=16, border_radius=8, bgcolor=ft.Colors.GREEN, opacity=0.15)
-        self.chat_light.tooltip = "Chat模式呼吸灯"; self.chat_light.on_click = lambda e: None
+    def _build_lights_and_switch(self):
         self.task_light = ft.Container(width=16, height=16, border_radius=8, bgcolor=ft.Colors.BLUE, opacity=0.15)
         self.task_light.tooltip = "Task模式呼吸灯"; self.task_light.on_click = lambda e: None
         self.task_switch = ft.Switch(value=False, height=32, on_change=self.task_panel.on_switch_change, scale=0.8)
         self.task_switch.tooltip = "任务面板开关"
+
+    def _build_title_bar(self):
         self.tb = ft.Container(content=ft.Row([
-            self.chat_light, self.task_light, self.task_switch,
-            ft.WindowDragArea(content=ft.Row([ft.Text("Agix AI Assistant", size=14)], alignment=ft.MainAxisAlignment.CENTER), expand=True),
+            ft.WindowDragArea(content=ft.Row([ft.Text("Agix AI Assistant", size=14)], alignment=ft.MainAxisAlignment.START), expand=True),
             ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="模型设置", on_click=lambda e: self.settings_panel.open()),
             ft.IconButton(icon=ft.Icons.ASSIGNMENT, icon_size=18, tooltip="任务配置", on_click=lambda e: self.task_config_panel.open()),
             ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self.sys_settings_panel.open()),
@@ -104,7 +107,7 @@ class AgixUI:
 
     def _assemble_page(self):
         self.page.add(ft.Container(
-            content=ft.Stack([ft.Column([self.tb, self.chat_panel.container], expand=True),
+            content=ft.Stack([ft.Column([self.tb, ft.Row([self.status_sidebar.container, self.chat_panel.container], expand=True)], expand=True),
                 self.task_panel.wrapper, self.settings_panel.panel,
                 self.sys_settings_panel.panel,
                 self.task_config_panel.panel], expand=True),
@@ -115,6 +118,7 @@ class AgixUI:
         ))
         self.page.window.visible = True; self.page.update()
         self.chat_panel.add_greeting()
+        self.status_sidebar.refresh()
         logo = os.path.join(self.agent.config.paths.root, "logo.ico")
         if os.path.exists(logo):
             self.page.window.icon = logo; self.page.update()
@@ -156,11 +160,9 @@ class AgixUI:
                     else:
                         self.task_panel.add_message(content, MsgStyle.ACTION)
                 self.chat_panel.set_asking(self.eqm.is_asking("chat"))
-                if self.eqm.is_asking("chat") or len(chat_msgs) > 0: self._chat_ticks[0] = 4
+                self.status_sidebar.refresh()
                 if self.eqm.is_asking("task") or len(task_msgs) > 0: self._task_ticks[0] = 4
-                self.chat_light.opacity = 1.0 if self._chat_ticks[0] > 0 else 0.15
                 self.task_light.opacity = 1.0 if self._task_ticks[0] > 0 else 0.15
-                if self._chat_ticks[0] > 0: self._chat_ticks[0] -= 1
                 if self._task_ticks[0] > 0: self._task_ticks[0] -= 1
                 self.task_panel.set_ask_visible(self.eqm.is_asking("task"))
                 try: self.page.update()
