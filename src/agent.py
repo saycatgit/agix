@@ -505,7 +505,8 @@ class Agent:
         pretask = self._build_pretask_skills() + self._build_pretask_prjdocs()
 
         prompt =  self.prompts.chat_prompt+ pretask 
-
+        prompt+=f"当前工作目录: {self.config.execution.work_dir}\n所有文件操作请在此目录下进行。\n"
+        
         msg=  user_message
         # 初始化 StageProgress（chat 模式无预定义阶段，LLM 通过 update_plan 动态创建）
         self.chat_stage_progress = StageProgress()
@@ -623,15 +624,17 @@ class Agent:
         self._log(f"工作目录proj: {sub.project_path}")
 
         task_tools = get_tools_excluding("start_task")
-        
+
         if sub and sub.phase_msgs:
             self.task_manager._stage_progress = self.task_manager.load_stage_progress(
                 [p["name"] for p in sub.phase_msgs])
-            status = self.task_manager._stage_progress.format_status()
-            msg = f"# 当前任务: {sub.task}\n\n{status}\n\n"
-                   
+        elif sub:
+            self.task_manager._stage_progress = StageProgress()
 
-            self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
+        status = self.task_manager._stage_progress.format_status()
+        msg = f"# 当前任务: {sub.task}\n\n{status}\n\n"
+
+        self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
 
 
         for num in range(self.max_rounds):
