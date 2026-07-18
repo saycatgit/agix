@@ -276,8 +276,14 @@ class TaskAttributeManager:
         tenum = " | ".join(tkeys)
         ntypes = len(tkeys)
         table = self._build_subtype_table(categories, cat_descs)
-        t1, s1 = tkeys[0], categories[tkeys[0]][0][0]
-        t2, s2 = (tkeys[1], categories[tkeys[1]][0][0]) if len(tkeys) > 1 else (t1, s1)
+        def _first_sub(cat_key: str) -> tuple[str, str]:
+            subs = categories.get(cat_key, [])
+            return (subs[0][0], subs[0][0]) if subs else (cat_key, cat_key)
+        if not tkeys:
+            t1 = s1 = t2 = s2 = ""
+        else:
+            t1, s1 = _first_sub(tkeys[0])
+            t2, s2 = _first_sub(tkeys[1]) if len(tkeys) > 1 else (t1, s1)
 
         return f"""
 
@@ -336,8 +342,14 @@ class TaskAttributeManager:
         tenum = " | ".join(tkeys)
         ntypes = len(tkeys)
         table = self._build_subtype_table(categories, cat_descs)
-        t1, s1 = tkeys[0], categories[tkeys[0]][0][0]
-        t2, s2 = (tkeys[1], categories[tkeys[1]][0][0]) if len(tkeys) > 1 else (t1, s1)
+        def _first_sub(cat_key: str) -> tuple[str, str]:
+            subs = categories.get(cat_key, [])
+            return (subs[0][0], subs[0][0]) if subs else (cat_key, cat_key)
+        if not tkeys:
+            t1 = s1 = t2 = s2 = ""
+        else:
+            t1, s1 = _first_sub(tkeys[0])
+            t2, s2 = _first_sub(tkeys[1]) if len(tkeys) > 1 else (t1, s1)
 
         return f"""
 你是任务分类与规划专家，具备历史任务关联判断能力。将用户任务按照拆解原则拆解为按序执行的子任务，同时判断各个子任务是否属于历史任务的延续，如果是将其关联到对应的主任务中。严格以下方 JSON 格式输出。

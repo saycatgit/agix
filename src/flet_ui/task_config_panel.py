@@ -141,23 +141,34 @@ class TaskConfigPanel:
         # 左栏 —— 主任务
         self._tf_cat = ft.TextField(hint_text=self.PLACEHOLDER_CAT, **tf,
             expand=True, border_color=ft.Colors.GREY_300)
+        self._tf_cat_desc = ft.TextField(
+            hint_text="主任务描述", **tf,
+            border_color=ft.Colors.GREY_300)
         left = ft.Column([
             ft.Text(self.CAT_LABEL, size=12, color=self.LABEL_COLOR),
             self._cat_list,
+            ft.Divider(height=1, color=self.DIVIDER_COLOR),
             ft.Row([self._tf_cat,
-                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加主任务",
+                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改主任务",
                     on_click=lambda e: self._add_category())], spacing=4),
+            self._tf_cat_desc,
         ], expand=1, spacing=4)
 
         # 中栏 —— 子任务
         self._tf_sub = ft.TextField(hint_text=self.PLACEHOLDER_SUB, **tf,
             expand=True, border_color=self.SUB_BORDER)
+        self._tf_sub_desc = ft.TextField(
+            hint_text="子任务描述", **tf,
+            border_color=self.SUB_BORDER)
+        
         middle = ft.Column([
             ft.Text(self.SUB_LABEL, size=12, color=self.LABEL_COLOR),
             self._sub_list,
+            ft.Divider(height=1, color=self.DIVIDER_COLOR),
             ft.Row([self._tf_sub,
-                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加子任务",
+                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改子任务",
                     on_click=lambda e: self._add_subtype())], spacing=4),
+            self._tf_sub_desc,
         ], expand=1, spacing=4)
 
         # 右栏 —— 配置（prompt + phases）
@@ -219,10 +230,14 @@ class TaskConfigPanel:
         for i, cat in enumerate(cats):
             idx = i
             name = cat.get("name", "")
+            desc = cat.get("description", "")
             btn = ft.IconButton(icon=ft.Icons.CLOSE, icon_size=14, tooltip="删除",
                 on_click=lambda e, ii=idx: self._delete_category(ii))
+            name_col = ft.Column([ft.Text(name, size=13)], spacing=0)
+            if desc:
+                name_col.controls.append(ft.Text(desc, size=11, italic=True, color=ft.Colors.GREY_500))
             tile = ft.Container(
-                content=ft.Row([ft.Text(name, size=13, expand=True), btn], spacing=2),
+                content=ft.Row([name_col, btn], spacing=2, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=ft.Padding(6, 4, 6, 4), border_radius=4,
                 bgcolor=self.SIDEBAR_BGCOLOR if idx == self._cat_idx else ft.Colors.TRANSPARENT,
                 on_click=lambda e, ii=idx: self._select_category(ii),
@@ -232,20 +247,42 @@ class TaskConfigPanel:
         self.page.update()
 
     def _select_category(self, idx: int):
+        if self._cat_idx == idx:
+            self._cat_idx = None
+            self._refresh_categories()
+            self._tf_cat.value = ""
+            self._tf_cat_desc.value = ""
+            self.page.update()
+            return
         self._cat_idx = idx
         self._sub_idx = None
         self._refresh_categories()
         self._refresh_subtypes()
         self._refresh_config()
+        cat = self._current_category()
+        if cat:
+            self._tf_cat.value = cat.get("name", "")
+            self._tf_cat_desc.value = cat.get("description", "")
+        else:
+            self._tf_cat.value = ""
+            self._tf_cat_desc.value = ""
+        self.page.update()
 
     def _add_category(self):
         name = (self._tf_cat.value or "").strip()
         if not name:
             return
-        self._data.setdefault("categories", []).append({
-            "name": name, "description": "", "subtypes": [], "subtask_config": [],
-        })
+        desc = (self._tf_cat_desc.value or "").strip()
+        if self._cat_idx is not None and self._current_category():
+            self._current_category()["name"] = name
+            self._current_category()["description"] = desc
+            self._cat_idx = None
+        else:
+            self._data.setdefault("categories", []).append({
+                "name": name, "description": desc, "subtypes": [], "subtask_config": [],
+            })
         self._tf_cat.value = ""
+        self._tf_cat_desc.value = ""
         self._mark_dirty()
         self._refresh_categories()
 
@@ -275,10 +312,14 @@ class TaskConfigPanel:
         for i, sub in enumerate(subs):
             idx = i
             name = sub.get("name", "")
+            desc = sub.get("description", "")
             btn = ft.IconButton(icon=ft.Icons.CLOSE, icon_size=14, tooltip="删除子任务",
                 on_click=lambda e, ii=idx: self._delete_subtype(ii))
+            name_col = ft.Column([ft.Text(name, size=13)], spacing=0)
+            if desc:
+                name_col.controls.append(ft.Text(desc, size=11, italic=True, color=ft.Colors.GREY_500))
             tile = ft.Container(
-                content=ft.Row([ft.Text(name, size=13, expand=True), btn], spacing=2),
+                content=ft.Row([name_col, btn], spacing=2, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=ft.Padding(6, 4, 6, 4), border_radius=4,
                 bgcolor=ft.Colors.BLUE_50 if idx == self._sub_idx else ft.Colors.TRANSPARENT,
                 on_click=lambda e, ii=idx: self._select_subtype(ii),
@@ -288,9 +329,24 @@ class TaskConfigPanel:
         self.page.update()
 
     def _select_subtype(self, idx: int):
+        if self._sub_idx == idx:
+            self._sub_idx = None
+            self._refresh_subtypes()
+            self._tf_sub.value = ""
+            self._tf_sub_desc.value = ""
+            self.page.update()
+            return
         self._sub_idx = idx
         self._refresh_subtypes()
         self._refresh_config()
+        sub = self._current_subtype()
+        if sub:
+            self._tf_sub.value = sub.get("name", "")
+            self._tf_sub_desc.value = sub.get("description", "")
+        else:
+            self._tf_sub.value = ""
+            self._tf_sub_desc.value = ""
+        self.page.update()
 
     def _add_subtype(self):
         cat = self._current_category()
@@ -299,8 +355,15 @@ class TaskConfigPanel:
         name = (self._tf_sub.value or "").strip()
         if not name:
             return
-        cat.setdefault("subtypes", []).append({"name": name, "description": ""})
+        desc = (self._tf_sub_desc.value or "").strip()
+        if self._sub_idx is not None and self._current_subtype():
+            self._current_subtype()["name"] = name
+            self._current_subtype()["description"] = desc
+            self._sub_idx = None
+        else:
+            cat.setdefault("subtypes", []).append({"name": name, "description": desc})
         self._tf_sub.value = ""
+        self._tf_sub_desc.value = ""
         self._mark_dirty()
         self._refresh_subtypes()
 

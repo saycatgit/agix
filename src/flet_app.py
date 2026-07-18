@@ -94,14 +94,14 @@ class AgixUI:
 
     def _build_title_bar(self):
         self.tb = ft.Container(content=ft.Row([
-            ft.WindowDragArea(content=ft.Row([ft.Text("Agix AI Assistant", size=14)], alignment=ft.MainAxisAlignment.START), expand=True),
+            ft.WindowDragArea(content=ft.Row([ft.Text("Agix", size=14)], alignment=ft.MainAxisAlignment.START), expand=True),
             ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="模型设置", on_click=lambda e: self.settings_panel.open()),
             ft.IconButton(icon=ft.Icons.ASSIGNMENT, icon_size=18, tooltip="任务配置", on_click=lambda e: self.task_config_panel.open()),
             ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self.sys_settings_panel.open()),
             ft.IconButton(icon=ft.Icons.MINIMIZE, icon_size=18, tooltip="最小化", on_click=self._minimize),
             ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化", on_click=self._maximize, ref=self._max_btn_ref),
             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=self._close),
-        ], spacing=4), bgcolor=ft.Colors.SURFACE, padding=ft.Padding(left=12, right=4, top=4, bottom=4), height=40)
+        ], spacing=4), bgcolor=ft.Colors.WHITE, padding=ft.Padding(left=12, right=4, top=4, bottom=4), height=40)
 
     # ── 页面组装 ──
 
