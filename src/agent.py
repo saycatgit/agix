@@ -286,7 +286,7 @@ class Agent:
 
             # ── 执行阶段（itself 跳过历史关系设置） ──
             if related_subtask_relation != "itself":
-                self.task_manager.set_subtask_history_relation(subtask_index, has_related, related_sub_task.task if related_sub_task else "", related_sub_task.project_path if related_sub_task else "")
+                self.task_manager.set_subtask_history_relation(subtask_index, has_related, related_sub_task.sub_task_detail if related_sub_task else "", related_sub_task.project_path if related_sub_task else "")
             
             
             result = self._run_phases(subtask_index)
@@ -386,12 +386,8 @@ class Agent:
                         "- 所有步骤完成后调用 finish 结束本任务。"
 
 
-        # 构建完整 system prompt（含 tools JSON、项目目录、阶段数、extra_prompt）
-        task_tools = get_tools_excluding("start_task")
         system_prompt = (
             self.prompts.task_prompt_exclude_tools
-            + "\n"
-            + json.dumps(task_tools, ensure_ascii=False)
         )
         if extra_prompt:
             system_prompt += "\n" + extra_prompt
