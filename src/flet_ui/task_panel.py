@@ -182,6 +182,26 @@ class TaskPanel:
         return ft.GestureDetector(
             content=ft.Container(
                 content=ft.Row([
+                    # 左侧：状态面板
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(
+                                self.STATUS_LABEL, size=self.LABEL_SIZE,
+                                color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
+                            ),
+                            ft.Container(
+                                content=ft.Container(content=self.status_text, expand=True),
+                                expand=True,
+                            ),
+                        ], spacing=2),
+                        width=self.STATUS_PANEL_WIDTH,
+                        padding=ft.Padding(8, 6, 8, 6),
+                        bgcolor=self.STATUS_BGCOLOR,
+                    ),
+                    ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
+                    # 右侧：原有标题栏
+                    ft.Container(
+                        content=ft.Row([
                     ft.Text(
                         self.TASK_LABEL, width=60,
                         weight=self.TITLE_WEIGHT, size=self.TITLE_SIZE,
@@ -197,12 +217,17 @@ class TaskPanel:
                         tooltip=self.CLOSE_TOOLTIP,
                         on_click=lambda e: self._close(),
                     ),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=ft.Padding(12, 8, 8, 8),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        padding=ft.Padding(12, 8, 8, 8),
+                        bgcolor=self.TITLE_BGCOLOR,
+                        expand=True,
+                    ),
+                ], spacing=0),
                 bgcolor=self.TITLE_BGCOLOR,
                 border_radius=ft.BorderRadius(
                     self.BORDER_RADIUS, self.BORDER_RADIUS, 0, 0,
                 ),
+                padding=ft.Padding(0, 0, 0, 0),
             ),
             on_pan_start=self._on_drag_start,
             on_pan_update=self._on_drag_task_panel,
@@ -213,23 +238,6 @@ class TaskPanel:
     def _build_body(self):
         return ft.Container(
             content=ft.Row([
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(
-                            self.STATUS_LABEL, size=self.LABEL_SIZE,
-                            color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
-                        ),
-                        ft.Container(
-                            content=ft.Container(content=self.status_text, expand=True),
-                            expand=True,
-                        ),
-                    ], spacing=2),
-                    width=self.STATUS_PANEL_WIDTH,
-                    padding=ft.Padding(6, 0, 6, 0),
-                    bgcolor=self.STATUS_BGCOLOR,
-                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                ),
-                ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
                 ft.Container(
                     content=ft.Column([
                         ft.Column([
@@ -253,7 +261,7 @@ class TaskPanel:
                     expand=True,
                     padding=ft.Padding(6, 0, 6, 0),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                ),
+            ),
             ], spacing=0),
             expand=True,
             padding=ft.Padding(6, 4, 6, 6),
