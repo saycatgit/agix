@@ -14,8 +14,21 @@ from config import PROVIDERS, MAX_HISTORY_CONTENT
 from openai import OpenAI
 import re , os, sys, time,locale, platform,json 
 from typing import Optional, List, Dict, Any
-
+from prompts import history_context_summary_prompt
 from openai import BadRequestError
+
+
+# ── 历史压缩提示词 ──
+HISTORY_CONTEXT_SUMMARY_PROMPT = """请对以下对话历史进行总结提炼，保留以下关键信息：
+- 用户的核心需求、目标和偏好
+- 已完成的主要操作和结果
+- 重要的文件路径、代码位置和项目结构
+- 未解决的问题和待办事项
+- 关键的技术决策和约束条件
+- 任何对后续对话有帮助的上下文信息
+
+请用简洁的中文总结，保留所有关键事实但省略冗余的中间过程和重复内容。
+不要使用"用户"等第三人称指代，直接以第一视角陈述。"""
 
 class LLMClient:
 
@@ -61,6 +74,7 @@ class LLMClient:
         self.context_window = context_window
         self.memory_file = memory_file
         self._last_saved_count = 0
+        self.history_compress_summary: str = ""
         if self.memory_file:
             self._load_memory()
             self._last_saved_count = len(self.history)
@@ -192,6 +206,7 @@ class LLMClient:
     def chat(self, prompt: str, user_message: str,
              json_mode: bool = False, use_memory: Optional[bool] = None) -> str:
 
+        self._compress_history()
         self._save_memory()
 
         messages = [{"role": "system", "content": prompt}]
@@ -202,6 +217,9 @@ class LLMClient:
             messages.extend(self.history[start:])
 
         messages.append({"role": "user", "content": user_message})
+
+        # 清理孤儿 tool 消息
+        messages = self._clean_orphan_tools(messages)
 
         # 规范化 tool_calls 中的 function.arguments 为 JSON 字符串
         # 阿里云 API 严格要求此字段必须是 JSON 字符串，不能是 dict
@@ -290,6 +308,7 @@ class LLMClient:
         若解析失败，返回 {"type": "error", "message": "..."}
         """
         # 入口落盘保留完整历史记录，防止孤儿tool
+        self._compress_history()
         self._save_memory()
 
         messages = [{"role": "system", "content": prompt}]
@@ -300,6 +319,9 @@ class LLMClient:
             messages.extend(self.history[start:])
 
         messages.append({"role": "user", "content": user_message})
+
+        # 清理孤儿 tool 消息
+        messages = self._clean_orphan_tools(messages)
 
         kwargs = {
             "model": self.model,
@@ -398,6 +420,107 @@ class LLMClient:
 
         return result
 
+    def _compress_history(self):
+        """历史压缩：当 history 条数超过 context_window-3 时，压缩旧的对话为总结。
+
+        流程：
+        1. 将已有历史（含上一轮总结）送入 LLM 生成新总结，上一轮总结始终在上下文中保证积累
+        2. 总结 + 最近 half 条写入 memory_file（覆盖模式）
+        3. history 替换为 [总结] + [最近 half 条]
+        4. 后续每经过 half 条新记录，触发新一轮压缩
+        """
+        if not self.memory_file:
+            return
+
+        threshold = self.context_window - 3
+        # half = max(1, self.context_window // 2)
+        hold_items = max(1, self.context_window // 3)
+
+        total = len(self.history)
+
+        if total <= threshold:
+            return
+
+        # 找到已有的总结位置（如果有的话）
+        summary_pos = -1
+        for i, entry in enumerate(self.history):
+            content_val = entry.get("content", "")
+            if isinstance(content_val, str) and content_val.startswith("[上下文总结]"):
+                summary_pos = i
+                break
+
+        # 从上一轮总结后开始（不含总结本身），上一轮总结会重新传入
+        to_summarize = self.history[summary_pos+1:] if summary_pos >= 0 else self.history
+        new_count = len(to_summarize)
+
+        if new_count <= threshold:
+            return  # 还不够一轮压缩
+
+        # 调用 LLM 生成总结
+        msgs = [{"role": "system", "content": history_context_summary_prompt}]
+        msgs.extend(to_summarize)
+        msgs.append({"role": "user", "content": f"根据系统提示词生成增量信息,并将增量信息或修改变更添加到如下总结当中:\n{self.history_compress_summary}\n直接返回总结后的快照结果，不要任何其他信息"})
+
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model, messages=msgs,
+                temperature=0.1, max_tokens=4096,
+            )
+            summary = resp.choices[0].message.content or ""
+            self._track_usage(getattr(resp, 'usage', None))
+        except Exception as e:
+            if self.logger:
+                self.logger.log(f"[WARN] 历史压缩失败: {e}")
+            return
+
+        # 保留最近的 half 条
+        keep_start = max(0, len(to_summarize) - hold_items)
+        # 跳过前导 tool 消息，防止 assistant(tool_calls) 被截断后剩下孤儿 tool
+        while keep_start < len(to_summarize) and to_summarize[keep_start].get("role") == "tool":
+            keep_start += 1
+        recent = to_summarize[keep_start:]
+
+        # 构建新 history: 总结 + 近期条目
+        summary_entry = {"role": "user", "content": f"[上下文总结]\n{summary}"}
+        self.history = [summary_entry] + recent
+        self.history_compress_summary = summary_entry["content"]
+        if self.logger:
+            self.logger.log(f"最新[历史压缩]结果: {self.history_compress_summary}")        # 写回 memory_file（覆盖模式）
+        try:
+            os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+            with open(self.memory_file, "w", encoding="utf-8") as f:
+                for entry in self.history:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            if self.logger:
+                self.logger.log(f"[WARN] 保存压缩记忆失败: {e}")
+
+        self._last_saved_count = len(self.history)
+        if self.logger:
+            self.logger.log(f"[历史压缩] {new_count} 条 → 1 条总结 + {len(recent)} 条最近记录")
+
+
+    @staticmethod
+    def _clean_orphan_tools(messages: list) -> list:
+        """移除 history 中孤儿 tool 消息（无匹配 assistant with tool_calls 的 tool 消息）。"""
+        valid = []
+        pending_ids = set()
+        for m in messages:
+            role = m.get("role", "")
+            if role == "assistant" and m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    pending_ids.add(tc["id"])
+                valid.append(m)
+            elif role == "tool":
+                tid = m.get("tool_call_id", "")
+                if tid in pending_ids:
+                    valid.append(m)
+                    pending_ids.discard(tid)
+                # else: skip orphan tool message
+            else:
+                valid.append(m)
+        return valid
+
     def _snap_to_valid_start(self, start: int) -> int:
         """Ensure the history slice doesn't start with orphaned tool messages.
 
@@ -418,12 +541,19 @@ class LLMClient:
 
     def _load_memory(self):
         """从 memory_file（JSONL 格式）加载历史记录。"""
+        self.history_compress_summary = ""
         if not self.memory_file:
             return
         try:
             if os.path.exists(self.memory_file):
                 with open(self.memory_file, "r", encoding="utf-8") as f:
                     self.history = [json.loads(line) for line in f if line.strip()]
+                # 提取最新的上下文总结
+                for entry in reversed(self.history):
+                    content_val = entry.get("content", "")
+                    if isinstance(content_val, str) and content_val.startswith("[上下文总结]"):
+                        self.history_compress_summary = content_val
+                        break
         except Exception as e:
             print(f"[WARN] 加载记忆文件失败: {e}", file=sys.stderr)
 

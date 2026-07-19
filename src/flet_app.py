@@ -107,7 +107,7 @@ class AgixUI:
 
     def _assemble_page(self):
         self.page.add(ft.Container(
-            content=ft.Stack([ft.Column([self.tb, ft.Row([self.status_sidebar.container, self.chat_panel.container], expand=True)], expand=True),
+            content=ft.Stack([ft.Row([self.status_sidebar.container, ft.Column([self.tb, self.chat_panel.container], expand=True)], expand=True),
                 self.task_panel.wrapper, self.settings_panel.panel,
                 self.sys_settings_panel.panel,
                 self.task_config_panel.panel], expand=True),

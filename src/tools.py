@@ -15,14 +15,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "创建或覆写文件，支持追加模式分批写入大文件,先判断要写入内容大小再决定是否分批写,单次不超过10000字节",
+            "description": ("创建或覆写文件，支持追加模式分批写入大文件,先判断要写入内容大小再决定是否分批写,单次不超过10000字节"),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "文件相对路径，必须填写."},
                     "content": {"type": "string", "description": "文件内容，必须填写."},
                     "append": {"type": "boolean", "description": "是否追加模式，true 时在文件末尾追加内容，false 时覆写,默认false."},
-                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+                    "note": {"type": "string", "description": "简要描述思考过程和调用这个工具的原因50字以内，用于提示用户当前状况及进度"}
                 },
                 "required": ["path", "content","note"]
             }
@@ -37,7 +37,7 @@ TOOLS = [
                             "关键规则：每行的第1列是指令前缀（空格=保持, -=删除, +=新增），第2列起是文件原文（缩进必须和 read_file 看到的一模一样）。"
                             "例如 read_file 返回 `    home = '~'`（4空格缩进），diff 中应写作 `     home = '~'`（1前缀空格 + 4缩进空格 = 5空格）。"
                             "常见错误：漏掉前缀列占的那一个空格，导致 diff 里的缩进比原文少1格，上下文匹配失败。"
-                        ),
+                            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -45,7 +45,7 @@ TOOLS = [
                         "type": "string",
                         "description": "unified diff 格式的 patch 文本"
                     },
-                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+                    "note": {"type": "string", "description": "简要描述思考过程和调用这个工具的原因50字以内，用于提示用户当前状况及进度"}
                 },
                 "required": ["input","note"]
             }
@@ -55,14 +55,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "读取文件内容，可指定起始行和行数，默认读取全部",
+            "description": ("读取文件内容，可指定起始行和行数，默认读取全部"),
+
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "文件相对路径，必须填写"},
                     "offset": {"type": "integer", "description": "起始行号（从1开始）"},
                     "limit": {"type": "integer", "description": "读取行数"},
-                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+                    "note": {"type": "string", "description": "简要描述思考过程和调用这个工具的原因50字以内，用于提示用户当前状况及进度"}
 
                 },
                 "required": ["path","note"]
@@ -73,7 +74,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_shell",
-            "description": "执行 Shell 命令，可用于编译、测试、构建等命令行操作",
+            "description": ("执行 Shell 命令，可用于编译、测试、构建等命令行操作"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -89,7 +90,7 @@ TOOLS = [
                         "type": "integer",
                         "description": "超时秒数，默认 30秒"
                     },
-                    "note": {"type": "string", "description": "简要描述调用这个工具的原因20字以内，用于提示用户当前状况及进度"}
+                    "note": {"type": "string", "description": "简要描述思考过程和调用这个工具的原因50字以内，用于提示用户当前状况及进度"}
 
                 },
                 "required": ["command","note"]
@@ -145,7 +146,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "finish",
-            "description": "标记任务完成。会话结束,或者任务已经提交必须调用此工具。",
+            "description": ("标记任务完成。会话结束,或者任务已经提交必须调用此工具。"),
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -160,7 +162,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_plan",
-            "description": "更新当前子任务的阶段执行计划。用于在每个阶段开始时规划详细步骤，或执行过程中更新步骤状态。如果是任务模式，部分stage 来源为 spec.json 中的 phase_name，如果是chat模式，stage为llm自己规划，step 来源为 LLM，status 取值为 pending/in_progress/completed/failed。同一阶段中同时只有一个步骤处于 in_progress。",
+            "description": ("更新当前子任务的阶段执行计划。用于在每个阶段开始时规划详细步骤，或执行过程中更新步骤状态。如果是任务模式，部分stage 来源为 spec.json 中的 phase_name，如果是chat模式，stage为llm自己规划，step 来源为 LLM，status 取值为 pending/in_progress/completed/failed。同一阶段中同时只有一个步骤处于 in_progress。"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -241,6 +243,7 @@ class ToolExecutor:
             return msg
         except Exception as e:
             return f"执行 {name} 失败: {e}"
+
 
     def _tool_write_file(self, args: dict) -> str:
 

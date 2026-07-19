@@ -188,12 +188,12 @@ class Agent:
             self._log("\n❌ 任务分类失败")
             return TaskField.RET_JSON_FALSE(f"任务:{user_task} 分类失败")
 
-        main_task = classification.get("maintask", user_task)
+        main_task_name = classification.get("main_task_name", user_task)
         main_task_detail = classification.get("main_task_detail", "")
         orchestrate = classification.get("orchestrate", [])
 
         has_continuation = any(sub.get("related_task_file_name", "") for sub in orchestrate)
-        self._log(f"  总任务: {main_task}")
+        self._log(f"  总任务: {main_task_name}")
         if main_task_detail:
             self._log(f"  任务详情: {main_task_detail[:100]}{'...' if len(main_task_detail) > 100 else ''}")
         self._log(f"  拆解为 {len(orchestrate)} 个子任务（{'含延续' if has_continuation else '全新任务'}）：")
@@ -264,7 +264,7 @@ class Agent:
                     continue
             else:
                 # 【全新子任务】创建以子任务名命名的主任务，只含一个子任务
-                self.task_manager.start(sub_task_name, main_task_detail=sub_task_detail)
+                self.task_manager.start(main_task_name, main_task_detail=main_task_detail)
                 self.task_manager.add_subtasks_from_orchestrate([sub])
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 self.task_manager._save_path = os.path.join(self.task_dir, f"task_{ts}_state.json")

@@ -49,7 +49,7 @@ PROVIDERS = {
 
 
 # ── 内部截断常量 ──
-MAX_HISTORY_CONTENT = 65535 #262144  # 写入 history 的单个 tool result 最大长度
+MAX_HISTORY_CONTENT = 32768 #262144  # 写入 history 的单个 tool result 最大长度
 
 
 # 标准用户配置目录
