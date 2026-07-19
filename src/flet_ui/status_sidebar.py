@@ -108,6 +108,26 @@ class StatusSidebar:
                     data = json.load(f)
                 mt = data.get("maintask", {})
                 subtasks = data.get("subtasks", [])
+                # 清理：移除 project_path 目录不存在的子任务
+                cleaned_subtasks = []
+                for s in subtasks:
+                    pp = s.get("project_path", "")
+                    if pp and not os.path.isdir(pp):
+                        continue  # 目录不存在，移除该子任务
+                    cleaned_subtasks.append(s)
+                if cleaned_subtasks != subtasks:
+                    # 有子任务被移除，更新 state 文件
+                    data["subtasks"] = cleaned_subtasks
+                    try:
+                        if not cleaned_subtasks:
+                            os.remove(fpath)  # 无子任务，删除整个 state 文件
+                            continue
+                        with open(fpath, "w", encoding="utf-8") as sf:
+                            json.dump(data, sf, ensure_ascii=False, indent=2)
+                    except (IOError, OSError):
+                        pass
+                subtasks = cleaned_subtasks
+
                 # 汇总各 phase 步骤
                 in_progress_subtasks = []
                 for s in subtasks:
@@ -121,11 +141,8 @@ class StatusSidebar:
                         "name": s.get("sub_task_name", "未知子任务"),
                         "phases": sub_phases,
                     })
-                # 只有至少一个 subtask 的 project_path 目录存在时才显示
                 valid_paths = [s.get("project_path", "") for s in subtasks
                                if s.get("project_path") and os.path.isdir(s.get("project_path", ""))]
-                if not valid_paths:
-                    continue
                 tasks.append({
                     "name": mt.get("main_task_name", "未知任务"),
                     "status": mt.get("status", "pending"),
