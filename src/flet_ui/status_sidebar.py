@@ -7,7 +7,7 @@ import flet as ft
 class StatusSidebar:
     """左侧任务状态面板"""
 
-    WIDTH: int = 190
+    WIDTH: int = 240
     BGCOLOR = ft.Colors.GREY_50
     TITLE_BGCOLOR = ft.Colors.BLUE_GREY_50
     TITLE: str = "任务状态"

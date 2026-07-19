@@ -173,7 +173,6 @@ class AgixUI:
                 if self.eqm.is_asking("task") or len(task_msgs) > 0: self._task_ticks[0] = 4
                 self.task_light.opacity = 1.0 if self._task_ticks[0] > 0 else 0.15
                 if self._task_ticks[0] > 0: self._task_ticks[0] -= 1
-                self.task_panel.set_ask_visible(self.eqm.is_asking("task"))
                 try: self.page.update()
                 except RuntimeError: return
                 await asyncio.sleep(0.3)

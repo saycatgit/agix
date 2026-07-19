@@ -514,7 +514,7 @@ class Agent:
                     pass
                 if drained.strip():
                     msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
-           
+                    self._log(f"{msg}")
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS, use_memory=True)
             reasoning = result.get("reasoning_content", "")
             if reasoning:
@@ -599,6 +599,17 @@ class Agent:
             if self.eqm and self.eqm.is_cancelled("task"):
                 self.eqm.send_display("⏹ 已取消", mode="task")
                 return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
+            drained = ""
+            if self.eqm:
+                try:
+                    while True:
+                        m = self.eqm.to_task_queue.get_nowait()
+                        if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                            drained += m.get(MsgField.CONTENT, "") + "\n"
+                except queue.Empty:
+                    pass
+            if drained.strip():
+                msg = f"【用户新消息】\n{drained.strip()}\n\n{msg}"
             result = self.task_llm.chat_with_tools(base_prompt, msg, task_tools)
             # 打印思考信息
             reasoning = result.get("reasoning_content", "")

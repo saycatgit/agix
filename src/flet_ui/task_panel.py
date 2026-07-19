@@ -158,7 +158,7 @@ class TaskPanel:
         self.ask_container = ft.Container(
             content=ft.Row([self.ask_input, ask_send_btn], spacing=4),
             padding=ft.Padding(0, 4, 0, 0),
-            visible=False,
+            visible=True,
         )
 
     def _build_panel(self):

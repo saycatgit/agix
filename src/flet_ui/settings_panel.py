@@ -152,6 +152,7 @@ class SettingsPanel:
 
     def _click_model(self, m):
         self._model_val = m
+        self._s_custom_model.value = m
         self._refresh_model_btns()
         self.page.update()
 
