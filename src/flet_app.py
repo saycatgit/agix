@@ -54,7 +54,7 @@ class AgixUI:
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir,
-                                            extra_controls=[self.task_light, self.task_switch])
+                                            extra_controls=[self.task_switch])
 
         self._setup_window()
         self._build_title_bar()
@@ -69,6 +69,10 @@ class AgixUI:
         p.window.bgcolor = ft.Colors.TRANSPARENT; p.window.shadow = True
         p.bgcolor = ft.Colors.TRANSPARENT
         p.title = "Agix"; p.window.width = 900; p.window.height = 600; p.padding = 0
+
+    def _toggle_sidebar(self):
+        self.status_sidebar.toggle()
+        self.page.update()
 
     def _minimize(self, e): self.page.window.minimized = True
 
@@ -87,14 +91,19 @@ class AgixUI:
     # ── 标题栏 ──
 
     def _build_lights_and_switch(self):
-        self.task_light = ft.Container(width=16, height=16, border_radius=8, bgcolor=ft.Colors.BLUE, opacity=0.15)
+        self.task_light = ft.Container(width=14, height=14, border_radius=8, bgcolor=ft.Colors.BLUE, opacity=0.5)
         self.task_light.tooltip = "Task模式呼吸灯"; self.task_light.on_click = lambda e: None
         self.task_switch = ft.Switch(value=False, height=32, on_change=self.task_panel.on_switch_change, scale=0.8)
         self.task_switch.tooltip = "任务面板开关"
 
     def _build_title_bar(self):
         self.tb = ft.Container(content=ft.Row([
-            ft.WindowDragArea(content=ft.Row([ft.Text("Agix", size=14)], alignment=ft.MainAxisAlignment.START), expand=True),
+            ft.WindowDragArea(content=ft.Row([
+                ft.IconButton(icon=ft.Icons.FORMAT_INDENT_DECREASE, icon_size=18, tooltip="折叠侧边栏",
+                              on_click=lambda e: self._toggle_sidebar()),
+                self.task_light,
+                ft.Text("Agix", size=14, expand=True,text_align=ft.TextAlign.CENTER)
+            ], alignment=ft.MainAxisAlignment.START), expand=True),
             ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="模型设置", on_click=lambda e: self.settings_panel.open()),
             ft.IconButton(icon=ft.Icons.ASSIGNMENT, icon_size=18, tooltip="任务配置", on_click=lambda e: self.task_config_panel.open()),
             ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self.sys_settings_panel.open()),

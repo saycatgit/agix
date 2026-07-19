@@ -349,21 +349,25 @@ class Agent:
             self._log(f"  ⚠️ 子任务{subtask_index}未找到，跳过")
             return False
         
-        # 恢复之前中断的子任务
-        if sub.llm_context_info:
-            result = self._run_loop(subtask_index, base_prompt="")
-            self.task_manager.save_plan_steps(self.task_manager._stage_progress)
-            return result
-        
-        result = self._get_subtask_phases_and_prompt(sub.task_type, sub.task_sub_type)
-        if result is None:
-            self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.task_sub_type}) 的阶段定义，跳过")
-            return False
-        phases = result['phases']
-        
-        extra_prompt = result.get('extra_prompt', '')
-        if isinstance(extra_prompt, list):
-            extra_prompt = "\n".join(extra_prompt)
+        # 判断是否恢复中断任务
+        if sub.plan_steps:
+
+            extra_prompt_cfg = sub.extra_prompt
+        else:
+            # 新任务：从配置文件获取
+            result = self._get_phases_prompt_from_config(sub.task_type, sub.task_sub_type)
+            if result is None:
+                self._log(f"  ⚠️ spec.md 中未找到 {sub.task_type} (sub_type={sub.task_sub_type}) 的阶段定义，跳过")
+                return False
+            phases = result['phases']
+            extra_prompt_cfg = result.get('extra_prompt', '')
+            if isinstance(extra_prompt_cfg, list):
+                extra_prompt_cfg = "\n".join(extra_prompt_cfg)
+            self.task_manager.set_subtask_extra_prompt(subtask_index, extra_prompt_cfg)
+
+            self.task_manager.set_subtask_phase_msgs(subtask_index, phases)
+            for phase_idx, phase in enumerate(phases):
+                self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase['name']}")
 
         # 构建任务级别 extra_prompt：pretask + 任务元信息 + 历史延续信息（所有 phase 共享）
         pretask = self._build_pretask_skills()
@@ -379,16 +383,15 @@ class Agent:
                 f"关联项目路径: {sub.related_project_path}\n"
             )
         extra_prompt_add+=f"当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。\n"
-        extra_prompt= extra_prompt_add+extra_prompt+"\n"
+        extra_prompt= extra_prompt_add+extra_prompt_cfg+"\n"
         extra_prompt+= "- 任务需要分阶段分步骤规划完成，不可忽略已经存在的阶段，但可根据需求新增阶段"\
                         "- 如果阶段缺少详细步骤，先调用 update_plan 规划。\n"\
                         "- 每个步骤完成后及时更新状态。\n"\
                         "- 所有步骤完成后调用 finish 结束本任务。"
 
 
-        system_prompt = (
-            self.prompts.task_prompt_exclude_tools
-        )
+        system_prompt = self.prompts.task_prompt_exclude_tools
+        
         if extra_prompt:
             system_prompt += "\n" + extra_prompt
 
@@ -396,32 +399,12 @@ class Agent:
             
         self._log(f"[DEBUG] system_prompt 长度: {len(system_prompt)}, extra_prompt 部分:\n {extra_prompt}\n")
 
-        # 预构建各 phase 消息（仅包含当前阶段名 + [M] 内容 + [P] 内容）
-        phase_msgs = []
-        for phase_idx, phase in enumerate(phases):
-            phase_name = phase['name']
-            phase_msg_items = phase.get('phase_msg', [])
-
-            lines_p = []
-            for item in phase_msg_items:
-                lines_p.append(item)
-            full_msg = '\n'.join(lines_p)
-
-            phase_msgs.append({
-                "name": phase_name,
-                "msg": full_msg,
-            })
-            print(f"[DEBUG _run_landscape] phase '{phase_name}': msg={full_msg[:100]}")
-            self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase_name}")
-
-        self.task_manager.set_subtask_phase_msgs(subtask_index, phase_msgs)
-
         result = self._run_loop(subtask_index, base_prompt=system_prompt)
 
         self.task_manager.save_plan_steps(self.task_manager._stage_progress)
         return result
 
-    def _get_subtask_phases_and_prompt(self, task_type_key: str, sub_type: str = ""):
+    def _get_phases_prompt_from_config(self, task_type_key: str, sub_type: str = ""):
         """从 TaskAttributeManager 获取指定 task type 的阶段列表
 
         Returns:
@@ -432,7 +415,7 @@ class Agent:
             from task_attribute_manager import TaskAttributeManager
             json_path = self.config.paths.task_config_file_path
             self._attr_mgr = TaskAttributeManager(json_path)
-        result = self._attr_mgr.get_subtask_phases_and_prompt(task_type_key, sub_type)
+        result = self._attr_mgr.get_phases_prompt_from_config(task_type_key, sub_type)
         if result is None:
             self._log(
                 f"  ⚠️ 任务子类型 '{sub_type}' 不在大类 '{task_type_key}' 的可用子类型中",
@@ -561,44 +544,18 @@ class Agent:
 
                 return {"judge": "true", "content": content_text}
 
-    def _load_llm_context(self, sub) -> tuple[str, list]:
-        """从 context_prompt.json 恢复 base_prompt 和 LLM 上下文"""
-        if not sub or not sub.llm_context_info:
-            return "", []
-        fpath = os.path.join(sub.project_path or self.config.execution.work_dir, ".llm_context", "context_prompt.json")
-        if not os.path.exists(fpath):
-            return "", []
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                snap = json.load(f)
-            bp = snap.get("base_prompt", "")
-            ctx = snap.get("context", [])
-            if bp:
-                self._log(f"  📝 从快照恢复 base_prompt ({len(bp)} chars)")
-            if ctx:
-                self._log(f"  📝 从快照恢复 LLM 上下文 ({len(ctx)} 条消息)")
-            return bp, ctx
-        except Exception:
-            return "", []
+    def _init_task_memory(self, sub, subtask_index: int):
+        """初始化任务模式记忆：设置 memory_file，有快照则加载。"""
+        if not sub:
+            return
+        fpath = os.path.join(sub.project_path or self.config.execution.work_dir, ".llm_context", "memory.jsonl")
+        self.task_llm.set_memory_file(fpath)
+        self.task_manager.set_subtask_llm_context_info(subtask_index, "memory.jsonl")
+        if os.path.exists(fpath):
+            self.task_llm.load_memory()
+            if self.task_llm.history:
+                self._log(f"  📝 从快照恢复 LLM 上下文 ({len(self.task_llm.history)} 条消息)")
 
-    def _save_llm_context(self, subtask_index: int, base_prompt: str = ""):
-        """保存当前 LLM 上下文到 context_prompt.json"""
-        ctx_data = {
-            "base_prompt": base_prompt,
-            "context": self.task_llm.history,
-        }
-        ctx_json = json.dumps(ctx_data, ensure_ascii=False, indent=2)
-
-        sub = self.task_manager.get_subtask(subtask_index)
-        proj = sub.project_path if sub and sub.project_path else self.config.execution.work_dir
-        save_dir = os.path.join(proj, ".llm_context")
-        os.makedirs(save_dir, exist_ok=True)
-        filepath = os.path.join(save_dir, "context_prompt.json")
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(ctx_json)
-
-        self.task_manager.set_subtask_llm_context_info(subtask_index, "context_prompt.json")
-        self._log(f"  📝 LLM 上下文已保存: {filepath}")
 
     def _run_loop(self, subtask_index: int, base_prompt: str = "") -> dict:
         """工具调用模式执行循环。
@@ -613,10 +570,7 @@ class Agent:
 
         sub = self.task_manager.get_subtask(subtask_index)
         
-        if not base_prompt:
-            base_prompt, ctx_msgs = self._load_llm_context(sub)
-            if ctx_msgs:
-                self.task_llm.history = ctx_msgs
+        self._init_task_memory(sub, subtask_index)  # 初始化任务记忆，恢复历史
        
 
         executor = ToolExecutor(sub.project_path, logger=self.logger, agent=self, eqm=self.eqm, mode="task")
@@ -671,7 +625,6 @@ class Agent:
                                 subtask_index, "false", exec_result["summary"])
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.FAILED)
-                            self._save_llm_context(subtask_index, base_prompt)
                             self._log(f"\n  {self.task_manager._stage_progress.format_status()}")
                             self.task_manager.update_task_list(self.task_dir) 
                             return TaskField.RET_JSON_FALSE(exec_result["summary"])
@@ -686,7 +639,6 @@ class Agent:
                             self.task_manager.set_subtask_status(
                                 subtask_index, SubTaskStatus.COMPLETED)
                             
-                            self._save_llm_context(subtask_index, base_prompt)
                             self._log(f"\n任务总结: {exec_result['summary']}")
                             self.task_manager.update_task_list(self.task_dir)
                             
@@ -718,8 +670,7 @@ class Agent:
                 return TaskField.RET_JSON_FALSE(result.get("message", "API错误"))
             continue
 
-        if num+1 >= self.max_rounds:
-            self._save_llm_context(subtask_index, base_prompt)
+        # save removed, _save_memory handles auto-save
 
         return TaskField.RET_JSON_FALSE(f"达到最大轮次 ({self.max_rounds})，任务未完成")
 

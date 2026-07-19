@@ -464,7 +464,7 @@ class LLMClient:
         try:
             resp = self.client.chat.completions.create(
                 model=self.model, messages=msgs,
-                temperature=0.1, max_tokens=4096,
+                temperature=0.2, max_tokens=9182,
             )
             summary = resp.choices[0].message.content or ""
             self._track_usage(getattr(resp, 'usage', None))
@@ -539,8 +539,13 @@ class LLMClient:
             i += 1
         return i
 
+    def load_memory(self):
+        """从 memory_file 加载历史记录。"""
+        self._load_memory()
+        self._last_saved_count = len(self.history)
+
     def _load_memory(self):
-        """从 memory_file（JSONL 格式）加载历史记录。"""
+        """内部：从 memory_file 加载历史记录（不含 base_prompt 提取）。"""
         self.history_compress_summary = ""
         if not self.memory_file:
             return
@@ -557,6 +562,10 @@ class LLMClient:
         except Exception as e:
             print(f"[WARN] 加载记忆文件失败: {e}", file=sys.stderr)
 
+    def set_memory_file(self, path: str):
+        """设置记忆文件路径。"""
+        self.memory_file = path
+        self._last_saved_count = 0
     def _save_memory(self):
         """增量追加新增的 history 条目到 memory_file（JSONL 格式）。"""
         if not self.memory_file:

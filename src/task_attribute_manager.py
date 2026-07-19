@@ -7,7 +7,7 @@
   2. 管理各类别的 [P] 标签内容（分类级提示词）
   3. 管理各流程阶段及其 [P]/[M] 标签内容
   4. 提供 plan_classify / combined_classify prompt 构建
-  5. 提供 get_subtask_phases_and_prompt 接口，替代 Agent._get_subtask_phases_and_prompt()
+  5. 提供 get_phases_prompt_from_config 接口，替代 Agent._get_phases_prompt_from_config()
 
 数据文件：spc/spec.json
 """
@@ -29,7 +29,7 @@ class TaskAttributeManager:
         mgr = TaskAttributeManager("spc/spec.json")
         categories = mgr.get_categories()
         prompt = mgr.build_plan_prompt()
-        phases = mgr.get_subtask_phases_and_prompt("开发类", "web应用")
+        phases = mgr.get_phases_prompt_from_config("开发类", "web应用")
         mgr.add_subtype("开发类", "新类型", "描述")
         mgr.save()
     """
@@ -470,9 +470,9 @@ class TaskAttributeManager:
             return None
         return list(cat.get("subtask_config", []))
 
-    # ── 兼容 Agent._get_subtask_phases_and_prompt ──
+    # ── 兼容 Agent._get_phases_prompt_from_config ──
 
-    def get_subtask_phases_and_prompt(self, task_type_key: str, sub_type: str = "") -> dict | None:
+    def get_phases_prompt_from_config(self, task_type_key: str, sub_type: str = "") -> dict | None:
         """获取指定 task type 的阶段列表。
 
         匹配优先级：
@@ -563,19 +563,19 @@ if __name__ == "__main__":
     # print('-- data loading --')
     # cats = mgr.get_categories()
  
-    # # -- get_subtask_phases_and_prompt --
+    # # -- get_phases_prompt_from_config --
     # print()
-    # print('-- get_subtask_phases_and_prompt --')
+    # print('-- get_phases_prompt_from_config --')
 
-    # r = mgr.get_subtask_phases_and_prompt('开发类', 'web应用')
+    # r = mgr.get_phases_prompt_from_config('开发类', 'web应用')
 
-    # r = mgr.get_subtask_phases_and_prompt('开发类', '游戏')
+    # r = mgr.get_phases_prompt_from_config('开发类', '游戏')
 
-    # r = mgr.get_subtask_phases_and_prompt('skill', 'cskill')
+    # r = mgr.get_phases_prompt_from_config('skill', 'cskill')
    
-    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
+    # r = mgr.get_phases_prompt_from_config('文本类', '文案')
  
-    # r = mgr.get_subtask_phases_and_prompt('not_exist', 'x')
+    # r = mgr.get_phases_prompt_from_config('not_exist', 'x')
     
     # # -- prompt building --
     # print()
@@ -593,7 +593,7 @@ if __name__ == "__main__":
                      subtypes=[{'name': '代码文档学习', 'description': '对现有的文档资料和代码等资料提炼总结'}],
                      phases=[{'name': '代码文档学习并提炼内容', 'phase_msg': ['将学到的内容存入learn.le']}])
 
-    # r = mgr.get_subtask_phases_and_prompt('test_cat', 'test_sub')
+    # r = mgr.get_phases_prompt_from_config('test_cat', 'test_sub')
    
     # mgr.add_subtype('test_cat', 'test_sub2', 'desc2')
 
@@ -636,19 +636,19 @@ if __name__ == "__main__":
     #     phases=[{'name': 'copywriting_only', 'phase_msg': ['customM']}],
     #     prompt='copywriting_prompt')
 
-    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
+    # r = mgr.get_phases_prompt_from_config('文本类', '文案')
     
-    # r = mgr.get_subtask_phases_and_prompt('文本类', '报告')
+    # r = mgr.get_phases_prompt_from_config('文本类', '报告')
 
     # groups = mgr.get_subtask_config('文本类')
 
     # mgr.update_subtask_config('文本类', 0,
     #     phases=[{'name': 'updated_phase', 'phase_msg': []}])
-    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
+    # r = mgr.get_phases_prompt_from_config('文本类', '文案')
     # mgr.save()
 
     # mgr.remove_subtask_config('文本类', 0)
-    # r = mgr.get_subtask_phases_and_prompt('文本类', '文案')
+    # r = mgr.get_phases_prompt_from_config('文本类', '文案')
     # mgr.save()
     # print(mgr.remove_category('其他类'))
     mgr.save()

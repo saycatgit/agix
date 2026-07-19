@@ -77,6 +77,7 @@ class SubTaskRecord:
     related_subtask_task: str = ""
     related_project_path: str = ""
     llm_context_info: str = ""
+    extra_prompt:    str = ""
     phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
     dir_from:       str = ""
@@ -244,6 +245,12 @@ class TaskManager:
         if rec:
             rec.extra = extra
 
+    def set_subtask_extra_prompt(self, index: int, extra_prompt: str):
+        """设置子任务配置 extra_prompt。"""
+        rec = self._get_sub(index)
+        if rec:
+            rec.extra_prompt = extra_prompt
+
     def set_subtask_history_relation(self, index: int, is_continuation: bool,
                                      related_subtask_task: str, related_project_path: str):
         """设置子任务的历史延续关系"""
@@ -336,6 +343,7 @@ class TaskManager:
                 "related_project_path": s.related_project_path,
                 "phase_msgs": s.phase_msgs,
                 "llm_context_info": s.llm_context_info,
+                "extra_prompt": s.extra_prompt,
             }
             if s.sub_task_name:
                 d[TaskField.SUB_TASK_NAME] = s.sub_task_name
@@ -402,6 +410,7 @@ class TaskManager:
                 related_project_path=sd.get("related_project_path", ""),
                 phase_msgs=sd.get("phase_msgs", []),
                 llm_context_info=sd.get("llm_context_info", ""),
+                extra_prompt=sd.get("extra_prompt", ""),
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
