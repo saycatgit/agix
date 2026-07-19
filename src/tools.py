@@ -329,12 +329,18 @@ class ToolExecutor:
 
     def _resolve_sudo_password(self, command: str, note: str = ""):
         """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""
-        eqm = getattr(self, "eqm", None)
         agent = getattr(self, "agent", None)
+        if agent and not getattr(agent, "is_interactive", False):
+            # 非交互模式：有缓存密码直接用，没有返回 None
+            if agent.config and agent.config.sudo_password:
+                return agent.config.sudo_password
+            return None
+
         config = agent.config if agent else None
         Utils.play_notification()
 
         if config and config.sudo_password:
+            eqm = getattr(self, "eqm", None)
             if eqm is not None:
                 answer = eqm.ask_for_confirmation(
                     note+"\n是否使用已保存的 sudo 密码？",
@@ -344,6 +350,7 @@ class ToolExecutor:
                     return config.sudo_password
             # 用户选了"否"，继续要求输入
 
+        eqm = getattr(self, "eqm", None)
         if eqm is not None:
             password = eqm.ask_for_password(
                 note+"\n请输入 sudo 密码",
@@ -403,13 +410,15 @@ class ToolExecutor:
 
         # 优先使用 EventQueueManager 进行交互
         eqm = getattr(self, "eqm", None)
+        # 非交互模式直接拒绝，不管有没有 eqm
+        if self.agent and not getattr(self.agent, "is_interactive", False):
+            return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
+
         if eqm is not None:
             return eqm.ask_user(question, mode=getattr(self, "mode", "chat"))
 
         # 回退: 无 eqm 时返回错误提示
-        if self.agent and not getattr(self.agent, "is_interactive", False):
-            return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
-        return f"无法获取用户输入: 交互功能不可用。\n原问题: {question}"
+        return f"无法获取用户输入: 交互界面不可用。\n原问题: {question}"
 
     def _tool_file_patch(self, args: dict) -> str:
         """通过 unified diff patch 精确修改文件，上下文匹配。"""

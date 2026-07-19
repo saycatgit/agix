@@ -17,6 +17,7 @@
 
 import queue
 import threading
+import time
 import uuid
 from enum import Enum
 
@@ -26,7 +27,7 @@ from meta import MsgType, MsgField, MsgStyle
 class EventQueueManager:
     """统一管理所有队列及同步事件"""
 
-    def __init__(self):
+    def __init__(self, config=None):
         self.chat_display_queue = queue.Queue()
         self.task_display_queue = queue.Queue()
         self.to_chat_queue = queue.Queue()
@@ -41,6 +42,8 @@ class EventQueueManager:
 
         self._chat_pending_ask_id: str = ""
         self._task_pending_ask_id: str = ""
+        # 配置引用，用于读取默认 timeout
+        self._config = config
 
     # ---------- 消息构造 ----------
 
@@ -102,6 +105,9 @@ class EventQueueManager:
     def _wait_for_response(self, msg: dict, msg_id: str, mode: str,
                            timeout: float = None) -> str:
         """内部: 发送 ask 消息并阻塞等待响应。"""
+        if timeout is None:
+            timeout = (self._config.execution.timeout
+                       if self._config else 60.0)
         if mode == "chat":
             self._chat_pending_ask_id = msg_id
             target_q = self.chat_display_queue
@@ -116,10 +122,18 @@ class EventQueueManager:
         target_q.put(msg)
         ask_event.clear()
 
+        start = time.monotonic()
         try:
             while True:
+                if timeout is not None:
+                    elapsed = time.monotonic() - start
+                    if elapsed >= timeout:
+                        return ""
+                    remain = max(timeout - elapsed, 0.1)
+                else:
+                    remain = 1.0
                 try:
-                    response = resp_q.get(timeout=timeout or 1.0)
+                    response = resp_q.get(timeout=remain)
                     if (response.get(MsgField.TYPE) == MsgType.RESPONSE and
                             response.get(MsgField.ID) == msg_id):
                         return response.get(MsgField.CONTENT, "")

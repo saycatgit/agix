@@ -807,15 +807,6 @@ class Agent:
                             proj_name = user_input
                     except Exception:
                         pass
-                elif __import__("threading").current_thread() is __import__("threading").main_thread():
-                    try:
-                        user_input = input(
-                            f"\n📁 {prompt}: "
-                        ).strip()
-                        if user_input:
-                            proj_name = user_input
-                    except (EOFError, KeyboardInterrupt):
-                        pass
             proj_path = os.path.join(self.config.execution.work_dir, proj_name)
 
         # ── temp 或其他: 使用 temp 目录 ──

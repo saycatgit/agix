@@ -35,9 +35,9 @@ def main(page: ft.Page):
         interactive=config.auth.interactive,
         sensitive_command_check=config.auth.sensitive_command_check,
     )
-    eqm = EventQueueManager()
+    eqm = EventQueueManager(config=config)
     agent = Agent(config, auth_handler, eqm=eqm)
-    agent.is_interactive = True
+    agent.is_interactive = config.auth.interactive
 
     server_url = os.environ.get("AGIX_AUTH_SERVER", "http://8.130.188.188")
 
