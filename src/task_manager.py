@@ -613,15 +613,15 @@ class TaskManager:
             sub.plan_steps = progress.to_dict()
         return progress
 
-    def load_stage_progress(self, stage_names: list[str]) -> StageProgress:
-        """从当前活动子任务的 plan_steps 加载 StageProgress，无数据则创建空实例。"""
-        sub = self._active_subtask()
-        if sub and sub.plan_steps:
-            try:
-                return StageProgress.from_dict(sub.plan_steps)
-            except Exception:
-                pass
-        return StageProgress(stage_names)
+    def load_stage_progress(self, phase_msgs: list[dict]) -> StageProgress:
+        """根据 phase_msgs 初始化 StageProgress，包含阶段名和各阶段步骤。"""
+        stage_names = [p["name"] for p in phase_msgs]
+        sp = StageProgress(stage_names)
+        for p in phase_msgs:
+            if p.get("phase_msg"):
+                steps = [{"step": s, "status": "pending"} for s in p["phase_msg"]]
+                sp.init_stage(p["name"], steps)
+        return sp
 
     def update_plan_steps(self, progress: StageProgress):
         """将 StageProgress 序列化回当前活动子任务的 plan_steps 字段。"""

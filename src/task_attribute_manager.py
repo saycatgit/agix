@@ -53,10 +53,21 @@ class TaskAttributeManager:
             self._data = {self.KEY_CATEGORIES: []}
 
     def save(self, path: str = ""):
-        """保存到 JSON 文件。"""
+        """保存到 JSON 文件，自动清理空的 subtask_config 条目。"""
         p = path or self._path
+        data = json.loads(json.dumps(self._data))
+        for cat in data.get("categories", []):
+            cleaned = []
+            for cfg in cat.get("subtask_config", []):
+                subtypes = cfg.get("match_subtypes", [])
+                prompt = cfg.get("prompt", [])
+                phases = cfg.get("phases", [])
+                has_wildcard = "..." in subtypes
+                if prompt or phases or has_wildcard:
+                    cleaned.append(cfg)
+            cat["subtask_config"] = cleaned
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     def reload(self):
         """从文件重新加载（丢弃内存修改）。"""

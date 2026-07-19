@@ -579,9 +579,13 @@ class Agent:
 
         task_tools = get_tools_excluding("start_task")
 
-        if sub and sub.phase_msgs:
-            self.task_manager._stage_progress = self.task_manager.load_stage_progress(
-                [p["name"] for p in sub.phase_msgs])
+        if sub and sub.plan_steps:
+            try:
+                self.task_manager._stage_progress = StageProgress.from_dict(sub.plan_steps)
+            except Exception:
+                self.task_manager._stage_progress = StageProgress()
+        elif sub and sub.phase_msgs:
+            self.task_manager._stage_progress = self.task_manager.load_stage_progress(sub.phase_msgs)
         elif sub:
             self.task_manager._stage_progress = StageProgress()
 

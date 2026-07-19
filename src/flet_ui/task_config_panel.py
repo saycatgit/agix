@@ -66,8 +66,20 @@ class TaskConfigPanel:
             return json.load(f)
 
     def _save_to_disk(self):
+        # 清理空的 subtask_config 条目（通配符 "..." 除外）
+        data = json.loads(json.dumps(self._data))
+        for cat in data.get("categories", []):
+            cleaned = []
+            for cfg in cat.get("subtask_config", []):
+                subtypes = cfg.get("match_subtypes", [])
+                prompt = cfg.get("prompt", [])
+                phases = cfg.get("phases", [])
+                has_wildcard = "..." in subtypes
+                if prompt or phases or has_wildcard:
+                    cleaned.append(cfg)
+            cat["subtask_config"] = cleaned
         with open(self._file_path, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
         self._dirty = False
         self._unsaved_badge.value = ""
         self.page.update()
@@ -379,6 +391,11 @@ class TaskConfigPanel:
                 ms = cfg.get("match_subtypes", [])
                 if removed_name in ms:
                     ms.remove(removed_name)
+            # 清理 match_subtypes 为空的配置条目
+            cat["subtask_config"] = [
+                c for c in cat.get("subtask_config", [])
+                if c.get("match_subtypes")
+            ]
             if self._sub_idx == idx:
                 self._sub_idx = None
             elif self._sub_idx is not None and self._sub_idx > idx:
