@@ -117,7 +117,8 @@ class TaskPanel:
             self.action_list.controls.append(w)
 
     def set_status(self, text: str):
-        self.status_text.value = text
+        self.body_status_text.value = text
+        self.body_status_text.update()
 
     def set_task_name(self, name: str):
         truncated = name[:50] + "..." if len(name) > 50 else name
@@ -136,8 +137,7 @@ class TaskPanel:
 
     def _build_widgets(self):
         self.status_text = ft.Text("", size=self.MSG_TEXT_SIZE, selectable=True)
-        status_list = ft.Container(content=self.status_text, expand=True)
-
+        self.body_status_text = ft.Text("", size=self.MSG_TEXT_SIZE, selectable=True)
         self.action_list = ft.ListView(expand=True, spacing=4, padding=0, auto_scroll=True)
         self.think_list = ft.ListView(expand=True, spacing=4, padding=0, auto_scroll=True)
 
@@ -182,26 +182,6 @@ class TaskPanel:
         return ft.GestureDetector(
             content=ft.Container(
                 content=ft.Row([
-                    # 左侧：状态面板
-                    ft.Container(
-                        content=ft.Column([
-                            ft.Text(
-                                self.STATUS_LABEL, size=self.LABEL_SIZE,
-                                color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
-                            ),
-                            ft.Container(
-                                content=ft.Container(content=self.status_text, expand=True),
-                                expand=True,
-                            ),
-                        ], spacing=2),
-                        width=self.STATUS_PANEL_WIDTH,
-                        padding=ft.Padding(8, 6, 8, 6),
-                        bgcolor=self.STATUS_BGCOLOR,
-                    ),
-                    ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
-                    # 右侧：原有标题栏
-                    ft.Container(
-                        content=ft.Row([
                     ft.Text(
                         self.TASK_LABEL, width=60,
                         weight=self.TITLE_WEIGHT, size=self.TITLE_SIZE,
@@ -217,17 +197,12 @@ class TaskPanel:
                         tooltip=self.CLOSE_TOOLTIP,
                         on_click=lambda e: self._close(),
                     ),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        padding=ft.Padding(12, 8, 8, 8),
-                        bgcolor=self.TITLE_BGCOLOR,
-                        expand=True,
-                    ),
-                ], spacing=0),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 bgcolor=self.TITLE_BGCOLOR,
                 border_radius=ft.BorderRadius(
                     self.BORDER_RADIUS, self.BORDER_RADIUS, 0, 0,
                 ),
-                padding=ft.Padding(0, 0, 0, 0),
+                padding=ft.Padding(12, 8, 8, 8),
             ),
             on_pan_start=self._on_drag_start,
             on_pan_update=self._on_drag_task_panel,
@@ -238,6 +213,21 @@ class TaskPanel:
     def _build_body(self):
         return ft.Container(
             content=ft.Row([
+                # 左侧：进度面板
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(
+                            self.STATUS_LABEL, size=self.LABEL_SIZE,
+                            color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
+                        ),
+                        ft.Container(content=self.body_status_text, expand=True),
+                    ], spacing=2, expand=True),
+                    width=self.STATUS_PANEL_WIDTH,
+                    padding=ft.Padding(8, 6, 8, 6),
+                    bgcolor=self.STATUS_BGCOLOR,
+                ),
+                ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
+                # 右侧：步骤 + 思考
                 ft.Container(
                     content=ft.Column([
                         ft.Column([
@@ -261,7 +251,7 @@ class TaskPanel:
                     expand=True,
                     padding=ft.Padding(6, 0, 6, 0),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            ),
+                ),
             ], spacing=0),
             expand=True,
             padding=ft.Padding(6, 4, 6, 6),

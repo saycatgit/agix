@@ -77,6 +77,7 @@ class StatusSidebar:
         self._list = ft.ListView(spacing=6, padding=ft.Padding(8, 4, 8, 4), expand=True)
         self._panel = ft.Container(
             visible=self._visible,
+            expand_loose=True,
             width=self.WIDTH,
             bgcolor=self.BGCOLOR,
             content=ft.Column([
