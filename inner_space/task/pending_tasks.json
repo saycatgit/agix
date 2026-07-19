@@ -1,12 +1,12 @@
 [
   {
     "id": "1",
-    "task_name": "做一个web贪吃蛇小游戏。要求：单HTML文件，包含完整的贪吃蛇游戏逻辑（蛇移动、吃食物、撞墙/撞自己判定、分数显示），界面美观，键盘方向键操控，支持重新开始。用浏览器直接打开即可游玩。",
+    "task_name": "每周五 20:00 执行 `date` 命令，将系统日期时间追加到 `/home/agent_native/datetime_check.log` 文件。",
     "mode": "task",
-    "is_periodic": false,
-    "period": "",
-    "next_execution_time": "2026-07-11T08:00:00",
-    "created_at": "2026-07-10T09:22:32.456190",
+    "is_periodic": true,
+    "period": "4w",
+    "next_execution_time": "2026-08-07T20:00:00",
+    "created_at": "2026-07-19T19:51:10.865979",
     "is_interactive": false
   }
 ]

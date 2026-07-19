@@ -384,9 +384,9 @@ class Agent:
             )
         extra_prompt_add+=f"当前项目目录: {self.proj_path}\n所有文件操作请在此目录下进行。\n"
         extra_prompt= extra_prompt_add+extra_prompt_cfg+"\n"
-        extra_prompt+= "- 任务需要分阶段分步骤规划完成，不可忽略已经存在的阶段，但可根据需求新增阶段"\
-                        "- 如果阶段缺少详细步骤，先调用 update_plan 规划。\n"\
-                        "- 每个步骤完成后及时更新状态。\n"\
+        extra_prompt+= "- 任务需要分阶段分步骤规划完成，不可忽略已经存在的阶段，但可根据需求在已经存在的阶段前面或者后面新增阶段"\
+                        "- 如果阶段缺少详细步骤，先调用 update_plan对所有阶段做总体规划，然后分步执行。\n"\
+                        "- 每个小步骤完成后及时更新状态。\n"\
                         "- 所有步骤完成后调用 finish 结束本任务。"
 
 
@@ -590,7 +590,8 @@ class Agent:
             self.task_manager._stage_progress = StageProgress()
 
         status = self.task_manager._stage_progress.format_status()
-        msg = f"# 当前任务: {sub.sub_task_detail}\n\n{status}\n\n"
+        msg = f"# 当前任务: {sub.sub_task_detail}\n\n{status}\n\n"\
+                f"如果阶段或步骤缺失以至不满足当前子任务要求，请先用update_plan完善相应内容"
 
         self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
 

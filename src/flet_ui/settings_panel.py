@@ -210,6 +210,6 @@ class SettingsPanel:
             if self._on_saved:
                 self._on_saved()
         except Exception as ex:
-            self.page.show_dialog(ft.AlertDialog(
+            self.page.show_dialog(ft.AlertDialog(content_padding=ft.Padding(20, 20, 20, 20),
                 title=ft.Text(self.SAVE_FAIL_TITLE), content=ft.Text(str(ex)),
             ))

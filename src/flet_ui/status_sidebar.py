@@ -31,6 +31,7 @@ class StatusSidebar:
         self.task_dir = task_dir
         self._visible = visible
         self._extra_controls = extra_controls or []
+        self._last_data_hash = None
         self._build()
 
     @property
@@ -49,6 +50,11 @@ class StatusSidebar:
 
     def refresh(self):
         tasks, pending = self._load_all()
+        import json as _json
+        data_hash = hash(_json.dumps((tasks, pending), sort_keys=True, default=str))
+        if data_hash == self._last_data_hash:
+            return
+        self._last_data_hash = data_hash
         self._list.controls.clear()
 
         if not tasks and not pending:
@@ -253,20 +259,22 @@ class StatusSidebar:
 
     def _show_task_menu(self, task: dict):
         dlg = ft.AlertDialog(
+            content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
             content=ft.Column([
                 ft.TextButton("打开文件夹", on_click=lambda e: self._open_project_and_close(task, dlg)),
                 ft.TextButton("删除任务", on_click=lambda e: self._confirm_delete_and_close(task, dlg)),
-            ], tight=True, spacing=0),
+            ], spacing=10),
         )
         self._open_dialog(dlg)
 
     def _show_pending_menu(self, pending: dict, idx: int):
         dlg = ft.AlertDialog(
+            content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
             content=ft.Column([
                 ft.TextButton("删除任务", on_click=lambda e: self._confirm_delete_pending_and_close(pending, idx, dlg)),
-            ], tight=True, spacing=0),
+            ], spacing=10),
         )
         self._open_dialog(dlg)
 
@@ -307,6 +315,7 @@ class StatusSidebar:
 
         name = task.get("name", "未知")[:30]
         dlg = ft.AlertDialog(
+            content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确定删除项目「{name}」的记录吗？\n\n项目文件夹不会被删除。"),
             actions=[
@@ -340,6 +349,7 @@ class StatusSidebar:
 
         name = pending.get("task_name", "未知")[:30]
         dlg = ft.AlertDialog(
+            content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确定删除计划任务「{name}」吗？"),
             actions=[
@@ -434,8 +444,9 @@ class StatusSidebar:
         gs = ft.BorderSide(1, ft.Colors.GREY_300)
 
         name_field = ft.TextField(
-            label="任务名称", value=pending.get("task_name", ""),
-            border_color=ft.Colors.GREY_400, dense=True,
+            label="任务内容", value=pending.get("task_name", ""),
+            border_color=ft.Colors.GREY_400, dense=True, expand=True,
+            multiline=True, min_lines=2, max_lines=4,
             prefix_icon=ft.icons.Icons.TASK_ALT,
         )
 
@@ -444,7 +455,7 @@ class StatusSidebar:
         period_field = ft.TextField(
             label="周期 (如 1d/2h/30m/1w)",
             value=pending.get("period", ""),
-            border_color=ft.Colors.GREY_400, dense=True,
+            border_color=ft.Colors.GREY_400,expand=True,
             disabled=not is_periodic,
         )
 
@@ -471,29 +482,37 @@ class StatusSidebar:
             self._confirm_delete_pending(pending, idx)
 
         dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),  # 新增：弹窗整体直角
+            content_padding=ft.Padding(20, 10, 20, 4),
+            actions_padding=ft.Padding(20, 0, 20, 10),
             title=ft.Row([
                 ft.Icon(ft.icons.Icons.EDIT_NOTE, size=20),
                 ft.Text("编辑计划任务", size=16, weight=ft.FontWeight.BOLD),
             ]),
             content=ft.Column([
-                ft.Text("基本信息", size=12, color=ft.Colors.GREY_500,
-                        weight=ft.FontWeight.BOLD),
-                name_field,
-                ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
-                        weight=ft.FontWeight.BOLD),
-                ft.Container(
-                    content=time_row,
-                    border=ft.Border(top=gs, left=gs, right=gs, bottom=gs),
-                    border_radius=6,
-                    padding=ft.Padding(left=8, top=4, right=8, bottom=4),
-                ),
-                ft.Divider(height=1, opacity=0.3),
-                ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
-                        weight=ft.FontWeight.BOLD),
-                periodic_switch,
-                period_field,
-                interactive_switch,
-            ], tight=True, spacing=10, width=380),
+                ft.Column([
+                    ft.Text("基本信息", size=12, color=ft.Colors.GREY_500,
+                            weight=ft.FontWeight.BOLD),
+                    name_field,
+                ], spacing=6),
+                ft.Column([
+                    ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
+                            weight=ft.FontWeight.BOLD),
+                    ft.Container(
+                        content=time_row,
+                        border=ft.Border(top=gs, left=gs, right=gs, bottom=gs),
+                        border_radius=1,
+                        padding=ft.Padding(left=8, top=0, right=8, bottom=0),
+                    ),
+                ], spacing=6),
+                ft.Column([
+                    ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
+                            weight=ft.FontWeight.BOLD),
+                    periodic_switch,
+                    period_field,
+                    interactive_switch,
+                ], spacing=6),
+            ], spacing=16, width=400, tight=True),
             actions=[
                 ft.TextButton("删除", on_click=on_delete,
                               style=ft.ButtonStyle(color=ft.Colors.RED)),

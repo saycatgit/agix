@@ -108,7 +108,7 @@ class AgixUI:
             ft.IconButton(icon=ft.Icons.ASSIGNMENT, icon_size=18, tooltip="任务配置", on_click=lambda e: self.task_config_panel.open()),
             ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self.sys_settings_panel.open()),
             ft.IconButton(icon=ft.Icons.MINIMIZE, icon_size=18, tooltip="最小化", on_click=self._minimize),
-            ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化", on_click=self._maximize, ref=self._max_btn_ref),
+            ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化/还原", on_click=self._maximize, ref=self._max_btn_ref),
             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=self._close),
         ], spacing=4), bgcolor=ft.Colors.WHITE, padding=ft.Padding(left=12, right=4, top=4, bottom=4), height=40)
 
@@ -125,12 +125,21 @@ class AgixUI:
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             expand=True,
         ))
+
+        # ── 窗口图标 ──
+        logo = os.path.join(self.agent.config.paths.root, "logo.png")
+        if not os.path.exists(logo):
+            logo = os.path.join(self.agent.config.paths.root, "logo.ico")
+        if not os.path.exists(logo):
+            logo = os.path.join(os.path.expanduser("~"), ".agix", "logo.png")
+        if os.path.exists(logo):
+            self.page.window.icon = logo
+        else:
+            print(f"[WARN] logo not found at {self.agent.config.paths.root}/logo.(png|ico) or ~/.agix/logo.png")
+
         self.page.window.visible = True; self.page.update()
         self.chat_panel.add_greeting()
         self.status_sidebar.refresh()
-        logo = os.path.join(self.agent.config.paths.root, "logo.ico")
-        if os.path.exists(logo):
-            self.page.window.icon = logo; self.page.update()
 
     # ── 轮询 ──
 

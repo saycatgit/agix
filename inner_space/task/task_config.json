@@ -1,0 +1,70 @@
+{
+  "categories": [
+    {
+      "name": "软件开发",
+      "description": "软件项目开发、创建skill等",
+      "subtypes": [
+        {
+          "name": "web应用",
+          "description": ""
+        },
+        {
+          "name": "网页游戏",
+          "description": ""
+        },
+        {
+          "name": "游戏",
+          "description": ""
+        },
+        {
+          "name": "cskill",
+          "description": "仅用于创建新skill"
+        }
+      ],
+      "subtask_config": [
+        {
+          "match_subtypes": [
+            "..."
+          ],
+          "prompt": [],
+          "phases": [
+            {
+              "name": "需求分析",
+              "phase_msg": [
+                "编写需求文档"
+              ]
+            }
+          ]
+        },
+        {
+          "match_subtypes": [
+            "cskill"
+          ],
+          "prompt": [
+            "开发skill,或创建，搜索skill,都在skills目录下"
+          ],
+          "phases": []
+        }
+      ]
+    },
+    {
+      "name": "其他",
+      "description": "不属于已有的任何类型",
+      "subtypes": [
+        {
+          "name": "其他",
+          "description": "其他"
+        }
+      ],
+      "subtask_config": [
+        {
+          "match_subtypes": [
+            "..."
+          ],
+          "prompt": [],
+          "phases": []
+        }
+      ]
+    }
+  ]
+}

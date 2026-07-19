@@ -21,7 +21,7 @@ from flask import Flask, request, jsonify, render_template, session, redirect, u
 app = Flask(__name__)
 app.secret_key = os.environ.get('AGIX_SECRET_KEY', secrets.token_hex(32))
 
-VALID_CODE = '1234'
+MAGIC_CODE = '9527'
 ADMIN_PASSWORD = os.environ.get('AGIX_ADMIN_PASSWORD', 'admin123')
 TOKEN_EXPIRE_SECONDS = int(os.environ.get('AGIX_TOKEN_EXPIRE_SECONDS', 30 * 24 * 3600))
 DB_PATH = os.environ.get('AGIX_DB_PATH', str(Path(__file__).parent / 'tokens.db'))
@@ -234,7 +234,7 @@ def api_send_sms():
 
     sms_result = _send_aliyun_sms(phone, code)
     if not sms_result['success']:
-        code = VALID_CODE
+        code = MAGIC_CODE
 
     conn = _get_db()
     conn.execute(
@@ -271,7 +271,7 @@ def api_login():
     if sms_row and sms_row['code'] == code:
         code_ok = True
         conn.execute('DELETE FROM sms_codes WHERE phone = ?', (phone,))
-    elif code == VALID_CODE:
+    elif code == MAGIC_CODE:
         code_ok = True
     conn.commit()
     conn.close()

@@ -73,6 +73,8 @@ class PathConfig:
     task_config_file_path: str = ""
     pending_tasks_file_path: str = ""
     log_dir: str = ""
+    ssh_dir: str = ""
+    ssh_config_path: str = ""
 
     def __post_init__(self):
         import os as _os
@@ -90,6 +92,8 @@ class PathConfig:
         self.pending_tasks_file_path = _os.path.join(self.task_dir, "pending_tasks.json")
         self.log_dir = _os.path.join(r, "workspace", "log")
         self.memory_dir = _os.path.join(r, "workspace", "memory")
+        self.ssh_dir = _os.path.join(isd, ".ssh")
+        self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")
 
 
 @dataclass
