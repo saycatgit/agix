@@ -222,20 +222,20 @@ class StatusSidebar:
             sub_key = f"{task['state_file']}::{i}"
             selected = (self._selected_key == sub_key)
             rows.append(ft.Row([
-                ft.Text("●" if selected else "○", size=12,
+                ft.Text("●" if selected else "○", size=14,
                         color=ft.Colors.BLUE if selected else ft.Colors.GREY_400),
-                ft.Text(sub_name, size=12, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+                ft.Text(sub_name, size=14, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
                         color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
                 self._status_badge(sub_status),
             ], spacing=4, expand=True,
                vertical_alignment=ft.CrossAxisAlignment.CENTER))
         # 主任务级菜单
         menu_items = [
-            ft.PopupMenuItem(content=ft.Text("修改", size=12),
+            ft.PopupMenuItem(content=ft.Text("修改", size=14),
                              on_click=lambda e, t=task: self._edit_main_task(t)),
-            ft.PopupMenuItem(content=ft.Text("添加子任务", size=12),
+            ft.PopupMenuItem(content=ft.Text("添加子任务", size=14),
                              on_click=lambda e, t=task: self._add_subtask(t)),
-            ft.PopupMenuItem(content=ft.Text("删除", size=12),
+            ft.PopupMenuItem(content=ft.Text("删除", size=14),
                              on_click=lambda e, t=task: self._confirm_delete_task(t)),
         ]
         # 每行子任务也加点击
@@ -451,11 +451,11 @@ class StatusSidebar:
         cat_options = [ft.dropdown.Option(c) for c in cat_names]
 
         name_field = ft.TextField(label="子任务名称", **tf)
-        detail_field = ft.TextField(label="描述",multiline=True,min_lines=2,max_lines=6, **tf)
+        detail_field = ft.TextField(label="描述(需求)",multiline=True,min_lines=5,max_lines=6, **tf)
         path_field = ft.TextField(label="路径", read_only=True, **tf)
 
         path_row = ft.Row([path_field,
-                           ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择文件夹",
+                           ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=28, tooltip="选择文件夹",
                                          on_click=lambda e: self._pick_folder(path_field))], spacing=4)
 
         cat_dd = ft.Dropdown(label="类型", dense=True, text_size=18,
