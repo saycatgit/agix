@@ -260,6 +260,18 @@ class TaskAttributeManager:
             result[name] = subs
         return result
 
+    def get_category_names(self) -> list[str]:
+        """返回所有大类名称列表。"""
+        return [cat["name"] for cat in self._data.get(self.KEY_CATEGORIES, [])]
+
+    def get_subtypes_by_cat(self, cat_name: str) -> list[tuple[str, str]]:
+        """返回指定大类下的子类列表 [(子类名, 描述), ...]。
+
+        若大类不存在返回空列表。
+        """
+        categories = self.get_categories()
+        return categories.get(cat_name, [])
+
     def get_category_descriptions(self) -> dict[str, str]:
         """返回 {类别名: 描述} 的映射。"""
         return {cat["name"]: cat.get("description", "")

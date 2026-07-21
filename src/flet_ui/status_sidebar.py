@@ -2,14 +2,17 @@
 
 import json, os, glob, subprocess, platform
 import flet as ft
+from task_attribute_manager import TaskAttributeManager
+from task_manager import TaskManager
 
 
 class StatusSidebar:
     """左侧任务状态面板"""
 
-    WIDTH: int = 240
+    WIDTH: int = 280
     BGCOLOR = ft.Colors.GREY_50
     TITLE_BGCOLOR = ft.Colors.BLUE_GREY_50
+    DIALOG_BGCOLOR = ft.Colors.WHITE
     TITLE: str = "任务状态"
     EMPTY_TEXT: str = "暂无任务"
 
@@ -29,6 +32,7 @@ class StatusSidebar:
     def __init__(self, page: ft.Page, task_dir: str, visible: bool = True, extra_controls: list = None, on_chat_select=None):
         self.page = page
         self.task_dir = task_dir
+        self.task_config_file_path = os.path.join(self.task_dir, "task_config.json")
         self._visible = visible
         self._extra_controls = extra_controls or []
         self._on_chat_select = on_chat_select
@@ -229,6 +233,8 @@ class StatusSidebar:
         menu_items = [
             ft.PopupMenuItem(content=ft.Text("修改", size=12),
                              on_click=lambda e, t=task: self._edit_main_task(t)),
+            ft.PopupMenuItem(content=ft.Text("添加子任务", size=12),
+                             on_click=lambda e, t=task: self._add_subtask(t)),
             ft.PopupMenuItem(content=ft.Text("删除", size=12),
                              on_click=lambda e, t=task: self._confirm_delete_task(t)),
         ]
@@ -296,6 +302,21 @@ class StatusSidebar:
     def _close_dialog(self, dlg):
         dlg.open = False
         dlg.update()
+    
+    def _pick_folder(self, field):
+        """zenity 选择文件夹，结果写入 field.value"""
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["zenity", "--file-selection", "--directory", "--title=选择文件夹"],
+                capture_output=True, text=True, timeout=30,
+            )
+            path = r.stdout.strip()
+            if path:
+                field.value = path
+                field.update()
+        except Exception:
+            pass
 
     def _remove_overlay(self, control):
         try:
@@ -306,11 +327,13 @@ class StatusSidebar:
 
     def _show_task_menu(self, task: dict):
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
             content=ft.Column([
                 ft.TextButton("打开文件夹", on_click=lambda e: self._open_project_and_close(task, dlg)),
+                ft.TextButton("添加子任务", on_click=lambda e: self._add_subtask(task)),
                 ft.TextButton("删除任务", on_click=lambda e: self._confirm_delete_and_close(task, dlg)),
             ], spacing=10),
         )
@@ -318,6 +341,7 @@ class StatusSidebar:
 
     def _show_pending_menu(self, pending: dict, idx: int):
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
@@ -366,7 +390,7 @@ class StatusSidebar:
             subprocess.Popen(["xdg-open", path])
 
     def _edit_main_task(self, task: dict):
-        """修改主任务和各子任务的名字和详情"""
+        """修改主任务的名称和描述"""
         state_file = task.get("state_file")
         if not state_file or not os.path.exists(state_file):
             return
@@ -376,29 +400,21 @@ class StatusSidebar:
         except Exception:
             return
         mt = data.get("maintask", {})
-        subs = data.get("subtasks", [])
 
-        name_field = ft.TextField(label="主任务名", value=mt.get("main_task_name", ""), dense=True)
-        detail_field = ft.TextField(label="主任务详情", value=mt.get("main_task_detail", ""), dense=True, multiline=True, min_lines=1, max_lines=4)
-        sub_fields = []
-        for s in subs:
-            sub_fields.append(ft.TextField(label=f"子任务名", value=s.get("sub_task_name", ""), dense=True))
-            sub_fields.append(ft.TextField(label=f"  详情", value=s.get("sub_task_detail", ""), dense=True, multiline=True, min_lines=1, max_lines=2))
+        tf = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300}
+        name_field = ft.TextField(label="主任务名称", value=mt.get("main_task_name", ""), **tf)
+        detail_field = ft.TextField(label="主任务描述", value=mt.get("main_task_detail", ""), multiline=True, min_lines=2, max_lines=6, **tf)
 
         content_col = ft.Column([
-            ft.Text("主任务", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_500),
-            name_field, detail_field,
-            ft.Text("子任务", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_500),
-        ] + sub_fields, spacing=8, scroll=ft.ScrollMode.AUTO, height=400)
+            
+            name_field,
+            detail_field,
+        ], height=140,spacing=18, width=340)
 
         def on_save(e):
             mt["main_task_name"] = name_field.value
             mt["main_task_detail"] = detail_field.value
-            for i, s in enumerate(subs):
-                s["sub_task_name"] = sub_fields[i*2].value
-                s["sub_task_detail"] = sub_fields[i*2+1].value
             data["maintask"] = mt
-            data["subtasks"] = subs
             try:
                 with open(state_file, "w") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
@@ -408,8 +424,99 @@ class StatusSidebar:
             self.refresh()
 
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             title=ft.Text("修改任务", size=16, weight=ft.FontWeight.BOLD),
+            content=content_col,
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
+                ft.FilledButton("保存", on_click=on_save),
+            ],
+        )
+        self._open_dialog(dlg)
+
+
+    def _add_subtask(self, task: dict):
+        """添加子任务到当前任务"""
+        state_file = task.get("state_file", "")
+        if not state_file or not os.path.exists(state_file):
+            return
+
+        # 使用 TaskAttributeManager 加载类型/子类型配置
+        attr_mgr = TaskAttributeManager(self.task_config_file_path)
+        cat_names = attr_mgr.get_category_names()
+
+        pad = ft.Padding(10, 6, 10, 6)
+        tf = {"dense": False, "text_size": 18, "width":360,"border_color": ft.Colors.GREY_300, "content_padding": pad}
+        cat_options = [ft.dropdown.Option(c) for c in cat_names]
+
+        name_field = ft.TextField(label="子任务名称", **tf)
+        detail_field = ft.TextField(label="描述",multiline=True,min_lines=2,max_lines=6, **tf)
+        path_field = ft.TextField(label="路径", read_only=True, **tf)
+
+        path_row = ft.Row([path_field,
+                           ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip="选择文件夹",
+                                         on_click=lambda e: self._pick_folder(path_field))], spacing=4)
+
+        cat_dd = ft.Dropdown(label="类型", dense=True, text_size=18,
+                             content_padding=pad,width=360,
+                             options=cat_options)
+        subtype_dd = ft.Dropdown(label="子类型", dense=True, text_size=18,
+                                 content_padding=pad,width=360,
+                                 options=[])
+
+        def on_cat_change(e):
+            subtypes = attr_mgr.get_subtypes_by_cat(cat_dd.value)
+            subtype_dd.options = [ft.dropdown.Option(st[0]) for st in subtypes]
+            subtype_dd.value = None
+            subtype_dd.update()
+        cat_dd.on_select = on_cat_change
+
+        content_col = ft.Column([
+            name_field,
+            detail_field,
+            path_row,
+            cat_dd,
+            subtype_dd,
+        ], spacing=18, width=440)
+
+        def on_save(e):
+            has_error = False
+            for fld, msg in [(name_field, "请输入子任务名称"),
+                              (detail_field, "请输入描述"),
+                              (path_field, "请输入路径"),
+                              (cat_dd, "请选择类型"),
+                              (subtype_dd, "请选择子类型")]:
+                if not fld.value:
+                    fld.error = msg
+                    has_error = True
+                else:
+                    fld.error = None
+            self.page.update()
+            if has_error:
+                return
+
+            try:
+                task_mgr = TaskManager.load(state_file)
+            except Exception:
+                return
+            item = {
+                "sub_task_detail": detail_field.value,
+                "sub_task_name": name_field.value,
+                "task_type": cat_dd.value,
+                "task_sub_type": f"{cat_dd.value}: {subtype_dd.value}",
+                "dir_from": "temp",
+            }
+            rec = task_mgr.append_subtask(item)
+            task_mgr.set_subtask_project(rec.index, path_field.value)
+            task_mgr.save()
+            self._close_dialog(dlg)
+            self.refresh()
+
+        dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
+            shape=ft.RoundedRectangleBorder(radius=3),
+            title=ft.Text("添加子任务", size=16, weight=ft.FontWeight.BOLD),
             content=content_col,
             actions=[
                 ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
@@ -423,16 +530,16 @@ class StatusSidebar:
         def on_yes(e):
             self._close_dialog(dlg)
             self._delete_task(task)
-
         def on_no(e):
             self._close_dialog(dlg)
 
         name = task.get("name", "未知")[:30]
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
-            content=ft.Text(f"确定删除项目「{name}」的记录吗？\n\n项目文件夹不会被删除。"),
+            content=ft.Text(f"确定删除项目「{name}」的记录吗？\n\n项目文件会一起删除。"),
             actions=[
                 ft.TextButton("取消", on_click=on_no),
                 ft.TextButton("删除", on_click=on_yes),
@@ -464,6 +571,7 @@ class StatusSidebar:
 
         name = pending.get("task_name", "未知")[:30]
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
@@ -561,7 +669,7 @@ class StatusSidebar:
 
         name_field = ft.TextField(
             label="任务内容", value=pending.get("task_name", ""),
-            border_color=ft.Colors.GREY_400, dense=True, expand=True,
+            border_color=ft.Colors.GREY_300, dense=True, expand=True,
             multiline=True, min_lines=2, max_lines=4,
             prefix_icon=ft.icons.Icons.TASK_ALT,
         )
@@ -571,8 +679,9 @@ class StatusSidebar:
         period_field = ft.TextField(
             label="周期 (如 1d/2h/30m/1w)",
             value=pending.get("period", ""),
-            border_color=ft.Colors.GREY_400,expand=True,
+            border_color=ft.Colors.GREY_300,expand=True,
             disabled=not is_periodic,
+            
         )
 
         is_interactive = pending.get("is_interactive", False)
@@ -598,6 +707,7 @@ class StatusSidebar:
             self._confirm_delete_pending(pending, idx)
 
         dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),  # 新增：弹窗整体直角
             content_padding=ft.Padding(20, 10, 20, 4),
             actions_padding=ft.Padding(20, 0, 20, 10),
@@ -607,10 +717,9 @@ class StatusSidebar:
             ]),
             content=ft.Column([
                 ft.Column([
-                    ft.Text("基本信息", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
+                    
                     name_field,
-                ], spacing=6),
+                ], spacing=10),
                 ft.Column([
                     ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
                             weight=ft.FontWeight.BOLD),
@@ -627,7 +736,7 @@ class StatusSidebar:
                     periodic_switch,
                     period_field,
                     interactive_switch,
-                ], spacing=6),
+                ], spacing=10),
             ], spacing=16, width=400, tight=True),
             actions=[
                 ft.TextButton("删除", on_click=on_delete,

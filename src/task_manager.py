@@ -172,6 +172,12 @@ class TaskManager:
         self._subtasks.append(rec)
         return rec
 
+    def append_subtask(self, item: dict) -> SubTaskRecord:
+        """添加单个子任务，自动分配不冲突的索引"""
+        max_idx = max((s.index for s in self._subtasks), default=0)
+        index = max_idx + 1
+        return self.add_subtask(index, item)
+
     def add_subtasks_from_orchestrate(self, orchestrate: list[dict]):
         """从完整的 orchestrate 列表批量添加子任务。"""
         """从完整的 orchestrate 列表批量添加子任务"""

@@ -75,19 +75,19 @@ class SystemSettingsPanel:
             ], spacing=4),
             ft.Row([
                 self._sys_timeout, self._sys_rounds,
-            ], spacing=14),
-            ft.Row([self._sys_mem_en, self._sys_enable_history], spacing=16),
+            ], spacing=24),
+            ft.Row([self._sys_mem_en, self._sys_enable_history], spacing=24),
             ft.Divider(height=1),
             ft.Text(self.SECTION_LOG, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-            ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=16, wrap=True),
+            ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=24, wrap=True),
             ft.Divider(height=1),
             ft.Text(self.SECTION_SECURITY, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-            ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=16, wrap=True),
+            ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=24, wrap=True),
             ft.Container(expand=True),
             ft.Container(content=ft.Row([
                 ft.ElevatedButton(self.SAVE_LABEL, on_click=self._save, height=32),
             ], alignment=ft.MainAxisAlignment.END)),
-        ], spacing=12, expand=True)
+        ], spacing=16, expand=True)
 
         self._panel = ft.Container(
             opacity=1.0, width=self.PANEL_WIDTH, height=self.PANEL_HEIGHT,
