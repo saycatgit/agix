@@ -118,5 +118,115 @@
     "state_file": "/home/agent_native/inner_space/task/task_20260719_150148_state.json",
     "subtasks_count": 1,
     "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇web游戏",
+    "main_task_detail": "开发一个单文件HTML的贪吃蛇游戏，包含移动控制、食物生成、分数统计、游戏结束判定等核心功能，使用HTML/CSS/JS实现，可直接在浏览器打开。",
+    "status": "in_progress",
+    "created_at": "2026-07-19T22:31:22",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260719_223122_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇Web游戏",
+    "main_task_detail": "开发一个贪吃蛇web游戏，要求：单文件HTML/CSS/JS实现，包含键盘方向键控制蛇移动、随机食物生成、分数统计、游戏结束判定与重新开始功能，界面美观可直接在浏览器打开。",
+    "status": "in_progress",
+    "created_at": "2026-07-19T22:40:15",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260719_224015_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇游戏",
+    "main_task_detail": "开发一个完整的Web贪吃蛇小游戏，包含蛇的移动控制（方向键）、食物随机生成、得分系统、碰撞检测（墙壁和自身）、游戏结束与重新开始功能，使用纯HTML/CSS/JS实现，单文件即可运行。",
+    "status": "in_progress",
+    "created_at": "2026-07-20T14:01:24",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260720_140124_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇游戏",
+    "main_task_detail": "开发一个完整的Web贪吃蛇小游戏，使用纯HTML/CSS/JS实现，单文件即可运行。游戏包含：蛇的移动控制（通过方向键）、食物随机生成、得分系统、碰撞检测（墙壁和自身），以及游戏结束和重新开始功能。",
+    "status": "in_progress",
+    "created_at": "2026-07-20T14:18:13",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260720_141813_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇Web游戏",
+    "main_task_detail": "开发一个纯HTML/CSS/JS实现的单文件贪吃蛇游戏，包含方向键控制、食物随机生成、得分系统、碰撞检测（墙壁和自身）、游戏结束与重新开始功能。",
+    "status": "in_progress",
+    "created_at": "2026-07-20T14:34:04",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260720_143404_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "俄罗斯方块游戏",
+    "main_task_detail": "开发一个完整的Web俄罗斯方块游戏，包含方块生成与下落、旋转、左右移动、加速下落、消行、得分系统、游戏结束判断、重新开始功能，使用纯HTML/CSS/JS实现，单文件即可运行。",
+    "status": "in_progress",
+    "created_at": "2026-07-20T18:39:21",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260720_183921_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "贪吃蛇游戏开发",
+    "main_task_detail": "使用HTML/CSS/JS创建完整的贪吃蛇游戏，包含游戏画布、键盘控制、得分系统、游戏结束判定和重新开始功能，要求界面美观、操作流畅、代码整洁。",
+    "status": "in_progress",
+    "created_at": "2026-07-21T05:14:18",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260721_051418_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "日期获取展示",
+    "main_task_detail": "获取当前系统日期并显示给用户",
+    "status": "in_progress",
+    "created_at": "2026-07-21T08:35:48",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260721_083548_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "多时区美国时间",
+    "main_task_detail": "在Linux终端中获取并展示美国四个主要时区（东部、中部、山区、太平洋）的当前时间，包含时区缩写和夏令时判断。",
+    "status": "in_progress",
+    "created_at": "2026-07-21T08:50:41",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260721_085041_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "北京时间展示",
+    "main_task_detail": "在Linux终端中获取并展示当前北京时间",
+    "status": "in_progress",
+    "created_at": "2026-07-21T08:57:46",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260721_085746_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
+  },
+  {
+    "main_task_name": "展示北京时间",
+    "main_task_detail": "获取并展示当前北京时间",
+    "status": "in_progress",
+    "created_at": "2026-07-21T09:03:49",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260721_090349_state.json",
+    "subtasks_count": 1,
+    "completed_count": 1
   }
 ]

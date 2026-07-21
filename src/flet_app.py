@@ -4,9 +4,10 @@ import asyncio, os, uuid, subprocess, webbrowser, flet as ft
 from flet_ui.task_panel import TaskPanel
 from flet_ui.chat_panel import ChatPanel
 from flet_ui.status_sidebar import StatusSidebar
-from flet_ui.settings_panel import SettingsPanel
+from flet_ui.model_settings_panel import ModelSettingsPanel
 from flet_ui.sys_settings_panel import SystemSettingsPanel
 from flet_ui.task_config_panel import TaskConfigPanel
+from flet_ui.unified_settings_panel import UnifiedSettingsPanel
 from event_queue_manager import EventQueueManager
 from meta import MsgType, MsgField, MsgStyle
 from llm_client import PROVIDERS
@@ -50,11 +51,14 @@ class AgixUI:
         self.chat_panel = ChatPanel(
             page, eqm, agent, _STYLE_VISUALS, _AVATAR_DATA, MsgStyle, MsgType, PROVIDERS,
         )
-        self.settings_panel = SettingsPanel(page, agent.config, PROVIDERS)
+        self.model_settings_panel = ModelSettingsPanel(page, agent.config, PROVIDERS)
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
+        self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel)
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir,
-                                            extra_controls=[self.task_switch])
+                                            extra_controls=[self.task_switch],
+                                            on_chat_select=lambda p, s="": self._on_sidebar_select(p, s))
+        self.status_sidebar._default_work_dir = agent.config.execution.work_dir
 
         self._setup_window()
         self._build_title_bar()
@@ -62,6 +66,17 @@ class AgixUI:
         self._start_poll_loop()
 
     # ── 窗口控制 ──
+
+    def _on_sidebar_select(self, path: str, state_file: str = ""):
+        """侧边栏选中项目目录，切换 work_dir 并重新初始化 chat 记忆。"""
+        if path and path != self.agent.config.execution.work_dir:
+            self.agent.config.execution.work_dir = path
+            self.chat_panel.update_work_dir()
+        if state_file:
+            self.agent._chat_init(state_file)
+        elif path:
+            # 空白区点击取消选中：重置回默认路径，初始化新对话
+            self.agent._chat_init("")
 
     def _setup_window(self):
         p = self.page
@@ -104,9 +119,7 @@ class AgixUI:
                 self.task_light,
                 ft.Text("Agix", size=14, expand=True,text_align=ft.TextAlign.CENTER)
             ], alignment=ft.MainAxisAlignment.START), expand=True),
-            ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="模型设置", on_click=lambda e: self.settings_panel.open()),
-            ft.IconButton(icon=ft.Icons.ASSIGNMENT, icon_size=18, tooltip="任务配置", on_click=lambda e: self.task_config_panel.open()),
-            ft.IconButton(icon=ft.Icons.TUNE, icon_size=18, tooltip="系统配置", on_click=lambda e: self.sys_settings_panel.open()),
+            ft.IconButton(icon=ft.Icons.SETTINGS, icon_size=18, tooltip="设置", on_click=lambda e: self.unified_settings.open()),
             ft.IconButton(icon=ft.Icons.MINIMIZE, icon_size=18, tooltip="最小化", on_click=self._minimize),
             ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化/还原", on_click=self._maximize, ref=self._max_btn_ref),
             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=self._close),
@@ -117,9 +130,7 @@ class AgixUI:
     def _assemble_page(self):
         self.page.add(ft.Container(
             content=ft.Stack([ft.Row([self.status_sidebar.container, ft.Column([self.tb, self.chat_panel.container], expand=True)], expand=True),
-                self.task_panel.wrapper, self.settings_panel.panel,
-                self.sys_settings_panel.panel,
-                self.task_config_panel.panel], expand=True),
+                self.task_panel.wrapper, self.unified_settings.panel], expand=True),
             bgcolor=ft.Colors.WHITE,
             border_radius=ft.BorderRadius(3, 3, 3, 3),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,

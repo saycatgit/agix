@@ -11,7 +11,7 @@ class TaskConfigPanel:
     PANEL_HEIGHT: int = 560
     PANEL_BGCOLOR = ft.Colors.WHITE
     TITLE_BGCOLOR = ft.Colors.GREY_100
-    SIDEBAR_BGCOLOR = ft.Colors.GREY_50
+    SIDEBAR_BGCOLOR = ft.Colors.WHITE
     DIVIDER_COLOR = ft.Colors.GREY_300
     BORDER_RADIUS: int = 10
     SHADOW = ft.BoxShadow(spread_radius=1, blur_radius=12, color=ft.Colors.BLACK26)
@@ -93,6 +93,10 @@ class TaskConfigPanel:
     def panel(self) -> ft.Container:
         return self._panel
 
+    @property
+    def content_body(self) -> ft.Row:
+        return self._content_body
+
     def open(self):
         self._panel.visible = True
         self.page.update()
@@ -164,6 +168,7 @@ class TaskConfigPanel:
                 ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改主任务",
                     on_click=lambda e: self._add_category())], spacing=4),
             self._tf_cat_desc,
+            ft.Container(height=36),
         ], expand=1, spacing=4)
 
         # 中栏 —— 子任务
@@ -181,6 +186,7 @@ class TaskConfigPanel:
                 ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改子任务",
                     on_click=lambda e: self._add_subtype())], spacing=4),
             self._tf_sub_desc,
+            ft.Container(height=36),
         ], expand=1, spacing=4)
 
         # 右栏 —— 配置（prompt + phases）
@@ -205,13 +211,14 @@ class TaskConfigPanel:
                 ft.Row([self._tf_phase,
                 ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加 phase",
                     on_click=lambda e: self._add_phase())], spacing=4),
-            ], expand=2, spacing=4),
-            ft.Row([ft.ElevatedButton(self.SAVE_LABEL, on_click=lambda e: self._save_to_disk(),
+            ], expand=1, spacing=4),
+            ft.Container(height=24),
+            ft.Container(content=ft.Row([ft.ElevatedButton(self.SAVE_LABEL, on_click=lambda e: self._save_to_disk(),
                 style=self.BTN_STYLE, tooltip=self.SAVE_TOOLTIP)],
-                alignment=ft.MainAxisAlignment.END),
+                alignment=ft.MainAxisAlignment.END), padding=ft.Padding(0, 12, 0, 0)),
         ], expand=2, spacing=4)
 
-        body = ft.Row([
+        self._content_body = ft.Row([
             left, ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
             middle, ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
             right,
@@ -228,7 +235,7 @@ class TaskConfigPanel:
                         on_click=lambda e: self.close()),
                 ], spacing=6), bgcolor=self.TITLE_BGCOLOR, padding=ft.Padding(12, 8, 12, 8),
                     border_radius=ft.BorderRadius(self.BORDER_RADIUS, self.BORDER_RADIUS, 0, 0)),
-                ft.Container(content=body, padding=ft.Padding(12, 8, 12, 8), expand=True),
+                ft.Container(content=self._content_body, padding=ft.Padding(12, 8, 12, 8), expand=True),
             ], spacing=0, expand=True),
         )
         self._refresh_categories()

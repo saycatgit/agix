@@ -378,8 +378,11 @@ class ToolExecutor:
         period = args.get("period", "")
         is_now = (not first_time or
                   first_time.strip().lower() in ("now", "immediate", "立即"))
-        # 立即执行的任务默认启用交互模式
-        is_interactive = args.get("interactive", False) or is_now
+        # 未明确传入时回退到 config，不再强制立即执行为交互模式
+        if "interactive" in args:
+            is_interactive = args["interactive"]
+        else:
+            is_interactive = getattr(self.agent.config.auth, "interactive", False)
 
         r = self.agent.scheduler.add_task(task, first_time, is_periodic=is_periodic, period=period, is_interactive=is_interactive)
         if r["ok"]:
@@ -708,13 +711,13 @@ class ToolExecutor:
         if self.mode == "chat":
             progress = getattr(agent, "chat_stage_progress", None)
         else:
-            progress = getattr(agent.task_manager, "_stage_progress", None)
+            progress = getattr(agent.backend_task_manager, "_stage_progress", None)
         if not progress:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         progress.update_steps(stage, steps)
         try:
-            agent.task_manager.save_plan_steps(agent.task_manager._stage_progress)
+            agent.backend_task_manager.save_plan_steps(agent.backend_task_manager._stage_progress)
         except Exception:
             pass
 

@@ -37,6 +37,10 @@ class SystemSettingsPanel:
     def panel(self) -> ft.Container:
         return self._panel
 
+    @property
+    def content_body(self) -> ft.Column:
+        return self._content_body
+
     def open(self):
         self._panel.visible = True
         self.page.update()
@@ -55,15 +59,35 @@ class SystemSettingsPanel:
         self._sys_mem_en = ft.Switch(label="启用记忆", height=30, value=cfg.execution.memory_enabled)
         self._sys_rounds = ft.TextField(label="调用上限", value=str(cfg.execution.max_rounds), width=100, **tf)
         self._sys_work_dir = ft.TextField(value=cfg.execution.work_dir, read_only=True, **tf)
-        self._sys_enable_history = ft.Switch(
-            label="历史任务关联", height=30, value=cfg.execution.enable_history_task_association,
-        )
+        self._sys_enable_history = ft.Switch(label="历史任务关联", height=30,
+            value=cfg.execution.enable_history_task_association)
         self._sys_log_enabled = ft.Switch(label="启用日志", height=30, value=cfg.log.enabled)
         self._sys_log_history = ft.Switch(label="记录历史", height=30, value=cfg.log.history)
         self._sys_auth_interactive = ft.Switch(label="交互模式", height=30, value=cfg.auth.interactive)
-        self._sys_auth_sensitive = ft.Switch(
-            label="敏感命令检查", height=30, value=cfg.auth.sensitive_command_check,
-        )
+        self._sys_auth_sensitive = ft.Switch(label="敏感命令检查", height=30,
+            value=cfg.auth.sensitive_command_check)
+
+        self._content_body = ft.Column([
+            ft.Text(self.SECTION_EXEC, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
+            ft.Row([
+                ft.Text(self.WORK_DIR_LABEL, size=14), self._sys_work_dir,
+                ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip=self.PICK_DIR_TOOLTIP, on_click=lambda e: self._pick_dir()),
+            ], spacing=4),
+            ft.Row([
+                self._sys_timeout, self._sys_rounds,
+            ], spacing=14),
+            ft.Row([self._sys_mem_en, self._sys_enable_history], spacing=16),
+            ft.Divider(height=1),
+            ft.Text(self.SECTION_LOG, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
+            ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=16, wrap=True),
+            ft.Divider(height=1),
+            ft.Text(self.SECTION_SECURITY, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
+            ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=16, wrap=True),
+            ft.Container(expand=True),
+            ft.Container(content=ft.Row([
+                ft.ElevatedButton(self.SAVE_LABEL, on_click=self._save, height=32),
+            ], alignment=ft.MainAxisAlignment.END)),
+        ], spacing=12, expand=True)
 
         self._panel = ft.Container(
             opacity=1.0, width=self.PANEL_WIDTH, height=self.PANEL_HEIGHT,
@@ -79,25 +103,7 @@ class SystemSettingsPanel:
                     padding=ft.Padding(16, 7, 10, 7), bgcolor=self.TITLE_BGCOLOR,
                     border_radius=ft.BorderRadius(self.BORDER_RADIUS, self.BORDER_RADIUS, 0, 0),
                 ),
-                ft.Container(content=ft.Column([
-                    ft.Text(self.SECTION_EXEC, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-                    ft.Row([
-                        ft.Text(self.WORK_DIR_LABEL, size=14), self._sys_work_dir,
-                        ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=18, tooltip=self.PICK_DIR_TOOLTIP, on_click=lambda e: self._pick_dir()),
-                    ], spacing=4),
-                    ft.Row([
-                        self._sys_timeout, self._sys_rounds, self._sys_mem_en, self._sys_enable_history,
-                    ], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Divider(height=1),
-                    ft.Text(self.SECTION_LOG, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-                    ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=16, wrap=True),
-                    ft.Divider(height=1),
-                    ft.Text(self.SECTION_SECURITY, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-                    ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=16, wrap=True),
-                    ft.Container(content=ft.Row([
-                        ft.ElevatedButton(self.SAVE_LABEL, on_click=self._save, height=32),
-                    ], alignment=ft.MainAxisAlignment.END)),
-                ], spacing=12), expand=True, padding=ft.Padding(16, 12, 16, 12)),
+                ft.Container(content=self._content_body, expand=True, padding=ft.Padding(16, 12, 16, 12)),
             ], spacing=0, expand=True),
         )
 
@@ -146,6 +152,6 @@ class SystemSettingsPanel:
             cfg.save()
             self.close()
         except Exception as ex:
-            self.page.show_dialog(ft.AlertDialog(content_padding=ft.Padding(20, 20, 20, 20),
+            self.page.show_dialog(ft.AlertDialog(shape=ft.RoundedRectangleBorder(radius=3), content_padding=ft.Padding(20, 20, 20, 20),
                 title=ft.Text(self.SAVE_FAIL_TITLE), content=ft.Text(str(ex)),
             ))

@@ -49,7 +49,7 @@
     },
     {
       "name": "其他",
-      "description": "不属于已有的任何类型",
+      "description": "其他",
       "subtypes": [
         {
           "name": "其他",

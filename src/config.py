@@ -2,6 +2,7 @@
 
 import json
 import os
+import requests
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
@@ -13,37 +14,21 @@ PROVIDERS = {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
         "balance_url": "https://api.deepseek.com/user/balance",
-        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
     },
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "balance_url": "",
-        "models": ["qwen3.7-max", "qwen3.7-plus"],
-    },
-    "openai": {
-        "name": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "balance_url": "",
-        "models": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
     },
     "zhipu": {
         "name": "智谱 GLM",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "balance_url": "https://open.bigmodel.cn/api/paas/v4/account/balance",
-        "models": ["glm-5", "glm-5.1", "glm-5.2"],
-    },
-    "moonshot": {
-        "name": "Moonshot",
-        "base_url": "https://api.moonshot.cn/v1",
-        "balance_url": "",
-        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     },
     "custom": {
         "name": "自定义",
         "base_url": "",
         "balance_url": "",
-        "models": [],
     },
 }
 
@@ -79,19 +64,17 @@ class PathConfig:
     def __post_init__(self):
         import os as _os
         r = self.root
-        self.root = r
         self.work_dir = r
         isd = _os.path.join(r, "inner_space")
         self.inner_space_dir = isd
         self.spc_dir = _os.path.join(isd, "spc")
         self.skills_dir = _os.path.join(isd, "skills")
         self.task_dir = _os.path.join(isd, "task")
-        self.config_file_path = _os.path.join(r, "config.json")
-        self.token_file = _os.path.join(r, "auth_token.json")
+        self.config_file_path = _os.path.join(isd, "config.json")
+        self.token_file = _os.path.join(isd, "auth_token.json")
         self.task_config_file_path = _os.path.join(self.task_dir, "task_config.json")
         self.pending_tasks_file_path = _os.path.join(self.task_dir, "pending_tasks.json")
         self.log_dir = _os.path.join(r, "workspace", "log")
-        self.memory_dir = _os.path.join(r, "workspace", "memory")
         self.ssh_dir = _os.path.join(isd, ".ssh")
         self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")
 
@@ -153,12 +136,13 @@ class AppConfig:
         """生产环境首次运行时复制资源到 USER_HOME，返回实际根目录。"""
         if not hasattr(sys, "_MEIPASS"):
             return AppConfig._get_root_path()
-        user_config = USER_HOME / "config.json"
+        user_config = USER_HOME / "inner_space" / "config.json"
         if not user_config.exists():
             import shutil
+            (USER_HOME / "inner_space").mkdir(parents=True, exist_ok=True)
             current_root = AppConfig._get_root_path()
             try:
-                shutil.copy2(current_root / "config.json", USER_HOME / "config.json")
+                shutil.copy2(current_root / "config.json", USER_HOME / "inner_space" / "config.json")
                 for dirname in ("workspace", "inner_space"):
                     src = current_root / dirname
                     dst = USER_HOME / dirname
@@ -344,3 +328,19 @@ class AppConfig:
             self.llm.api_key = resolved
             return True
         return False
+
+
+# ── 模型列表获取 ──
+
+def fetch_models_by_provider(provider: str, api_key: str) -> list[str]:
+    """根据供应商名获取模型名称列表。仅 DeepSeek 支持，其他返回空列表。"""
+    if provider != "deepseek":
+        return []
+    try:
+        resp = requests.get("https://api.deepseek.com/models",
+                            headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return sorted([m["id"] for m in data.get("data", []) if m.get("id")], key=lambda x: x.lower())
+    except Exception:
+        return []

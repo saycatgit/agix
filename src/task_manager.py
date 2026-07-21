@@ -73,16 +73,12 @@ class SubTaskRecord:
     sub_task_detail: str = ""
     task_type:      str =""
     task_sub_type:       str = ""
-    is_continuation: bool = False
-    related_subtask_task: str = ""
-    related_project_path: str = ""
     llm_context_info: str = ""
     extra_prompt:    str = ""
     phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
     dir_from:       str = ""
     project_path:   str = ""
-    docs_dir:       str = ""
     extra:          str = ""
     result_judge:   str = ""
     result_content: str = ""
@@ -190,13 +186,12 @@ class TaskManager:
             if status in (SubTaskStatus.COMPLETED, SubTaskStatus.FAILED, SubTaskStatus.SKIPPED):
                 rec.completed_at = _now_iso()
 
-    def set_subtask_project(self, index: int, project_path: str, docs_dir: str):
-        """设置子任务的项目路径和文档目录信息。"""
+    def set_subtask_project(self, index: int, project_path: str):
+        """设置子任务项目路径"""
         """设置子任务的项目名称、路径和文档目录"""
         rec = self._get_sub(index)
         if rec:
             rec.project_path = project_path
-            rec.docs_dir = docs_dir
 
     def set_subtask_docs(self, index: int, docs: dict):
         """设置子任务关联的文档路径和名称。"""
@@ -250,15 +245,6 @@ class TaskManager:
         rec = self._get_sub(index)
         if rec:
             rec.extra_prompt = extra_prompt
-
-    def set_subtask_history_relation(self, index: int, is_continuation: bool,
-                                     related_subtask_task: str, related_project_path: str):
-        """设置子任务的历史延续关系"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.is_continuation = is_continuation
-            rec.related_subtask_task = related_subtask_task
-            rec.related_project_path = related_project_path
 
     def set_subtask_phase_msgs(self, index: int, phase_msgs: list):
         """设置子任务的阶段信息列表"""
@@ -332,15 +318,11 @@ class TaskManager:
                 TaskField.SUBTASK_INDEX: s.index, TaskField.SUB_TASK_DETAIL: s.sub_task_detail, "task_type": s.task_type,
                 "task_sub_type": s.task_sub_type, "dir_from": s.dir_from, "status": s.status.value,
                 "project_path": s.project_path,
-                "docs_dir": s.docs_dir, "extra": s.extra,
                 "result_judge": s.result_judge, "result_content": s.result_content,
                 "round_count": s.round_count,
                 "messages": [_msg_to_dict(m) for m in s.messages],
                 "created_at": s.created_at, "completed_at": s.completed_at,
                 "plan_steps": s.plan_steps,
-                "is_continuation": s.is_continuation,
-                "related_subtask_task": s.related_subtask_task,
-                "related_project_path": s.related_project_path,
                 "phase_msgs": s.phase_msgs,
                 "llm_context_info": s.llm_context_info,
                 "extra_prompt": s.extra_prompt,
@@ -399,15 +381,11 @@ class TaskManager:
                 dir_from=sd.get("dir_from", ""),
                 status=SubTaskStatus(sd.get("status", "pending")),
                                 project_path=sd.get("project_path", ""),
-                docs_dir=sd.get("docs_dir", ""),
                                 extra=sd.get("extra", ""),
                 result_judge=sd.get("result_judge", ""),
                 result_content=sd.get("result_content", ""),
                 round_count=sd.get("round_count", 0),
                 messages=[QAMessage(**m) for m in sd.get("messages", [])],
-                is_continuation=sd.get("is_continuation", False),
-                related_subtask_task=sd.get("related_subtask_task", ""),
-                related_project_path=sd.get("related_project_path", ""),
                 phase_msgs=sd.get("phase_msgs", []),
                 llm_context_info=sd.get("llm_context_info", ""),
                 extra_prompt=sd.get("extra_prompt", ""),
@@ -540,6 +518,7 @@ class TaskManager:
                 "subtasks": [{
                     TaskField.SUBTASK_INDEX: s.get(TaskField.SUBTASK_INDEX),
                     TaskField.SUB_TASK_DETAIL: s.get(TaskField.SUB_TASK_DETAIL, ""),
+                    TaskField.SUB_TASK_NAME: s.get(TaskField.SUB_TASK_NAME, ""),
                     TaskField.TASK_TYPE: s.get(TaskField.TASK_TYPE, ""),
                     "status": s.get("status", ""),
                     "result_judge": s.get("result_judge", ""),
@@ -563,7 +542,7 @@ class TaskManager:
         total = 0
         for ti, t in enumerate(tasks[:15]):
             header = (
-                f"\n### 历史主任务 {ti+1}: {t[TaskField.MAIN_TASK_DETAIL]}"
+                f"\n### 历史主任务 {ti+1}: {t[TaskField.MAIN_TASK_NAME]} - {t[TaskField.MAIN_TASK_DETAIL]}"
                 f" (状态: {t['status']}, {t['completed_count']}/{t['subtasks_count']} 完成, 文件: {t['file_name']})"
             )
             total += len(header)
@@ -576,7 +555,7 @@ class TaskManager:
                 icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
                        .get(s["status"], "?")
                 sline = (
-                    f"  子任务{s[TaskField.SUBTASK_INDEX]} {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
+                    f"  子任务{s[TaskField.SUBTASK_INDEX]} {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_NAME, '')} - {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
                 )
                 if s.get("result_judge"):
                     sline += f" → 结果: {s['result_judge']}"

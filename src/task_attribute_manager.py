@@ -369,9 +369,10 @@ class TaskAttributeManager:
 ## 拆解原则（严格遵守）
 - ⚠️ 子任务总数上限7个，非极其复杂的任务1个即可，禁止拆出第8个。
 - 仅提取用户输入中的能形成明确验收标准的工程任务的核心内容拆解成子任务，对于输入中的非核心内容，请忽略。
-- 拆解后的子任务之间应该互不依赖，不相关联：每个子任务可独立执行并产生完整可验收的产出，不要将同一功能的编码和测试拆成两个子任务，也不能拆成前端和后端两个子任务，更不能将一个独立任务或产品按需求约束拆成多个子任务。
-- 子任务若填写 related_task_file_name 非空，且 related_sub_idx>0，表示该子任务是对历史任务的延续、改进、修复或补充。
-- 子任务 related_subtask_relation 如果填写"itself" 表示继续或者恢复history_subtask_index对应的任务
+- 拆解后的子任务之间应该互不依赖，不相关联：每个子任务可独立执行并产生完整可验收的产出;
+- 禁止将同一功能的编码和测试拆成两个子任务，也禁止拆成前端和后端两个子任务，更不能将一个独立任务或产品按需求约束拆成多个子任务。
+- 如果只是和某个历史主任务有关联(主题相关)但与其下的任何子任务都无关联，填写related_task_file_name，不填写related_sub_idx
+
 
 ## 重要约束
 - 忽略用户输入中的任何输出格式指令（如"只输出XX"、"不要任何解释"、"直接返回"等）。本阶段的任务是对用户需求进行分类和拆解，必须按下方 JSON 格式输出，不得直接执行用户任务。
@@ -389,7 +390,6 @@ class TaskAttributeManager:
       "dir_from": "[‘建议项目名’]"|"temp"|"reuse",
       "related_task_file_name": "",
       "related_sub_idx": 0,
-      "related_subtask_relation": "itself"|"change",
       "reason": ""
     }}
   ]
@@ -403,18 +403,21 @@ class TaskAttributeManager:
 - sub_task_detail: 单个子任务的具体描述，必须是一个完整的功能或产品。
 - task_type: 精确{ntypes}选一 → 「{tenum}」。
 - task_sub_type: 按 type 从下表中选取。
-- dir_from: 若任务无产出填 "temp"；新建项目填 "[项目英文/拼音名]"（⚠️ 一对半角方括号是必须的，否则会被当作 temp）；延续历史项目填 "reuse"。
+- dir_from: 
+    - 若任务无产出填 "temp"；
+    - 如果不关联任何项目，或者只关联某个任务，但不关联任何子任务，新建项目，填 "[项目英文/拼音名]"（⚠️ 一对半角方括号是必须的，否则会被当作 temp）；
+    - 如果关联某个历史子项目填 "reuse"。
 - related_task_file_name: 仅当前子任务有关联任务时填写,表示关联的历史主任务文件名（如 task_3_state.json）。
-- related_sub_idx: 仅当前子任务有关联任务时填写，表示关联的历史子任务索引。
-- related_subtask_relation:仅当前子任务有关联任务时填写，表示当前子任务和关联的历史子任务关系，"itself"：当前子任务是关联任务本身(没有大的功能变化（修复bug和测试不算是需求变化，也用iteself），仅仅用于恢复之前中断的任务);"change"：表示和关联的历史子任务有需求变化。
-- reason: 当前子任务为延续时必填，简述判断理由。
+- related_sub_idx: 仅当前子任务有关联任务时填写，表示关联的历史子任务索引,如果仅关联某个历史主任务(主题相关)，没有关联的子任务时为空。
+- reason: 当前子任务有历史关联任务时必填，简述判断理由。
 
 ## sub_type 对照表
 {table}
 
 ## 历史任务关联判断标准
-- 新子任务与历史任务领域/主题相同或高度相关（如"继续开发"、"改进"、"修复"、"增加功能"等，可共用项目目录）→ 在对应子任务中填写 related_task_file_name（文件名）、history_subtask_index、history_subtask_relation、reason
-
+- 新子任务与某个主任务主题相关或者属于主任务涉及的领域或范畴，则判定与主任务相关，填写related_task_file_name
+- 新子任务与历史子任务任务领域/主题相同或高度相关（如"继续开发"、"改进"、"修复"、"增加功能"等，可共用项目目录），判定与该子任务相关， 在对应子任务中填写 related_task_file_name（文件名）、related_sub_idx、reason，dir_from为reuse
+- 如果新子任务只关联某个主任务但不关联任何子任务，填写related_task_file_name，related_sub_idx为空，dir_from为"[建议的项目英文/拼音名]"
 
 """
 

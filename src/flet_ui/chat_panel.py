@@ -134,13 +134,14 @@ class ChatPanel:
         self._ci.on_submit = lambda e: self._send()
 
         self._model_label = ft.Text(self._get_active_label(), size=13, color=self.MODEL_LABEL_COLOR)
+        self._work_dir_text = ft.Text(
+            self.WORK_DIR_PREFIX + self.agent.config.execution.work_dir,
+            size=13, color=self.WORK_DIR_COLOR, overflow=ft.TextOverflow.ELLIPSIS,
+        )
 
         sb_ctrl = ft.Container(content=ft.Row([
             ft.Row([
-                ft.Text(
-                    self.WORK_DIR_PREFIX + self.agent.config.execution.work_dir,
-                    size=13, color=self.WORK_DIR_COLOR, overflow=ft.TextOverflow.ELLIPSIS,
-                ),
+                self._work_dir_text,
                 ft.IconButton(icon=ft.Icons.OPEN_IN_NEW, icon_size=14,
                     tooltip=self.WORK_DIR_TOOLTIP, on_click=self._open_work_dir),
             ], spacing=4),
@@ -229,6 +230,11 @@ class ChatPanel:
         self.page.update()
 
     # ── 工作目录 ──
+
+    def update_work_dir(self):
+        """更新显示的工作目录"""
+        self._work_dir_text.value = self.WORK_DIR_PREFIX + self.agent.config.execution.work_dir
+        self._work_dir_text.update()
 
     def _open_work_dir(self, e):
         wd = self.agent.config.execution.work_dir

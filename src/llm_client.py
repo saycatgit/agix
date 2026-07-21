@@ -16,7 +16,7 @@ import re , os, sys, time,locale, platform,json
 from typing import Optional, List, Dict, Any
 from prompts import history_context_summary_prompt
 from openai import BadRequestError
-
+from meta import MsgStyle
 
 # ── 历史压缩提示词 ──
 HISTORY_CONTEXT_SUMMARY_PROMPT = """请对以下对话历史进行总结提炼，保留以下关键信息：
@@ -32,7 +32,7 @@ HISTORY_CONTEXT_SUMMARY_PROMPT = """请对以下对话历史进行总结提炼�
 
 class LLMClient:
 
-    def __init__(self, config, logger=None, log_history=False, memory_file=None):
+    def __init__(self, config,eqm=None, logger=None, log_history=False, memory_file=None):
         # 支持 LLMConfig 或 dict
         if hasattr(config, "provider"):
             # LLMConfig
@@ -57,7 +57,11 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        provider_info = PROVIDERS[provider]
+        provider_info = PROVIDERS.get(provider, {
+            "name": provider,
+            "base_url": "",
+            "balance_url": "",
+        })
         if not api_key:
             print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
             print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
@@ -86,7 +90,7 @@ class LLMClient:
         self.logger = logger
         self.log_history = log_history
         self.last_system_prompt = ""  # 最近一次系统提示词
-
+        self.eqm=eqm
     # ---- 核心聊天 ----
 
     def _query_balance(self) -> dict | None:
@@ -206,7 +210,10 @@ class LLMClient:
     def chat(self, prompt: str, user_message: str,
              json_mode: bool = False, use_memory: Optional[bool] = None) -> str:
 
-        self._compress_history()
+        cmpret= self._compress_history()
+        if self.eqm and cmpret:
+            self.eqm.send_display(cmpret, mode="chat", style=MsgStyle.WARN)
+
         self._save_memory()
 
         messages = [{"role": "system", "content": prompt}]
@@ -308,7 +315,10 @@ class LLMClient:
         若解析失败，返回 {"type": "error", "message": "..."}
         """
         # 入口落盘保留完整历史记录，防止孤儿tool
-        self._compress_history()
+
+        cmpret= self._compress_history()
+        if self.eqm and cmpret:
+            self.eqm.send_display(cmpret, mode="chat", style=MsgStyle.WARN)
         self._save_memory()
 
         messages = [{"role": "system", "content": prompt}]
@@ -459,7 +469,11 @@ class LLMClient:
         # 调用 LLM 生成总结
         msgs = [{"role": "system", "content": history_context_summary_prompt}]
         msgs.extend(to_summarize)
-        msgs.append({"role": "user", "content": f"根据系统提示词生成增量信息,并将增量信息或修改变更添加到如下总结当中:\n{self.history_compress_summary}\n直接返回总结后的快照结果，不要任何其他信息"})
+        msgs.append({"role": "user", "content": \
+            f"请暂停之前任务，有个临时任务需要你对之前的会话内容根据临时系统提示词要求进行整理压缩，"\
+            f"如下为之前的历史上下文总结快照信息：\n{self.history_compress_summary}\n"\
+            f"如果有新的增量或者变化信息请和上述快照整合，并以文本方式输出，除了输出总结快照不要有任何其他信息。"        
+        })
 
         try:
             resp = self.client.chat.completions.create(
@@ -473,31 +487,36 @@ class LLMClient:
                 self.logger.log(f"[WARN] 历史压缩失败: {e}")
             return
 
-        # 保留最近的 half 条
-        keep_start = max(0, len(to_summarize) - hold_items)
-        # 跳过前导 tool 消息，防止 assistant(tool_calls) 被截断后剩下孤儿 tool
-        while keep_start < len(to_summarize) and to_summarize[keep_start].get("role") == "tool":
-            keep_start += 1
-        recent = to_summarize[keep_start:]
+        # 检查压缩输出是否残留 XML 工具调用标记，有则直接终止
+        if re.search(r'</?\w*(?:tool_calls|invoke|parameter)', summary):
+            return (f"历史压缩输出包含 XML 残留，终止执行。summary 前200字: {summary[:200]}")
+        else: 
+            # 保留最近的 half 条
+            keep_start = max(0, len(to_summarize) - hold_items)
+            # 跳过前导 tool 消息，防止 assistant(tool_calls) 被截断后剩下孤儿 tool
+            while keep_start < len(to_summarize) and to_summarize[keep_start].get("role") == "tool":
+                keep_start += 1
+            recent = to_summarize[keep_start:]
 
-        # 构建新 history: 总结 + 近期条目
-        summary_entry = {"role": "user", "content": f"[上下文总结]\n{summary}"}
-        self.history = [summary_entry] + recent
-        self.history_compress_summary = summary_entry["content"]
-        if self.logger:
-            self.logger.log(f"最新[历史压缩]结果: {self.history_compress_summary}")        # 写回 memory_file（覆盖模式）
-        try:
-            os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
-            with open(self.memory_file, "w", encoding="utf-8") as f:
-                for entry in self.history:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception as e:
+            # 构建新 history: 总结 + 近期条目
+            summary_entry = {"role": "user", "content": f"[上下文总结]\n{summary}"}
+            self.history = [summary_entry] + recent
+            self.history_compress_summary = summary_entry["content"]
             if self.logger:
-                self.logger.log(f"[WARN] 保存压缩记忆失败: {e}")
+                self.logger.log(f"最新[历史压缩]结果: {self.history_compress_summary}")        # 写回 memory_file（覆盖模式）
+            try:
+                os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+                with open(self.memory_file, "w", encoding="utf-8") as f:
+                    for entry in self.history:
+                        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except Exception as e:
+                if self.logger:
+                    self.logger.log(f"[WARN] 保存压缩记忆失败: {e}")
+                    return (f"[WARN] 保存压缩记忆失败: {e}")
 
-        self._last_saved_count = len(self.history)
-        if self.logger:
-            self.logger.log(f"[历史压缩] {new_count} 条 → 1 条总结 + {len(recent)} 条最近记录")
+            self._last_saved_count = len(self.history)
+            if self.logger:
+                self.logger.log(f"[历史压缩] {new_count} 条 → 1 条总结 + {len(recent)} 条最近记录")
 
 
     @staticmethod

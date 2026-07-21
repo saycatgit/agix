@@ -8,7 +8,7 @@ log/
 .idea/
 .env
 venv/
-config.json
+inner_space/config.json
 workspace/
 git-server/
 spc/

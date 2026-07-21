@@ -26,11 +26,15 @@ class StatusSidebar:
         "pending": "待执行",
     }
 
-    def __init__(self, page: ft.Page, task_dir: str, visible: bool = True, extra_controls: list = None):
+    def __init__(self, page: ft.Page, task_dir: str, visible: bool = True, extra_controls: list = None, on_chat_select=None):
         self.page = page
         self.task_dir = task_dir
         self._visible = visible
         self._extra_controls = extra_controls or []
+        self._on_chat_select = on_chat_select
+        self._default_work_dir = ""
+        self._selected_key = ""
+        self._needs_refresh = False
         self._last_data_hash = None
         self._build()
 
@@ -44,31 +48,37 @@ class StatusSidebar:
 
     def toggle(self):
         self._panel.visible = not self._panel.visible
-        if self._panel.visible:
-            self.refresh()
+        self.refresh()
         self.page.update()
 
     def refresh(self):
-        tasks, pending = self._load_all()
-        import json as _json
-        data_hash = hash(_json.dumps((tasks, pending), sort_keys=True, default=str))
-        if data_hash == self._last_data_hash:
+        tasks, pending, chat_tasks = self._load_all()
+
+        # hash 缓存：数据不变且无强制刷新标记时跳过重建
+        import hashlib, json as _json
+        data_str = _json.dumps({"tasks": tasks, "pending": pending, "selected_key": self._selected_key}, sort_keys=True, default=str)
+        data_hash = hashlib.md5(data_str.encode()).hexdigest()
+        if not self._needs_refresh and data_hash == self._last_data_hash:
             return
         self._last_data_hash = data_hash
+        self._needs_refresh = False
+
         self._list.controls.clear()
 
-        if not tasks and not pending:
+        has_any = tasks or pending or chat_tasks
+        if not has_any:
             self._list.controls.append(
                 ft.Text(self.EMPTY_TEXT, size=12, color=ft.Colors.GREY_400, italic=True))
         else:
+            # 历史任务
             if tasks:
                 self._list.controls.append(
                     ft.Text("历史任务", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500))
                 for t in tasks:
                     self._list.controls.append(self._task_card(t))
-
+            # 计划任务
             if pending:
-                if tasks:
+                if tasks or chat_tasks:
                     self._list.controls.append(ft.Divider(height=1, color=ft.Colors.GREY_300))
                 self._list.controls.append(
                     ft.Text("计划任务", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500))
@@ -81,15 +91,25 @@ class StatusSidebar:
 
     def _build(self):
         self._list = ft.ListView(spacing=6, padding=ft.Padding(8, 4, 8, 4), expand=True)
+        def _on_panel_click(e):
+            self._selected_key = ""
+            self._needs_refresh = True
+            self.refresh()
+            if self._default_work_dir and self._on_chat_select:
+                self._on_chat_select(self._default_work_dir, "")
         self._panel = ft.Container(
             visible=self._visible,
             expand_loose=True,
             width=self.WIDTH,
             bgcolor=self.BGCOLOR,
-            content=ft.Column([
-                self._build_title_bar(),
-                ft.Container(content=self._list, expand=True),
-            ], spacing=0, expand=True),
+            content=ft.GestureDetector(
+                mouse_cursor=ft.MouseCursor.BASIC,
+                on_tap=_on_panel_click,
+                content=ft.Column([
+                    self._build_title_bar(),
+                    ft.Container(content=self._list, expand=True),
+                ], spacing=0, expand=True),
+            ),
         )
 
     def _build_title_bar(self) -> ft.Container:
@@ -134,18 +154,13 @@ class StatusSidebar:
                         pass
                 subtasks = cleaned_subtasks
 
-                # 汇总各 phase 步骤
-                in_progress_subtasks = []
+                # 汇总所有子任务
+                all_subtasks = []
                 for s in subtasks:
-                    if s.get("status") != "in_progress":
-                        continue
-                    sub_phases = []
-                    for phase, steps in s.get("plan_steps", {}).items():
-                        done = sum(1 for st in steps if st.get("status") == "completed")
-                        sub_phases.append({"name": phase, "done": done, "total": len(steps)})
-                    in_progress_subtasks.append({
+                    all_subtasks.append({
                         "name": s.get("sub_task_name", "未知子任务"),
-                        "phases": sub_phases,
+                        "project_path": s.get("project_path", ""),
+                        "status": s.get("status", "pending"),
                     })
                 valid_paths = [s.get("project_path", "") for s in subtasks
                                if s.get("project_path") and os.path.isdir(s.get("project_path", ""))]
@@ -155,7 +170,7 @@ class StatusSidebar:
                     "state_file": fpath,
                     "project_paths": valid_paths,
                     "created_at": mt.get("created_at", ""),
-                    "in_progress_subtasks": in_progress_subtasks,
+                    "subtasks_list": all_subtasks,
                 })
             except (json.JSONDecodeError, IOError):
                 continue
@@ -169,7 +184,7 @@ class StatusSidebar:
         except (json.JSONDecodeError, IOError):
             pass
 
-        return tasks, pending
+        return tasks, pending, []
 
     # ── 卡片 ──
 
@@ -191,32 +206,64 @@ class StatusSidebar:
         )
 
     def _task_card(self, task: dict) -> ft.Container:
-        desc = task["name"][:36] + ("…" if len(task["name"]) > 36 else "")
-
-        header = ft.Row([
-            ft.Column([
-                ft.Text(desc, size=12, weight=ft.FontWeight.W_500, max_lines=2,
-                        overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Row([self._status_badge(task["status"])], spacing=4),
-            ], expand=True, spacing=2),
-        ], spacing=4)
-
-        rows = [header]
-        for sub in task.get("in_progress_subtasks", []):
-            rows.append(ft.Text(f"▸ {sub['name']}",
-                                size=11, weight=ft.FontWeight.W_500,
-                                color=ft.Colors.BLUE_700))
-            for ph in sub.get("phases", []):
-                rows.append(ft.Text(f"    {ph['name']}: {ph['done']}/{ph['total']}",
-                                    size=10, color=ft.Colors.BLUE_GREY_400))
-
+        """主任务卡片：分组标签 + 子任务列表（单选）"""
+        name = task["name"][:40] or "未知任务"
+        rows = [
+            ft.Text(name, size=10, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
+        ]
+        for i, sub in enumerate(task.get("subtasks_list", []), 1):
+            sub_name = sub.get("name", "?")[:24]
+            pp = sub.get("project_path", "")
+            sub_status = sub.get("status", "pending")
+            sub_key = f"{task['state_file']}::{i}"
+            selected = (self._selected_key == sub_key)
+            rows.append(ft.Row([
+                ft.Text("●" if selected else "○", size=12,
+                        color=ft.Colors.BLUE if selected else ft.Colors.GREY_400),
+                ft.Text(sub_name, size=12, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+                        color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
+                self._status_badge(sub_status),
+            ], spacing=4, expand=True,
+               vertical_alignment=ft.CrossAxisAlignment.CENTER))
+        # 主任务级菜单
+        menu_items = [
+            ft.PopupMenuItem(content=ft.Text("修改", size=12),
+                             on_click=lambda e, t=task: self._edit_main_task(t)),
+            ft.PopupMenuItem(content=ft.Text("删除", size=12),
+                             on_click=lambda e, t=task: self._confirm_delete_task(t)),
+        ]
+        # 每行子任务也加点击
+        clickable_rows = [rows[0]]  # main task label, not clickable
+        for i, row in enumerate(rows[1:], 1):
+            sub = task.get("subtasks_list", [])[i-1]
+            pp = sub.get("project_path", "")
+            sub_key = f"{task['state_file']}::{i}"
+            wrapper = ft.Container(
+                content=row,
+                on_click=lambda e, k=sub_key, p=pp, s=task["state_file"]: self._select_card(k, p, s),
+                padding=ft.Padding(2, 0, 2, 0),
+                border_radius=4,
+            )
+            clickable_rows.append(wrapper)
         return ft.Container(
-            content=ft.Column(rows, spacing=4),
+            content=ft.Row([
+                ft.Column(clickable_rows, spacing=2, expand=True),
+                ft.PopupMenuButton(items=menu_items, icon_size=16),
+            ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
             bgcolor=ft.Colors.WHITE, border_radius=6,
-            padding=ft.Padding(8, 6, 8, 6),
+            padding=ft.Padding(8, 6, 4, 6),
             border=self._card_border(),
-            on_click=lambda e: self._open_project(task),
         )
+
+    def _select_card(self, key: str, path: str, state_file: str = ""):
+        """选中卡片，切换项目目录。"""
+        if key == self._selected_key:
+            return
+        self._selected_key = key
+        if path and self._on_chat_select:
+            self._on_chat_select(path, state_file)
+        self._needs_refresh = True
+        self.refresh()
 
     def _pending_card(self, pending: dict, idx: int) -> ft.Container:
         name = pending.get("task_name", "未知")[:36]
@@ -259,6 +306,7 @@ class StatusSidebar:
 
     def _show_task_menu(self, task: dict):
         dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
             content=ft.Column([
@@ -270,6 +318,7 @@ class StatusSidebar:
 
     def _show_pending_menu(self, pending: dict, idx: int):
         dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("操作"),
             content=ft.Column([
@@ -304,6 +353,71 @@ class StatusSidebar:
         else:
             subprocess.Popen(["xdg-open", path])
 
+    def _open_path(self, path: str):
+        """在系统文件管理器中打开指定路径"""
+        if not path or not os.path.isdir(path):
+            return
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.Popen(["open", path])
+        elif system == "Windows":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", path])
+
+    def _edit_main_task(self, task: dict):
+        """修改主任务和各子任务的名字和详情"""
+        state_file = task.get("state_file")
+        if not state_file or not os.path.exists(state_file):
+            return
+        try:
+            with open(state_file) as f:
+                data = json.load(f)
+        except Exception:
+            return
+        mt = data.get("maintask", {})
+        subs = data.get("subtasks", [])
+
+        name_field = ft.TextField(label="主任务名", value=mt.get("main_task_name", ""), dense=True)
+        detail_field = ft.TextField(label="主任务详情", value=mt.get("main_task_detail", ""), dense=True, multiline=True, min_lines=1, max_lines=4)
+        sub_fields = []
+        for s in subs:
+            sub_fields.append(ft.TextField(label=f"子任务名", value=s.get("sub_task_name", ""), dense=True))
+            sub_fields.append(ft.TextField(label=f"  详情", value=s.get("sub_task_detail", ""), dense=True, multiline=True, min_lines=1, max_lines=2))
+
+        content_col = ft.Column([
+            ft.Text("主任务", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_500),
+            name_field, detail_field,
+            ft.Text("子任务", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_500),
+        ] + sub_fields, spacing=8, scroll=ft.ScrollMode.AUTO, height=400)
+
+        def on_save(e):
+            mt["main_task_name"] = name_field.value
+            mt["main_task_detail"] = detail_field.value
+            for i, s in enumerate(subs):
+                s["sub_task_name"] = sub_fields[i*2].value
+                s["sub_task_detail"] = sub_fields[i*2+1].value
+            data["maintask"] = mt
+            data["subtasks"] = subs
+            try:
+                with open(state_file, "w") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            self._close_dialog(dlg)
+            self.refresh()
+
+        dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),
+            title=ft.Text("修改任务", size=16, weight=ft.FontWeight.BOLD),
+            content=content_col,
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
+                ft.FilledButton("保存", on_click=on_save),
+            ],
+        )
+        self._open_dialog(dlg)
+
     def _confirm_delete_task(self, task: dict):
         """弹出确认对话框后删除历史任务记录"""
         def on_yes(e):
@@ -315,6 +429,7 @@ class StatusSidebar:
 
         name = task.get("name", "未知")[:30]
         dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确定删除项目「{name}」的记录吗？\n\n项目文件夹不会被删除。"),
@@ -349,6 +464,7 @@ class StatusSidebar:
 
         name = pending.get("task_name", "未知")[:30]
         dlg = ft.AlertDialog(
+            shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 20, 20, 20),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确定删除计划任务「{name}」吗？"),
