@@ -4,7 +4,6 @@
 动态提示词（plan_classify / combined_classify）通过 TaskAttributeManager 从 spc/spec.json 生成。
 """
 
-import os
 from task_attribute_manager import TaskAttributeManager
 
 
@@ -70,8 +69,7 @@ class Prompts:
     实例属性: 通过 TaskAttributeManager 从 spec.json 加载 plan_classify / combined_classify
 
     使用方式:
-        prompts = Prompts(spc_dir)
-        prompt = prompts.tools_sys + "\n" + prompts.imp_base
+        prompts = Prompts("inner_space/task/task_config.json")
     """
 
     # ── 固定提示词 ──
@@ -239,6 +237,7 @@ class Prompts:
 - 修改后验证：只读取被修改的几行，不重复读全文件。
 - 多处修改一次验证：多个 read_file 合并为一次 shell 命令（如 `head -20 file && echo "---" && tail -5 file`）。
 
+
 """
 
 
@@ -285,10 +284,9 @@ class Prompts:
       backend_dev_guidelines+"\n"
     # ── 初始化 ──
 
-    def __init__(self, spc_dir: str, task_config_path: str = ""):
-        """从 spec.json 加载动态提示词"""
-        json_path = task_config_path or os.path.join(spc_dir, "task_config.json")
-        self._attr_mgr = TaskAttributeManager(json_path)
+    def __init__(self, task_config_path: str):
+        """从 task_config.json 加载动态提示词"""
+        self._attr_mgr = TaskAttributeManager(task_config_path)
         self.plan_classify = self._attr_mgr.build_plan_prompt()
         self.combined_classify = self._attr_mgr.build_combined_prompt()
         self._build_dynamic_prompts()
@@ -309,8 +307,8 @@ class Prompts:
 # **收到用户输入首要事情**
 - 用户输入信息后先要判断内容类型：
   - 如果信息为某子任务执行结果，仅根据已收到的信息做总结，等待用户下一步指令.（禁止读取项目内容文件，绝对禁止再次执行该子任务)。
-  - 如果信息可以分解为一个或多个有明确验收标准的相互独立的工程任务的组合，将符合（{ cats_with_desc }）场景包的任务内容提取出来作为 start_task输入启动任务模式，严格按照用户指令，不得随意增减需求，仅作任务内容提取。
-  - 如果是定时任务，直接通过任务模式启动定时任务，start_task支持定时功能，不需要其他外部组件。
+  - 如果信息可以分解为一个或多个有明确验收标准的相互独立的工程任务的组合，将符合（{ cats_with_desc }）场景包的任务内容提取出来作为 start_task输入启动任务模式，严格按照用户指令，不得随意增减需求。
+  - 如果是定时任务，用户原话作为参数调用start_task，不需要其他外部组件。
   - 如果信息表明当前需求是之前某个项目的延续，直接用start_task启动任务模式，不要试图了解之前的项目信息，项目信息只在任务模式存档,严格按照用户指令，不能随意增减需求。
 - start_task提交任务后直接结束会话，**禁止执行将要提交或之前已经提交到任务模式的任务**。
 - 如果用户需求不足以启动任务模式，但涉及 2 个以上 file_patch、跨文件修改、或多个独立操作步骤，必须先调用 update_plan 规划执行步骤，每个步骤完成后及时更新状态，直至任务完成。禁止跳过 update_plan 直接执行多步骤操作。

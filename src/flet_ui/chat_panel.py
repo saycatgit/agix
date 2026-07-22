@@ -224,8 +224,6 @@ class ChatPanel:
         self.agent.config.save()
         self.agent.chat_llm.model = self.agent.config.llm.model
         self.agent.chat_llm.api_key = self.agent.config.llm.api_key
-        self.agent.task_llm.model = self.agent.config.llm.model
-        self.agent.task_llm.api_key = self.agent.config.llm.api_key
         self._model_label.value = self._get_active_label()
         self.page.update()
 

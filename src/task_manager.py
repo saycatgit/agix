@@ -1,7 +1,7 @@
 """任务状态管理器
 
 维护 Agent 任务管线的完整状态信息：
-- 主任务与所有子任务的类型、内容、当前状态
+- 所有子任务的类型、内容、当前状态
 - 各子任务对应的项目路径和文档目录
 - Agent 与用户的问答交互历史
 - 任务执行结果
@@ -39,15 +39,6 @@ class SubTaskStatus(Enum):
     FAILED      = "failed"
     SKIPPED     = "skipped"
 
-
-class MainTaskStatus(Enum):
-    """主任务整体状态"""
-    PENDING     = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED   = "completed"
-    FAILED      = "failed"
-
-
 # ================================================================
 # 数据记录
 # ================================================================
@@ -77,6 +68,10 @@ class SubTaskRecord:
     extra_prompt:    str = ""
     phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
+    first_execution_time: str = ""
+    next_execution_time:  str = ""
+    is_periodic:     bool = False
+    period:          str = ""
     dir_from:       str = ""
     project_path:   str = ""
     extra:          str = ""
@@ -91,26 +86,24 @@ class SubTaskRecord:
     @staticmethod
     def from_orchestrate_item(index: int, item: dict) -> "SubTaskRecord":
         """从 orchestrate 列表项构造记录"""
-        return SubTaskRecord(
+        # 解析时间字段
+        first_time = item.get("first_execution_time", "now")
+        is_periodic = bool(item.get("is_periodic", False))
+        period = str(item.get("period", ""))
+        rec = SubTaskRecord(
             index=index,
             sub_task_detail=item.get(TaskField.SUB_TASK_DETAIL, ""),
             sub_task_name=item.get(TaskField.SUB_TASK_NAME, ""),
             task_type=item.get("task_type", "其他"),
             task_sub_type=item.get("task_sub_type", ""),
             dir_from=item.get("dir_from", ""),
+            is_periodic=is_periodic,
+            period=period,
             created_at=_now_iso(),
         )
-
-
-@dataclass
-class MainTaskRecord:
-    """主任务记录"""
-    main_task_name:   str
-    main_task_detail: str = ""
-    status:        MainTaskStatus = MainTaskStatus.PENDING
-    created_at:    str = ""
-    completed_at:  str = ""
-    total_rounds:  int = 0
+        # 计算 next_execution_time
+        rec.next_execution_time = _parse_execution_time(first_time)
+        return rec
 
 
 # ================================================================
@@ -126,187 +119,129 @@ class TaskManager:
 
     def __init__(self, save_path: str = ""):
         """初始化任务管理器。save_path 用于 save() 持久化。"""
-        self._main:     MainTaskRecord | None = None
-        self._subtasks: list[SubTaskRecord]   = []
+        self._subtask: SubTaskRecord | None = None
         self._global_messages: list[QAMessage] = []
         self._conversation_log: list[dict] = []
         self._save_path = save_path
         self._stage_progress: StageProgress | None = None
-
-    # ── 主任务 ──
-
-    def start(self, main_task_name: str, main_task_detail: str = "") -> MainTaskRecord:
-        """开始一个新主任务"""
-        self._main = MainTaskRecord(
-            main_task_name=main_task_name,
-            main_task_detail=main_task_detail,
-            status=MainTaskStatus.IN_PROGRESS,
-            created_at=_now_iso(),
-        )
-        self._subtasks.clear()
-        self._global_messages.clear()
-        self._conversation_log.clear()
-        return self._main
-
-    def finish(self, success: bool = True):
-        """标记主任务完成"""
-        if self._main:
-            self._main.status = MainTaskStatus.COMPLETED if success else MainTaskStatus.FAILED
-            self._main.completed_at = _now_iso()
-
-    @property
-    def main_task(self) -> MainTaskRecord | None:
-        """当前主任务记录。"""
-        return self._main
-
-    @property
-    def status(self) -> MainTaskStatus:
-        """主任务整体状态。"""
-        return self._main.status if self._main else MainTaskStatus.PENDING
+        self._periodic_counter: int = 0
 
     # ── 子任务管理 ──
 
-    def add_subtask(self, index: int, item: dict) -> SubTaskRecord:
-        """从一个 orchestrate 字典项添加子任务记录"""
-        rec = SubTaskRecord.from_orchestrate_item(index, item)
-        self._subtasks.append(rec)
+    def set_subtask(self, item: dict) -> SubTaskRecord:
+        """设置（创建或替换）当前子任务记录"""
+        rec = SubTaskRecord.from_orchestrate_item(1, item)
+        self._subtask = rec
         return rec
 
-    def append_subtask(self, item: dict) -> SubTaskRecord:
-        """添加单个子任务，自动分配不冲突的索引"""
-        max_idx = max((s.index for s in self._subtasks), default=0)
-        index = max_idx + 1
-        return self.add_subtask(index, item)
-
-    def add_subtasks_from_orchestrate(self, orchestrate: list[dict]):
-        """从完整的 orchestrate 列表批量添加子任务。"""
-        """从完整的 orchestrate 列表批量添加子任务"""
-        for i, item in enumerate(orchestrate, 1):
-            self.add_subtask(i, item)
-
-    def set_subtask_status(self, index: int, status: SubTaskStatus):
+    def set_subtask_status(self, status: SubTaskStatus):
         """更新子任务的状态"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.status = status
+        if self._subtask:
+            self._subtask.status = status
             if status in (SubTaskStatus.COMPLETED, SubTaskStatus.FAILED, SubTaskStatus.SKIPPED):
-                rec.completed_at = _now_iso()
+                self._subtask.completed_at = _now_iso()
 
-    def set_subtask_project(self, index: int, project_path: str):
+    def set_subtask_project(self, project_path: str):
         """设置子任务项目路径"""
-        """设置子任务的项目名称、路径和文档目录"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.project_path = project_path
+        if self._subtask:
+            self._subtask.project_path = project_path
 
-    def set_subtask_docs(self, index: int, docs: dict):
+    def set_subtask_docs(self, docs: dict):
         """设置子任务关联的文档路径和名称。"""
-        """从 docs 字典提取路径保存（不保存文档内容）"""
-        rec = self._get_sub(index)
-        if rec:
-            paths = []
+        if self._subtask:
             for k, v in docs.items():
                 if isinstance(v, dict) and v.get("path"):
-                    paths.append(v["path"])
+                    pass  # 保持接口兼容，不再按列表存储路径
 
-    def set_subtask_result(self, index: int, judge: str, content: str, rounds: int = 0):
+    def set_subtask_result(self, judge: str, content: str, rounds: int = 0):
         """记录子任务的执行结果（成功/失败判定 + 结果摘要 + 消耗轮次）。"""
-        """记录子任务执行结果"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.result_judge   = judge
-            rec.result_content = content
-            rec.round_count    = rounds
+        if self._subtask:
+            self._subtask.result_judge   = judge
+            self._subtask.result_content = content
+            self._subtask.round_count    = rounds
 
-
-    def append_subtasks(self, orchestrate: list[dict], start_index: int | None = None) -> int:
-        """向现有子任务列表追加新的子任务。返回第一个新子任务的 index。"""
-        """为历史任务延续追加新子任务
-
-        Returns:
-            第一个新子任务的 index（即 start_index）
-        """
-        if start_index is None:
-            start_index = len(self._subtasks) + 1
-        for j, item in enumerate(orchestrate):
-            idx = start_index + j
-            self.add_subtask(idx, item)
-        return start_index
-
-    def reactivate(self):
-        """重新激活任务管理器（重置活跃状态位）。"""
-        """将主任务状态重新设为 IN_PROGRESS（用于延续）"""
-        if self._main:
-            self._main.status = MainTaskStatus.IN_PROGRESS
-
-    def set_subtask_extra(self, index: int, extra: str):
+    def set_subtask_extra(self, extra: str):
         """设置子任务的额外元信息字段。"""
-        """设置子任务附加信息"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.extra = extra
+        if self._subtask:
+            self._subtask.extra = extra
 
-    def set_subtask_extra_prompt(self, index: int, extra_prompt: str):
+    def set_subtask_extra_prompt(self, extra_prompt: str):
         """设置子任务配置 extra_prompt。"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.extra_prompt = extra_prompt
+        if self._subtask:
+            self._subtask.extra_prompt = extra_prompt
 
-    def set_subtask_phase_msgs(self, index: int, phase_msgs: list):
+    def set_subtask_phase_msgs(self, phase_msgs: list):
         """设置子任务的阶段信息列表"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.phase_msgs = phase_msgs
+        if self._subtask:
+            self._subtask.phase_msgs = phase_msgs
 
-    def set_subtask_llm_context_info(self, index: int, info: str):
+    def set_subtask_llm_context_info(self, info: str):
         """设置子任务的 LLM 上下文信息哈希"""
-        rec = self._get_sub(index)
-        if rec:
-            rec.llm_context_info = info
+        if self._subtask:
+            self._subtask.llm_context_info = info
 
-    def get_subtask(self, index: int) -> SubTaskRecord | None:
-        """按索引获取子任务记录。"""
-        return self._get_sub(index)
+    # ── 时间管理 ──
+
+    def set_subtask_execution_time(self, first_time: str, is_periodic: bool = False, period: str = ""):
+        """设置子任务的执行时间相关字段并计算 next_execution_time。"""
+        if self._subtask:
+            self._subtask.first_execution_time = first_time
+            self._subtask.is_periodic = is_periodic
+            self._subtask.period = period
+            self._subtask.next_execution_time = _parse_execution_time(first_time)
+
+    def is_execution_time_reached(self) -> bool:
+        """检查子任务是否到达执行时间。无子任务或无 next_execution_time 返回 False。"""
+        if not self._subtask or not self._subtask.next_execution_time:
+            return False
+        try:
+            target = datetime.fromisoformat(self._subtask.next_execution_time)
+            return datetime.now() >= target
+        except (ValueError, TypeError):
+            return False
+
+    def reschedule_next_execution(self):
+        """周期任务：将 next_execution_time 推进一个 period。非周期任务或无 period 不操作。"""
+        sub = self._subtask
+        if not sub or not sub.is_periodic or not sub.period or not sub.next_execution_time:
+            return
+        try:
+            current = datetime.fromisoformat(sub.next_execution_time)
+            delta = _parse_duration(sub.period)
+            if delta:
+                next_time = current + delta
+                # 跳过已过去的时间
+                now = datetime.now()
+                while next_time <= now:
+                    next_time += delta
+                sub.next_execution_time = next_time.isoformat()
+                sub.status = SubTaskStatus.PENDING
+        except (ValueError, TypeError):
+            pass
+
+    def update_execution_time(self, next_time_iso: str):
+        """直接设置 next_execution_time（如 Planner 已计算好）。"""
+        if self._subtask:
+            self._subtask.next_execution_time = next_time_iso
+            if not self._subtask.first_execution_time:
+                self._subtask.first_execution_time = next_time_iso
 
     @property
-    def subtasks(self) -> list[SubTaskRecord]:
-        """所有子任务列表。"""
-        return list(self._subtasks)
+    def subtask(self) -> SubTaskRecord | None:
+        """当前子任务记录。"""
+        return self._subtask
 
-    @property
-    def pending_subtasks(self) -> list[SubTaskRecord]:
-        """状态为 PENDING 或 IN_PROGRESS 的子任务。"""
-        return [s for s in self._subtasks if s.status == SubTaskStatus.PENDING]
+    # ── 问答记录与对话日志 ──
 
-    @property
-    def current_subtask(self) -> SubTaskRecord | None:
-        """当前正在执行的子任务（首个 IN_PROGRESS）。"""
-        """当前正在执行的子任务（第一个 IN_PROGRESS）"""
-        for s in self._subtasks:
-            if s.status == SubTaskStatus.IN_PROGRESS:
-                return s
-        return None
-
-    # ── 问答记录 ──
-
-    def add_qa(self, index: int | None, role: str, content: str, context: str = ""):
-        """向指定子任务添加一条问答记录。"""
-        """记录一条问答消息"""
+    def add_qa(self, role: str, content: str, context: str = ""):
+        """向当前子任务添加一条问答记录"""
         msg = QAMessage(role=role, content=content, timestamp=_now_iso(), context=context)
-        if index is None:
-            self._global_messages.append(msg)
-        else:
-            rec = self._get_sub(index)
-            if rec:
-                rec.messages.append(msg)
+        if self._subtask:
+            self._subtask.messages.append(msg)
 
-    def get_qa_history(self, index: int | None = None) -> list[QAMessage]:
-        """获取指定子任务（或全局）的问答历史列表。"""
-        """获取指定子任务或全局的问答历史"""
-        if index is None:
-            return list(self._global_messages)
-        rec = self._get_sub(index)
-        return list(rec.messages) if rec else []
+    def get_qa_history(self) -> list[QAMessage]:
+        """获取当前子任务的问答历史"""
+        return list(self._subtask.messages) if self._subtask else []
 
     # ── 序列化 ──
 
@@ -337,18 +272,17 @@ class TaskManager:
                 d[TaskField.SUB_TASK_NAME] = s.sub_task_name
             return d
 
-        main = self._main
         return {
-            "maintask": {
-                TaskField.MAIN_TASK_NAME: main.main_task_name if main else "",
-                TaskField.MAIN_TASK_DETAIL: main.main_task_detail if main else "",
-                "status": main.status.value if main else MainTaskStatus.PENDING.value,
-                "created_at": main.created_at if main else "",
-                "completed_at": main.completed_at if main else "",
-            },
-            "subtasks": [_sub_to_dict(s) for s in self._subtasks],
+            "subtask": _sub_to_dict(self._subtask) if self._subtask else None,
             "conversation_log": list(self._conversation_log),
             TaskField.GENERAL_MSGS: [_msg_to_dict(m) for m in self._global_messages],
+            "periodic": {
+                "counter": self._periodic_counter,
+                "first_execution_time": self._subtask.first_execution_time if self._subtask else "",
+                "next_execution_time": self._subtask.next_execution_time if self._subtask else "",
+                "is_periodic": self._subtask.is_periodic if self._subtask else False,
+                "period": self._subtask.period if self._subtask else "",
+            },
         }
 
     def save(self, path: str = ""):
@@ -359,6 +293,15 @@ class TaskManager:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
 
+    def increment_periodic_counter(self):
+        """每执行一次子任务，计数器自增 1，并推进 next_execution_time"""
+        self._periodic_counter += 1
+        self.reschedule_next_execution()
+
+    def is_periodic(self) -> bool:
+        """当前子任务是否为周期任务"""
+        return self._subtask is not None and self._subtask.is_periodic
+
     @classmethod
     def load(cls, path: str) -> "TaskManager":
         """从 JSON 文件恢复 TaskManager 实例"""
@@ -367,27 +310,19 @@ class TaskManager:
 
         tm = cls(save_path=path)
 
-        main_data = data.get("maintask", {})
-        if main_data.get(TaskField.MAIN_TASK_NAME):
-            tm._main = MainTaskRecord(
-                main_task_name=main_data.get(TaskField.MAIN_TASK_NAME, ""),
-                main_task_detail=main_data.get(TaskField.MAIN_TASK_DETAIL, ""),
-                status=MainTaskStatus(main_data.get("status", "pending")),
-                created_at=main_data.get("created_at", ""),
-                completed_at=main_data.get("completed_at", ""),
-            )
 
-        for sd in data.get("subtasks", []):
+        sd = data.get("subtask")
+        if sd:
             rec = SubTaskRecord(
-                index=sd[TaskField.SUBTASK_INDEX],
+                index=sd.get(TaskField.SUBTASK_INDEX, 1),
                 sub_task_detail=sd.get(TaskField.SUB_TASK_DETAIL, ""),
-                task_type=sd[TaskField.TASK_TYPE],
+                task_type=sd.get(TaskField.TASK_TYPE, ""),
                 sub_task_name=sd.get(TaskField.SUB_TASK_NAME, ""),
                 task_sub_type=sd.get(TaskField.TASK_SUB_TYPE, ""),
                 dir_from=sd.get("dir_from", ""),
                 status=SubTaskStatus(sd.get("status", "pending")),
-                                project_path=sd.get("project_path", ""),
-                                extra=sd.get("extra", ""),
+                project_path=sd.get("project_path", ""),
+                extra=sd.get("extra", ""),
                 result_judge=sd.get("result_judge", ""),
                 result_content=sd.get("result_content", ""),
                 round_count=sd.get("round_count", 0),
@@ -398,30 +333,30 @@ class TaskManager:
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
+            # 从 periodic 对象读取调度字段（兼容旧格式：字段可能仍在 subtask 顶层）
+            pd = data.get("periodic", {})
+            rec.first_execution_time = pd.get("first_execution_time") or sd.get("first_execution_time", "")
+            rec.next_execution_time = pd.get("next_execution_time") or sd.get("next_execution_time", "")
+            rec.is_periodic = pd.get("is_periodic", sd.get("is_periodic", False))
+            rec.period = pd.get("period") or sd.get("period", "")
             rec.plan_steps = sd.get("plan_steps", {})
-            tm._subtasks.append(rec)
+            tm._subtask = rec
 
         tm._conversation_log = data.get("conversation_log", [])
         tm._global_messages = [QAMessage(**m) for m in data.get(TaskField.GENERAL_MSGS, [])]
+        tm._periodic_counter = data.get("periodic", {}).get("counter", 0)
         return tm
 
     # ── 汇总查询 ──
 
     # ── 对话日志 ──
 
-    def add_conversation_entry(self, role: str, content: str,
-                               subtask_index: int | None = None):
-        """向当前会话的对话日志追加一条记录。"""
-        """记录一条对话日志
-
-        role 取值: "user" | "assistant" | "agent"
-        subtask_index: 关联的子任务序号，None 表示全局对话
-        """
+    def add_conversation_entry(self, role: str, content: str):
+        """记录一条对话日志。role: user|assistant|agent"""
         self._conversation_log.append({
             "role": role,
             "content": content,
             "timestamp": _now_iso(),
-            "subtask_index": subtask_index,
         })
 
     def get_conversation_context(self, max_chars: int = 8000) -> str:
@@ -429,7 +364,7 @@ class TaskManager:
         """格式化为 LLM 可读的对话上下文"""
         if not self._conversation_log:
             return ""
-        lines = ["## 当前主任务对话记录"]
+        lines = ["## 当前任务对话记录"]
         total = 0
         for entry in self._conversation_log:
             line = f"[{entry['timestamp']}] {entry['role']}: {entry['content']}"
@@ -469,15 +404,13 @@ class TaskManager:
                     break
 
             entry = {
-                TaskField.MAIN_TASK_NAME: self.main_task.main_task_name if self.main_task else "",
-                TaskField.MAIN_TASK_DETAIL: self.main_task.main_task_detail if self.main_task else "",
-                "status": self.main_task.status.value if self.main_task else "",
-                "created_at": self.main_task.created_at if self.main_task else "",
-                "completed_at": self.main_task.completed_at if self.main_task else "",
+                "status": "",
+                "created_at": "",
+                "completed_at": "",
                 "state_file": self._save_path,
-                "subtasks_count": len(self.subtasks),
-                "completed_count": sum(1 for s in self.subtasks
-                                      if s.status == SubTaskStatus.COMPLETED),
+                "has_subtask": self._subtask is not None,
+                "status": self._subtask.status.value if self._subtask else "",
+                "completed": self._subtask.status == SubTaskStatus.COMPLETED if self._subtask else False,
             }
             if existing is not None:
                 task_list[existing] = entry
@@ -498,42 +431,107 @@ class TaskManager:
         tasks = []
         if not os.path.isdir(log_dir):
             return tasks
-        _pat = re.compile(r'task_(\d+)_state\.json$')
-        for state_file in glob.glob(os.path.join(log_dir, "task_*_state.json")):
-            m = _pat.search(state_file)
-            task_num = int(m.group(1)) if m else 0
+        _pat = re.compile(r'task_(.+)_state\.json$')
+        for task_file in glob.glob(os.path.join(log_dir, "task_*_state.json")):
+            basename = os.path.basename(task_file)
+            m = _pat.search(task_file)
+            ts = m.group(1) if m else ""
             try:
-                with open(state_file, 'r', encoding='utf-8') as f:
+                with open(task_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             except Exception:
                 continue
-            main = data.get("maintask", {})
-            subtasks = data.get("subtasks", [])
-            completed = sum(1 for s in subtasks if s.get("status") == "completed")
+            if not isinstance(data, dict):
+                continue
+            st = data.get("subtask")
+            if not st:
+                continue
+            pd = data.get("periodic", {})
+            if bool(pd.get("is_periodic", False)):
+                continue
+            status = st.get("status", "")
+            # 仅终态任务归入历史（pending/in_progress 仍在计划列表中）
+            if status not in ("completed", "failed", "skipped"):
+                continue
             tasks.append({
-                "file": state_file,
-                "file_name": os.path.basename(state_file),
-                "task_num": task_num,
-                TaskField.MAIN_TASK_NAME: main.get(TaskField.MAIN_TASK_NAME, ""),
-                TaskField.MAIN_TASK_DETAIL: main.get(TaskField.MAIN_TASK_DETAIL, ""),
-                "status": main.get("status", ""),
-                "created_at": main.get("created_at", ""),
-                "completed_at": main.get("completed_at", ""),
-                "subtasks_count": len(subtasks),
-                "completed_count": completed,
-                "subtasks": [{
-                    TaskField.SUBTASK_INDEX: s.get(TaskField.SUBTASK_INDEX),
-                    TaskField.SUB_TASK_DETAIL: s.get(TaskField.SUB_TASK_DETAIL, ""),
-                    TaskField.SUB_TASK_NAME: s.get(TaskField.SUB_TASK_NAME, ""),
-                    TaskField.TASK_TYPE: s.get(TaskField.TASK_TYPE, ""),
-                    "status": s.get("status", ""),
-                    "result_judge": s.get("result_judge", ""),
-                    "result_content": s.get("result_content", ""),
-                    "messages": s.get("messages", []),
-                } for s in subtasks],
+                "file": task_file,
+                "file_name": basename,
+                "task_num": ts,
+                "status": st.get("status", ""),
+                "subtask": {
+                    TaskField.SUBTASK_INDEX: st.get(TaskField.SUBTASK_INDEX, 1),
+                    TaskField.SUB_TASK_DETAIL: st.get(TaskField.SUB_TASK_DETAIL, ""),
+                    TaskField.SUB_TASK_NAME: st.get(TaskField.SUB_TASK_NAME, ""),
+                    TaskField.TASK_TYPE: st.get(TaskField.TASK_TYPE, ""),
+                    TaskField.PROJECT_PATH: st.get(TaskField.PROJECT_PATH, ""),
+                    "status": st.get("status", ""),
+                    "result_judge": st.get("result_judge", ""),
+                    "result_content": st.get("result_content", ""),
+                    "messages": st.get("messages", []),
+                },
             })
-        tasks.sort(key=lambda t: t["task_num"])
+        tasks.sort(key=lambda t: t["file_name"])
         return tasks
+
+    @staticmethod
+    def list_history_tasks(task_dir: str) -> list[dict]:
+        """返回已执行任务列表（扁平结构，供 UI 消费）
+
+        每个元素: {name, status, state_file, project_path, task_type}
+        """
+        raw = TaskManager.scan_history_tasks(task_dir)
+        result = []
+        for t in raw:
+            s = t["subtask"]
+            pp = s.get(TaskField.PROJECT_PATH, "")
+            result.append({
+                "name": s.get(TaskField.SUB_TASK_NAME, "未知任务"),
+                "status": s.get("status", "pending"),
+                "state_file": t["file"],
+                "project_path": pp,
+                "task_type": s.get(TaskField.TASK_TYPE, ""),
+            })
+        return result
+
+    @staticmethod
+    def list_pending_tasks(task_dir: str) -> list[dict]:
+        """返回未执行任务列表（扁平结构，供 UI 消费）
+
+        扫描 task_dir 下 task_*_state.json，排除已完成的一次性任务。
+        """
+        if not os.path.isdir(task_dir):
+            return []
+        result = []
+        for fpath in sorted(glob.glob(os.path.join(task_dir, "task_*_state.json"))):
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    continue
+            except Exception:
+                continue
+            s = data.get("subtask", {})
+            if not s:
+                continue
+            pd = data.get("periodic", {})
+            is_periodic = bool(pd.get("is_periodic", s.get("is_periodic", False)))
+            # 非周期性任务 + 已终态 → 已完成的一次性任务，跳过
+            status = s.get("status", "")
+            if not is_periodic and status in ("completed", "failed", "skipped"):
+                continue
+            result.append({
+                "file": fpath,
+                "task_name": s.get(TaskField.SUB_TASK_NAME, "未命名"),
+                "status": status,
+                "next_execution_time": pd.get("next_execution_time") or s.get("next_execution_time", ""),
+                "is_periodic": is_periodic,
+                "is_interactive": s.get("is_interactive", False),
+                "period": pd.get("period") or s.get("period", ""),
+                "task_type": s.get(TaskField.TASK_TYPE, ""),
+                "project_path": s.get(TaskField.PROJECT_PATH, ""),
+                "sub_task_detail": s.get(TaskField.SUB_TASK_DETAIL, ""),
+            })
+        return result
 
     @staticmethod
     def build_history_context(log_dir: str, max_chars: int = 8000) -> str:
@@ -548,41 +546,38 @@ class TaskManager:
         total = 0
         for ti, t in enumerate(tasks[:15]):
             header = (
-                f"\n### 历史主任务 {ti+1}: {t[TaskField.MAIN_TASK_NAME]} - {t[TaskField.MAIN_TASK_DETAIL]}"
-                f" (状态: {t['status']}, {t['completed_count']}/{t['subtasks_count']} 完成, 文件: {t['file_name']})"
+                f"\n### 历史任务 {ti+1}: (状态: {t['status']}, 文件: {t['file_name']})"
             )
             total += len(header)
             if total > max_chars:
                 lines.append("\n...(更多历史任务省略)")
                 break
             lines.append(header)
-            # 子任务信息
-            for s in t["subtasks"]:
-                icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
-                       .get(s["status"], "?")
-                sline = (
-                    f"  子任务{s[TaskField.SUBTASK_INDEX]} {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_NAME, '')} - {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
-                )
-                if s.get("result_judge"):
-                    sline += f" → 结果: {s['result_judge']}"
-                total += len(sline)
-                if total > max_chars:
-                    break
-                lines.append(sline)
-            # 子任务的 content 和 messages（替代 conversation_log）
-            for s in t["subtasks"]:
-                msgs = s.get("messages", [])
-                if msgs:
-                    lines.append(f"  子任务{s[TaskField.SUBTASK_INDEX]} 对话 ({len(msgs)} 条):")
-                    for m in msgs[-3:]:
-                        mline = (
-                            f"    [{m.get('timestamp','')[:16]}] "
-                            f"{m.get('role','')}: {m.get('content','')[:120]}"
-                        )
-                        total += len(mline)
-                        if total > max_chars:
-                            break
-                        lines.append(mline)
+            s = t["subtask"]
+            icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
+                   .get(s["status"], "?")
+            sline = (
+                f"  {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_NAME, '')} - {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
+            )
+            if s.get("result_judge"):
+                sline += f" → 结果: {s['result_judge']}"
+            total += len(sline)
+            if total > max_chars:
+                break
+            lines.append(sline)
+            # 对话记录
+            msgs = s.get("messages", [])
+            if msgs:
+                lines.append(f"  对话 ({len(msgs)} 条):")
+                for m in msgs[-3:]:
+                    mline = (
+                        f"    [{m.get('timestamp','')[:16]}] "
+                        f"{m.get('role','')}: {m.get('content','')[:120]}"
+                    )
+                    total += len(mline)
+                    if total > max_chars:
+                        break
+                    lines.append(mline)
                 if total > max_chars:
                     break
         return "\n".join(lines)
@@ -615,19 +610,7 @@ class TaskManager:
             sub.plan_steps = progress.to_dict()
 
     def _active_subtask(self) -> SubTaskRecord | None:
-        """获取当前 IN_PROGRESS 状态的子任务。"""
-        for sub in self._subtasks:
-            if sub.status == SubTaskStatus.IN_PROGRESS:
-                return sub
-        return None
-
-
-    def _get_sub(self, index: int) -> SubTaskRecord | None:
-        """按索引查找子任务记录（内部方法）。"""
-        for s in self._subtasks:
-            if s.index == index:
-                return s
-        return None
+        return self._subtask
 
 
 # ================================================================
@@ -636,3 +619,43 @@ class TaskManager:
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _parse_execution_time(s: str) -> str:
+    """解析执行时间字符串，返回 ISO 格式字符串。
+
+    支持: "now"/"immediate"/"立即" → 当前时间
+          "+10m"/"+2h"/"+1d"/"+1w" → 相对时间
+          ISO 格式字符串 → 原样返回
+    """
+    if not s or s.strip().lower() in ("now", "immediate", "立即"):
+        return _now_iso()
+    s = s.strip()
+    if s.startswith("+"):
+        return (datetime.now() + _parse_duration(s[1:])).isoformat()
+    # 尝试识别 ISO 格式
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                 "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(s, fmt).isoformat()
+        except ValueError:
+            continue
+    return _now_iso()
+
+
+def _parse_duration(s: str):
+    """解析时长字符串，返回 timedelta。支持: 30m, 2h, 1d, 1w"""
+    from datetime import timedelta
+    s = s.strip().lower()
+    if s.endswith("m"):
+        return timedelta(minutes=int(s[:-1]))
+    if s.endswith("h"):
+        return timedelta(hours=int(s[:-1]))
+    if s.endswith("s"):
+        return timedelta(seconds=int(s[:-1]))
+    if s.endswith("d"):
+        return timedelta(days=int(s[:-1]))
+    if s.endswith("w"):
+        return timedelta(weeks=int(s[:-1]))
+    return timedelta(seconds=int(s))
+

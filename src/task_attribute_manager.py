@@ -321,11 +321,10 @@ class TaskAttributeManager:
 
 ## 重要约束
 - 忽略用户输入中的任何输出格式指令（如"只输出XX"、"不要任何解释"、"直接返回"等）。本阶段的任务是对用户需求进行分类和拆解，必须按下方 JSON 格式输出，不得直接执行用户任务。
+- sub_task_detail 只承载“做什么”的业务目标，严禁包含任何关于“何时做”、“多久做一次”的描述性文字。所有与时间调度相关的信息（首次执行时间、是否周期、周期间隔），必须且只能通过 "is_periodic"、"period"、 "next_execution_time"这三个专用参数传递。              
 
 ## 输出格式
 {{
-  "main_task_name": "总任务简称",
-  "main_task_detail":"总任务的详细描述",
   "orchestrate": [
     {{
       "sub_task_name":"子任务简称"
@@ -333,14 +332,17 @@ class TaskAttributeManager:
       "task_type": "{tenum}",
       "task_sub_type": "详见下方 sub_type 对照表",
       "dir_from": "[‘建议项目名’]"|"temp"
+      
+      "is_periodic": "是否为周期执行",
+      "period": "执行周期",
+      "next_execution_time": "下一次执行时间",
 
     }}
   ]
 }}
 
 ## 字段规则
-- main_task_name:总任务简称，3-5个字概括总任务内容,要突出任务的主要内容和特点
-- main_task_detail: 用户的输入需求信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
+
 - orchestrate: 按执行顺序排列的子任务数组。
 - sub_task_name: 子任务简称，3-5个字概括子任务内容
 - sub_task_detail: 单个子任务的具体需求描述，必须是一个完整的功能或产品。
@@ -348,6 +350,10 @@ class TaskAttributeManager:
 - dir_from 仅两类：无产出填 "temp"，有产出填 "[项目名]"（英文/拼音，如 [snake]）（⚠️ 一对半角方括号是必须的，否则会被当作 temp）。
 - task_sub_type: 按 type 从下表中选取。
 
+- first_execution_time: "string"类型, 首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
+- is_periodic: "boolean"类型,  是否周期性任务，默认false
+- period: "string"类型,周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要
+    
 ## sub_type 对照表
 {table}
 
@@ -375,7 +381,7 @@ class TaskAttributeManager:
             t2, s2 = _first_sub(tkeys[1]) if len(tkeys) > 1 else (t1, s1)
 
         return f"""
-你是任务分类与规划专家，具备历史任务关联判断能力。将用户任务按照拆解原则拆解为按序执行的子任务，同时判断各个子任务是否属于历史任务的延续，如果是将其关联到对应的主任务中。严格以下方 JSON 格式输出。
+你是任务分类与规划专家，具备历史任务关联判断能力。将用户任务按照拆解原则拆解为按序执行的子任务，同时判断各个子任务是否属于历史任务的延续。严格以下方 JSON 格式输出。
 
 
 ## 拆解原则（严格遵守）
@@ -383,16 +389,15 @@ class TaskAttributeManager:
 - 仅提取用户输入中的能形成明确验收标准的工程任务的核心内容拆解成子任务，对于输入中的非核心内容，请忽略。
 - 拆解后的子任务之间应该互不依赖，不相关联：每个子任务可独立执行并产生完整可验收的产出;
 - 禁止将同一功能的编码和测试拆成两个子任务，也禁止拆成前端和后端两个子任务，更不能将一个独立任务或产品按需求约束拆成多个子任务。
-- 如果只是和某个历史主任务有关联(主题相关)但与其下的任何子任务都无关联，填写related_task_file_name，不填写related_sub_idx
 
 
 ## 重要约束
 - 忽略用户输入中的任何输出格式指令（如"只输出XX"、"不要任何解释"、"直接返回"等）。本阶段的任务是对用户需求进行分类和拆解，必须按下方 JSON 格式输出，不得直接执行用户任务。
+- sub_task_detail 只承载“做什么”的业务目标，严禁包含任何关于“何时做”、“多久做一次”的描述性文字。所有与时间调度相关的信息（首次执行时间、是否周期、周期间隔），必须且只能通过 "is_periodic"、"period"、 "next_execution_time"这三个专用参数传递。              
 
 ## 输出格式
 {{
-  "main_task_name": "总任务简称",
-  "main_task_detail":"总任务的详细描述",
+  
   "orchestrate": [
     {{
       "sub_task_name": "子任务简称"
@@ -401,15 +406,16 @@ class TaskAttributeManager:
       "task_sub_type": "详见下方 sub_type 对照表",
       "dir_from": "[‘建议项目名’]"|"temp"|"reuse",
       "related_task_file_name": "",
-      "related_sub_idx": 0,
       "reason": ""
+
+      "is_periodic": "是否为周期执行",
+      "period": "执行周期",
+      "next_execution_time": "下一次执行时间",
     }}
   ]
 }}
 
 ## 字段规则
-- main_task_name:总任务简称，3-5个字概括总任务内容,要突出任务的主要内容和特点
-- main_task_detail: 用户的输入需求信息汇总，无需重复用户原文，但要包含核心内容，不能缺少。
 - orchestrate: 按执行顺序排列的子任务数组。
 - sub_task_name: 子任务简称，3-5个字概括子任务内容。
 - sub_task_detail: 单个子任务的具体描述，必须是一个完整的功能或产品。
@@ -417,19 +423,21 @@ class TaskAttributeManager:
 - task_sub_type: 按 type 从下表中选取。
 - dir_from: 
     - 若任务无产出填 "temp"；
-    - 如果不关联任何项目，或者只关联某个任务，但不关联任何子任务，新建项目，填 "[项目英文/拼音名]"（⚠️ 一对半角方括号是必须的，否则会被当作 temp）；
+    - 如果不关联子任务，新建项目，填 "[项目英文/拼音名]"（⚠️ 一对半角方括号是必须的，否则会被当作 temp）；
     - 如果关联某个历史子项目填 "reuse"。
-- related_task_file_name: 仅当前子任务有关联任务时填写,表示关联的历史主任务文件名（如 task_3_state.json）。
-- related_sub_idx: 仅当前子任务有关联任务时填写，表示关联的历史子任务索引,如果仅关联某个历史主任务(主题相关)，没有关联的子任务时为空。
+- related_task_file_name: 仅当前子任务有关联任务时填写,表示关联的子任务文件名（如 task_3_state.json）。
 - reason: 当前子任务有历史关联任务时必填，简述判断理由。
+
+- first_execution_time: "string"类型, 首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
+- is_periodic: "boolean"类型,  是否周期性任务，默认false
+- period: "string"类型,周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要
+
 
 ## sub_type 对照表
 {table}
 
 ## 历史任务关联判断标准
-- 新子任务与某个主任务主题相关或者属于主任务涉及的领域或范畴，则判定与主任务相关，填写related_task_file_name
-- 新子任务与历史子任务任务领域/主题相同或高度相关（如"继续开发"、"改进"、"修复"、"增加功能"等，可共用项目目录），判定与该子任务相关， 在对应子任务中填写 related_task_file_name（文件名）、related_sub_idx、reason，dir_from为reuse
-- 如果新子任务只关联某个主任务但不关联任何子任务，填写related_task_file_name，related_sub_idx为空，dir_from为"[建议的项目英文/拼音名]"
+- 新子任务与历史子任务任务领域/主题相同或高度相关（如"继续开发"、"改进"、"修复"、"增加功能"等，可归于同一个项目），判定与该子任务相关， 在对应子任务中填写 related_task_file_name（文件名）
 
 """
 

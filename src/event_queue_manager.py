@@ -72,7 +72,7 @@ class EventQueueManager:
     # ---------- user_input 消息 ----------
 
     def send_user_input(self, content: str, *, mode: str = "chat"):
-        """UI 线程 -> 工作线程: 发送用户输入"""
+        """各种需求 -> chater 线程: 发送消息给 chater 处理"""
         msg = self.make_msg(content, MsgType.USER_INPUT)
         if mode == "chat":
             self.to_chat_queue.put(msg)

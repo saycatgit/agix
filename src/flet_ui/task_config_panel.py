@@ -5,7 +5,7 @@ import flet as ft
 
 
 class TaskConfigPanel:
-    """任务配置面板 —— 管理 task_config.json（主任务/子任务/prompt/phases）"""
+    """任务配置面板 —— 管理 task_config.json（任务分类/子任务/prompt/phases）"""
 
     PANEL_WIDTH: int = 920
     PANEL_HEIGHT: int = 560
@@ -18,7 +18,7 @@ class TaskConfigPanel:
 
     LABEL_COLOR = ft.Colors.GREY_500
     TITLE_TEXT: str = "📋 任务配置"
-    CAT_LABEL: str = "主任务类型"
+    CAT_LABEL: str = "任务分类"
     SUB_LABEL: str = "子任务"
     CONFIG_LABEL: str = "配置"
     PROMPT_LABEL: str = "Prompt"
@@ -26,7 +26,7 @@ class TaskConfigPanel:
     SAVE_LABEL: str = "保存"
     SAVE_TOOLTIP: str = "保存到配置文件"
     CLOSE_TOOLTIP: str = "关闭"
-    PLACEHOLDER_CAT: str = "主任务类型"
+    PLACEHOLDER_CAT: str = "任务分类"
     PLACEHOLDER_SUB: str = "子任务类型"
     PLACEHOLDER_PROMPT: str = "填写子任务对应的系统提示词 prompt 行"
     PLACEHOLDER_PHASE: str = "填写子任务必须的阶段 phase 名称"
@@ -154,18 +154,18 @@ class TaskConfigPanel:
 
     def _build(self):
         tf = self.TF_DEFAULTS
-        # 左栏 —— 主任务
+        # 左栏 —— 任务分类
         self._tf_cat = ft.TextField(hint_text=self.PLACEHOLDER_CAT, **tf,
             expand=True, border_color=ft.Colors.GREY_300)
         self._tf_cat_desc = ft.TextField(
-            hint_text="主任务描述", **tf,
+            hint_text="分类描述", **tf,
             border_color=ft.Colors.GREY_300)
         left = ft.Column([
             ft.Text(self.CAT_LABEL, size=12, color=self.LABEL_COLOR),
             self._cat_list,
             ft.Divider(height=1, color=self.DIVIDER_COLOR),
             ft.Row([self._tf_cat,
-                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改主任务",
+                ft.IconButton(icon=ft.Icons.ADD, icon_size=18, tooltip="添加/修改分类",
                     on_click=lambda e: self._add_category())], spacing=4),
             self._tf_cat_desc,
             ft.Container(height=36),
@@ -241,7 +241,7 @@ class TaskConfigPanel:
         self._refresh_categories()
 
 
-    # ── 左栏：主任务 CRUD ──
+    # ── 左栏：任务分类 CRUD ──
 
     def _refresh_categories(self):
         self._cat_list.controls.clear()

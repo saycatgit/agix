@@ -1,6 +1,6 @@
 """通用工具类：系统提示音、加解密等"""
 
-import platform
+import os, glob, platform
 import subprocess
 
 
@@ -51,7 +51,37 @@ class Utils:
         from aes_crypto import is_encrypted as _is_encrypted
         return _is_encrypted(value)
 
+    @staticmethod
+    def scan_skills_dir(skills_dir: str) -> str:
+        """扫描 skills_dir 构建技能列表文本"""
+        if not skills_dir or not os.path.isdir(skills_dir):
+            return ""
+
+        lines = ["## 可用技能（优先查看是否有可用技能）："]
+        for skill_dir in sorted(glob.glob(os.path.join(skills_dir, "*"))):
+            if not os.path.isdir(skill_dir):
+                continue
+            name = os.path.basename(skill_dir)
+            md = os.path.join(skill_dir, "SKILL.md")
+            desc = ""
+            if os.path.isfile(md):
+                try:
+                    with open(md, "r", encoding="utf-8") as f:
+                        first = f.readline().strip().lstrip("#").strip()
+                        if first:
+                            desc = first
+                except Exception:
+                    pass
+            lines.append(f"- **{name}**: {desc or name}")
+            lines.append(f"  文档: {md}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    @staticmethod
+    def build_pretask_skills(skills_dir: str) -> str:
+        """构建可用技能列表文本"""
+        return Utils.scan_skills_dir(skills_dir)
+
 
 if __name__ == "__main__":
-    
+
     Utils.play_notification()

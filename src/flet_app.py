@@ -73,10 +73,10 @@ class AgixUI:
             self.agent.config.execution.work_dir = path
             self.chat_panel.update_work_dir()
         if state_file:
-            self.agent._chat_init(state_file)
+            self.agent.chater._chat_init(state_file)
         elif path:
             # 空白区点击取消选中：重置回默认路径，初始化新对话
-            self.agent._chat_init("")
+            self.agent.chater._chat_init("")
 
     def _setup_window(self):
         p = self.page

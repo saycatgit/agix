@@ -1,6 +1,7 @@
 from meta import MsgStyle
 from utils import Utils
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
+from planner import Planner
 
 import os, sys, threading , re, subprocess, json
 
@@ -126,17 +127,13 @@ TOOLS = [
             "name": "start_task",
             "description": (
                 "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。"
-                "可设置立即执行、延期执行、定时执行，也可以设置是否为交互模式，如果是立即执行的任务默认为交互。"
+                "所有时间/周期/交互模式信息直接写入 task 描述中，由 Planner 统一解析。"
                 "调用完start_task后，必须调用finish工具结束任务，禁止继续执行。"
-                ),
+                 ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "task": {"type": "string", "description": "要执行的任务描述，应清晰完整地表达任务目标"},
-                    "first_execution_time": {"type": "string", "description": "首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行"},
-                    "is_periodic": {"type": "boolean", "description": "是否周期性任务，默认false"},
-                    "period": {"type": "string", "description": "周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要"},
-                    "interactive": {"type": "boolean", "description": "是否为交互模式任务，默认false"}
+                    "task": {"type": "string", "description": "要执行的任务描述，包含时间/周期/交互模式等所有信息"}
                 },
                 "required": ["task"]
             }
@@ -191,12 +188,13 @@ TOOLS = [
 class ToolExecutor:
     """工具执行器：将 tool_call 转换为实际操作"""
 
-    def __init__(self, work_dir: str, logger=None, agent=None, eqm=None, mode: str = "chat"):
+    def __init__(self, work_dir: str, logger=None, agent=None, eqm=None, mode: str = "chat", task_manager=None):
         self.work_dir = os.path.abspath(work_dir)
         self.eqm = eqm            # EventQueueManager
         self.mode = mode          # "chat" | "task"
         self.logger = logger
         self.agent = agent
+        self.task_manager = task_manager
 
     # 各工具必填参数
     _REQUIRED_ARGS = {
@@ -330,7 +328,7 @@ class ToolExecutor:
     def _resolve_sudo_password(self, command: str, note: str = ""):
         """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""
         agent = getattr(self, "agent", None)
-        if agent and not getattr(agent, "is_interactive", False):
+        if agent and not agent.config.auth.interactive:
             # 非交互模式：有缓存密码直接用，没有返回 None
             if agent.config and agent.config.sudo_password:
                 return agent.config.sudo_password
@@ -364,35 +362,25 @@ class ToolExecutor:
         return None
 
     def _tool_start_task(self, args: dict) -> str:
-        """将任务提交到调度器，由工作线程统一执行（立即或定时）"""
+        """调用 Planner 对任务进行分类拆解并生成任务文件"""
         task = args.get("task", "")
         if not task:
-            return "start_task 需要 task 参数"
+            return "start_task 需要 task 参数，任务描述中应包含时间/周期/交互模式等所有信息"
         if not self.agent:
             return "start_task 不可用：未关联 agent 实例"
         if self.mode == "task":
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
 
-        first_time = args.get("first_execution_time", "") or "now"
-        is_periodic = args.get("is_periodic", False)
-        period = args.get("period", "")
-        is_now = (not first_time or
-                  first_time.strip().lower() in ("now", "immediate", "立即"))
-        # 未明确传入时回退到 config，不再强制立即执行为交互模式
-        if "interactive" in args:
-            is_interactive = args["interactive"]
-        else:
-            is_interactive = getattr(self.agent.config.auth, "interactive", False)
-
-        r = self.agent.scheduler.add_task(task, first_time, is_periodic=is_periodic, period=period, is_interactive=is_interactive)
+        planner = Planner(self.agent.config, self.agent.logger, eqm=self.eqm)
+        r = planner.run(task)
         if r["ok"]:
-            prefix = "任务已提交成功（立即执行）" if is_now else "任务已成功加入待执行列表"
-            msg = (f"{prefix}:\n"
-                   f"  ID: {r['task']['id']}\n"
-                   f"  任务: {task[:80]}\n"
-                   f"  下次执行: {r['task']['next_execution_time']}"
-                   f"{' (周期: ' + period + ')' if is_periodic else ''}"
-                   f"\n任务提交成功，任务结束。")
+            n_subtasks = len(r.get("subtasks", []))
+            n_files = len(r.get("task_files", []))
+            msg = (f"任务规划完成:\n"
+                   f"  任务: {task[:100]}\n"
+                   f"  子任务数: {n_subtasks}\n"
+                   f"  生成文件: {n_files}\n"
+                   f"任务提交成功，任务结束。")
             if self.logger:
                 self.logger.log(msg)
             return msg
@@ -414,7 +402,7 @@ class ToolExecutor:
         # 优先使用 EventQueueManager 进行交互
         eqm = getattr(self, "eqm", None)
         # 非交互模式直接拒绝，不管有没有 eqm
-        if self.agent and not getattr(self.agent, "is_interactive", False):
+        if self.agent and not self.agent.config.auth.interactive:
             return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
 
         if eqm is not None:
@@ -704,22 +692,19 @@ class ToolExecutor:
         stage = args.get("stage", "")
         explanation = args.get("explanation", "")
 
-        agent = getattr(self, "agent", None)
-        if not agent:
-            return json.dumps({"error": "agent not available"}, ensure_ascii=False)
+        if not self.task_manager:
+            return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         if self.mode == "chat":
-            progress = getattr(agent, "chat_stage_progress", None)
+            progress = getattr(self.task_manager, "chat_stage_progress", None)
         else:
-            progress = getattr(agent.backend_task_manager, "_stage_progress", None)
+            progress = getattr(self.task_manager, "_stage_progress", None)
         if not progress:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         progress.update_steps(stage, steps)
-        try:
-            agent.backend_task_manager.save_plan_steps(agent.backend_task_manager._stage_progress)
-        except Exception:
-            pass
+        if self.mode == "task":
+            self.task_manager.save_plan_steps(progress)
 
         # 打印更新后的进度
         if self.logger:

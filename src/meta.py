@@ -45,8 +45,6 @@ class TaskField:
     JUDGE = "judge"
     SUB_TASK_DETAIL = "sub_task_detail"
     SUB_TASK_NAME = "sub_task_name"
-    MAIN_TASK_NAME = "main_task_name"
-    MAIN_TASK_DETAIL = "main_task_detail"
     TASK_TYPE = "task_type"
     TASK_SUB_TYPE = "task_sub_type"
     SUBTASK_INDEX = "subtask_index"
