@@ -34,12 +34,14 @@ class Planner:
         Returns:
             dict with key 'orchestrate' (list)，失败返回 {'parse_error': ...} 或 RETURN_FALSE 标记
         """
+        task_input=" "
         if enable_history and history_ctx:
             system_prompt = self.prompts.combined_classify
-            task_input = history_ctx + "\n\n## 新任务\n" + user_task
+            task_input = history_ctx 
         else:
             system_prompt = self.prompts.plan_classify
-            task_input = user_task
+
+        task_input += "\n## 用户需求:\n" + user_task+"\n 根据系统提示词对此需求分类,并以json格式输出"
 
         result = self.llm.chat_json(system_prompt, task_input, use_memory=False)
 
