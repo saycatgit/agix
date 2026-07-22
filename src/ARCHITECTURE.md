@@ -1,101 +1,100 @@
-# Agent 系统架构文档
+# src/ 模块架构
 
-## 1. 系统概览
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   main.py (CLI入口, 344行)                       │
-│  交互模式 / 单次执行 / 配置向导 / /llm重新配置                    │
-│  AES加密API Key存储 (磁盘序列号加密, 不写rc文件)                  │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │ agent.run(goal, mode)
-┌──────────────────────▼──────────────────────────────────────────┐
-│                    agent.py (核心调度)                            │
-│  mode="chat": _run_chat()   对话模式                              │
-│  mode="task": _run_task()   任务模式 (分类→规划→执行→评估)       │
-│  双 LLM: chat_llm / task_llm                                     │
-└──────┬──────────────┬──────────────┬───────────────────────────┘
-       │              │              │
-┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐ ┌──────▼──────────┐
-│  tools.py   │ │  auth.py  │ │prompts.py  │ │  aes_crypto.py  │
-│ 8工具+模糊  │ │ 权限引擎   │ │ 提示词系统  │ │ AES-256-GCM    │
-│ 匹配兜底    │ │ 命令检查   │ │ 动态生成    │ │ 磁盘序列号密钥 │
-└─────────────┘ └───────────┘ └────────────┘ └─────────────────┘
-```
-
-## 2. API Key 存储 (v2 - AES 加密)
+## 模块关系
 
 ```
-设置阶段:
-  用户输入 sk-xxx → aes_crypto.encrypt(sk-xxx)
-  → 输出 'enc:aes:<base64(nonce+ciphertext+tag)>'
-  → 存入 config.json (不碰 shell rc 文件)
+agent.py ──中枢──► chater.py      Chat 对话管理
+    │              executor.py    后台任务调度
+    │              planner.py     任务分类+规划
+    │
+    ├─► tools.py           9 工具 + update_plan
+    ├─► task_manager.py    单子任务状态 + 持久化
+    ├─► prompts.py         提示词 (动态分类/规划/评估)
+    ├─► stage_progress.py  阶段步骤进度
+    ├─► task_attribute_manager.py  spec.json CRUD
+    ├─► llm_client.py      LLM 客户端 (多供应商)
+    ├─► auth.py            权限规则引擎
+    ├─► aes_crypto.py      AES-256-GCM 加密
+    ├─► config.py          配置管理
+    ├─► logger.py          日志模块
+    ├─► event_queue_manager.py  事件队列
+    ├─► meta.py            字段常量
+    ├─► node.py            子进程执行
+    └─► utils.py           工具函数
 
-读取阶段:
-  config.json → 'enc:aes:...' 
-  → aes_crypto.decrypt()  (磁盘序列号 → SHA-256 → AES密钥)
-  → 还原 sk-xxx → 初始化 LLM
-
-安全特性:
-  - 密钥绑定本机磁盘序列号 (lsblk → /sys → machine-id → hostname)
-  - 拷贝 config.json 到其他机器无法解密
-  - 不支持环境变量/rc文件回退 (已删除 _save_env_var/_load_env_from_rc)
+flet_ui/
+├── flet_app.py           Flet 应用入口
+├── chat_panel.py         对话面板
+├── status_sidebar.py     状态侧边栏
+└── task_config_panel.py  任务配置面板
 ```
 
-## 3. 项目文件
+## 核心接口速查
 
+### agent.py
 ```
-agent_native/
-├── main.py               CLI入口, 配置向导, API Key解析 (AES解密)
-├── agent.py              核心调度 (chat/task双模式, 双LLM)
-├── llm_client.py         LLM客户端 (OpenAI兼容, 6供应商)
-├── tools.py              8工具 + file_patch三级匹配兜底
-├── auth.py               权限规则引擎 (敏感命令检查)
-├── prompts.py            提示词系统 (动态分类/规划/评估)
-├── aes_crypto.py         AES-256-GCM加密 (磁盘序列号绑定)
-├── config.py             配置管理 (DEFAULT_CONFIG + 深度合并)
-├── logger.py             日志模块 (run_*.log写入)
-├── task_manager.py       任务历史扫描/关联
-├── task_classifier.py    历史任务分类
-├── node.py               子进程任务执行
-├── test_sandbox.py       沙箱测试
-├── config.json           运行时配置 (含加密API Key)
-├── .gitignore            排除 config.json/workspace/log/__pycache__
-└── git-server/           本地 bare 仓库
-    └── agent_native.git
+Agent(config, auth_handler, eqm)
+  .chat_llm / .task_llm          LLM 实例
+  .chater: Chater                Chat 模式
+  .executor: Executor            任务执行器
+  .planner: Planner              任务规划器
+  .eqm: EventQueueManager        事件队列
+  .stage_progress: StageProgress 阶段进度
 ```
 
-## 4. 认证权限 (auth.py)
-
+### chater.py
 ```
-AuthHandler:
-  - sensitive_command_check: 检查rm/sudo/pip/curl|sh等敏感命令
-  - interactive: 是否弹交互确认框
-  - 三级规则: always_deny → always_ask → always_allow → prompt
-  - 持久化: .agent_permissions.json (用户选择缓存)
-  - 已移除字段: enabled, sensitive_goal_check (未实现)
+Chater(agent, config, logger, eqm)
+  .run(user_message) → dict      执行一轮对话
 ```
 
-## 5. 日志系统
-
+### executor.py
 ```
-logger.py:
-  - Logger.init(log_dir) → workspace/log/run_{ts}.log
-  - llm_client 独立写入 workspace/log/history_{chat,task}.log
-  - Agent.__init__ 自动初始化日志 (interactive模式也生效)
+Executor(agent, task_dir, eqm)
+  .start()                       启动后台 worker
+  .stop()                        停止 worker
 ```
 
-## 6. 关键变更记录
+### planner.py
+```
+Planner(config, logger, eqm)
+  .classify(user_task, ...) →    分类任务
+  .classify_with_history(...) →  历史关联分类
+  .run(user_task, ...) →         完整流程 → TaskManager
+```
 
-| 日期 | 变更 |
-|------|------|
-| 2026-06-29 | API Key 存储改为 AES-256-GCM (磁盘序列号绑定) |
-| 2026-06-29 | 删除 _save_env_var / _load_env_from_rc (不再写rc文件) |
-| 2026-06-29 | setup_wizard 简化 (去掉环境变量名输入) |
-| 2026-06-29 | _resolve_api_key 简化 (仅 enc:aes: + raw sk- 两格式) |
-| 2026-06-29 | auth 配置清理 (移除 enabled/sensitive_goal_check) |
-| 2026-06-29 | setup_wizard 以 load_config() 为基础继承所有字段 |
-| 2026-06-29 | file_patch 增加 _fuzzy_find_context_ws 三级缩进容忍 |
-| 2026-06-29 | prompts.py file_patch 描述加强 (前缀列+缩进规则+示例) |
-| 2026-06-29 | log.dir 默认值改为空 (走 workspace/log 子目录) |
-| 2026-06-29 | Agent.__init__ 增加 Logger 初始化 |
+### task_manager.py
+```
+SubTaskRecord                    单子任务数据类
+  .from_orchestrate_item(idx, item) → SubTaskRecord
+
+TaskManager(save_path)
+  .subtask → SubTaskRecord | None
+  .set_subtask(item)             设置任务
+  .set_subtask_status(status)    更新状态
+  .is_execution_time_reached()   时间检查
+  .reschedule_next_execution()   周期推进
+  .save(path) / .save_state()    持久化
+
+静态方法:
+  TaskManager.scan_history_tasks(dir) → [SubTaskRecord]
+  TaskManager.list_history_tasks(dir) → [dict]
+  TaskManager.list_pending_tasks(dir) → [dict]
+```
+
+## 数据持久化
+
+```
+inner_space/task/
+├── task_{ts}_state.json    任务状态 (subtask + periodic + qa + stage_progress)
+└── task_list.json          任务索引 (最近 50 条)
+
+state 文件结构:
+{
+  "subtask": { SubTaskRecord 字段 },
+  "periodic": { is_periodic, period, next_execution_time, ... },
+  "global_messages": [ QAMessage ],
+  "stage_progress": { StageProgress },
+  "periodic_counter": int
+}
+```
