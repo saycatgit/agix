@@ -19,14 +19,18 @@ class UnifiedSettingsPanel:
         ("模型设置", "⚙"),
         ("系统设置", "🔧"),
         ("任务设置", "📋"),
+        ("SSH设置", "🔑"),
+        ("关于", "ℹ️"),
     ]
 
-    def __init__(self, page: ft.Page, model_settings_panel, sys_settings_panel, task_config_panel):
+    def __init__(self, page: ft.Page, model_settings_panel, sys_settings_panel, task_config_panel, ssh_settings_panel, about_panel):
         self.page = page
         self._panels = {
             "模型设置": model_settings_panel,
             "系统设置": sys_settings_panel,
             "任务设置": task_config_panel,
+            "SSH设置": ssh_settings_panel,
+            "关于": about_panel,
         }
         self._active_tab = "模型设置"
         self._build()

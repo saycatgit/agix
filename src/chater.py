@@ -175,10 +175,8 @@ class Chater:
                         summary = exec_result["summary"]
                         if summary:
                             return {"judge": "true", "content": summary}
-                if rounds % 5 == 0:
-                    msg = self.chat_stage_progress.format_status()
-                else:
-                    msg = "继续。"
+
+                msg = f"本轮完成 {len(result['calls'])} 个工具调用"
                 continue
             else:
                 content_text = result.get("content", "")

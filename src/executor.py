@@ -261,6 +261,7 @@ class Executor:
             f"如果阶段或步骤缺失以至不满足当前子任务要求，请先用update_plan完善相应内容\n"
             f"{periodic_hint}"
             f"禁止删除已经存在的阶段和步骤，仅可增加\n"
+            f"执行完调用finish结束"
         )
 
         self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
@@ -322,11 +323,7 @@ class Executor:
                         self.llm.submit_tool_result(call["id"], str(exec_result))
 
                     self._log(f"     → {str(exec_result)[:500]}")
-
-                if num % 5 == 0:
-                    msg = task_manager._stage_progress.format_status()
-                else:
-                    msg = "继续。"
+                msg = f"本轮完成 {len(result['calls'])} 个工具调用"
 
                 rounds_used = num + 1
                 convergence = ""

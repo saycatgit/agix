@@ -1,0 +1,30 @@
+{
+  "subtask": {
+    "subtask_index": 1,
+    "sub_task_detail": "使用shell命令查看并输出当前系统时间",
+    "task_type": "其他",
+    "task_sub_type": "其他",
+    "dir_from": "temp",
+    "status": "completed",
+    "project_path": "/home/agent_native/workspace/temp",
+    "result_judge": "true",
+    "result_content": "当前系统时间：2026-07-23 18:43:08 CST（中国标准时间）",
+    "round_count": 0,
+    "messages": [],
+    "created_at": "2026-07-23T18:33:04",
+    "completed_at": "2026-07-23T18:43:11",
+    "plan_steps": {},
+    "phase_msgs": [],
+    "llm_context_info": "memory.jsonl",
+    "extra_prompt": "",
+    "sub_task_name": "查看当前时间"
+  },
+  "conversation_log": [],
+  "general_messages": [],
+  "periodic": {
+    "counter": 1,
+    "next_execution_time": "",
+    "is_periodic": false,
+    "period": ""
+  }
+}

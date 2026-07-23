@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 from enum import Enum
-
+from utils import Utils
 
 from meta import MsgType, MsgField, MsgStyle
 
@@ -84,6 +84,7 @@ class EventQueueManager:
     def ask_user(self, question: str, *, mode: str = "chat",
                  timeout: float = None) -> str:
         """工作线程调用: 向 UI 发提问并阻塞等待用户回答。"""
+        Utils.play_notification()
         msg_id = str(uuid.uuid4())
         msg = self.make_msg(question, MsgType.ASK, msg_id)
         return self._wait_for_response(msg, msg_id, mode, timeout)

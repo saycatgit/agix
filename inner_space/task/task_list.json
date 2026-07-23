@@ -134,5 +134,61 @@
     "state_file": "/home/agent_native/inner_space/task/task_20260723_110924_691989_state.json",
     "has_subtask": true,
     "completed": true
+  },
+  {
+    "status": "completed",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_150101_998618_state.json",
+    "has_subtask": true,
+    "completed": true
+  },
+  {
+    "status": "completed",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_150655_181118_state.json",
+    "has_subtask": true,
+    "completed": true
+  },
+  {
+    "status": "completed",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_152553_905067_state.json",
+    "has_subtask": true,
+    "completed": true
+  },
+  {
+    "status": "pending",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_153319_922736_state.json",
+    "has_subtask": true,
+    "completed": false
+  },
+  {
+    "status": "completed",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_183304_235252_state.json",
+    "has_subtask": true,
+    "completed": true
+  },
+  {
+    "status": "pending",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_184732_912806_state.json",
+    "has_subtask": true,
+    "completed": false
+  },
+  {
+    "status": "completed",
+    "created_at": "",
+    "completed_at": "",
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_185038_109089_state.json",
+    "has_subtask": true,
+    "completed": true
   }
 ]

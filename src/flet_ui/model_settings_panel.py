@@ -6,7 +6,7 @@ import flet as ft
 class ModelSettingsPanel:
     """模型设置面板 —— 供应商/模型选择、API Key 配置"""
 
-    PANEL_WIDTH: int = 640
+    PANEL_WIDTH: int = 700
     PANEL_HEIGHT: int = 460
     PANEL_BGCOLOR = ft.Colors.WHITE
     TITLE_BGCOLOR = ft.Colors.GREY_100
@@ -138,7 +138,7 @@ class ModelSettingsPanel:
             self._s_base_url,
             self._s_apikey,
             self._s_temp, self._s_max_tok, self._s_mem_size,
-        ], spacing=12)
+        ], spacing=20)
 
         self._content_body = ft.Row([
             ft.Container(content=ft.Column([

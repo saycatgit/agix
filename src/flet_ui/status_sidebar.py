@@ -14,7 +14,6 @@ class StatusSidebar:
     BGCOLOR = ft.Colors.GREY_50
     TITLE_BGCOLOR = ft.Colors.BLUE_GREY_50
     DIALOG_BGCOLOR = ft.Colors.WHITE
-    TITLE: str = "任务状态"
     EMPTY_TEXT: str = "暂无任务"
 
     STATUS_COLORS = {
@@ -38,7 +37,8 @@ class StatusSidebar:
         self._extra_controls = extra_controls or []
         self._on_chat_select = on_chat_select
         self._default_work_dir = ""
-        self._selected_key = ""
+        self._selected_task_file = ""
+        self._ds = {}
         self._needs_refresh = False
         self._last_data_hash = None
         self._build()
@@ -61,7 +61,7 @@ class StatusSidebar:
 
         # hash 缓存：数据不变且无强制刷新标记时跳过重建
         import hashlib, json as _json
-        data_str = _json.dumps({"tasks": tasks, "pending": pending, "selected_key": self._selected_key}, sort_keys=True, default=str)
+        data_str = _json.dumps({"tasks": tasks, "pending": pending, "selected": self._selected_task_file}, sort_keys=True, default=str)
         data_hash = hashlib.md5(data_str.encode()).hexdigest()
         if not self._needs_refresh and data_hash == self._last_data_hash:
             return
@@ -69,22 +69,13 @@ class StatusSidebar:
         self._needs_refresh = False
 
         self._history_list.controls.clear()
-        self._pending_list.controls.clear()
 
-        # 历史任务
-        if tasks:
-            for t in tasks:
-                self._history_list.controls.append(self._task_card(t))
-        else:
+        for t in tasks + pending:
+            self._history_list.controls.append(self._task_card(t))
+
+        # 全空时提示
+        if not tasks and not pending:
             self._history_list.controls.append(
-                ft.Text(self.EMPTY_TEXT, size=12, color=ft.Colors.GREY_400, italic=True))
-
-        # 计划任务
-        if pending:
-            for idx, p in enumerate(pending):
-                self._pending_list.controls.append(self._pending_card(p, idx))
-        else:
-            self._pending_list.controls.append(
                 ft.Text(self.EMPTY_TEXT, size=12, color=ft.Colors.GREY_400, italic=True))
 
         self.page.update()
@@ -93,12 +84,10 @@ class StatusSidebar:
 
     def _build(self):
         self._history_list = ft.ListView(spacing=4, padding=ft.Padding(8, 4, 8, 4), expand=True)
-        self._pending_list = ft.ListView(spacing=4, padding=ft.Padding(8, 4, 8, 4), expand=True)
-
         def _on_panel_click(e):
-            if not self._selected_key:
+            if not self._selected_task_file:
                 return
-            self._selected_key = ""
+            self._selected_task_file = ""
             self._needs_refresh = True
             self.refresh()
             if self._default_work_dir and self._on_chat_select:
@@ -108,33 +97,17 @@ class StatusSidebar:
             ft.Container(content=self._build_title_bar(), expand=1),
             ft.Container(
                 content=ft.Column([
-                    ft.Text(" 任务", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
                     ft.Container(content=self._history_list, expand=True),
                 ], spacing=4, expand=True),
-                expand=5,
+                expand=8,
             ),
             ft.Container(
-                content=ft.Column([
-                    ft.Text(" 计划", size=11, weight=ft.FontWeight.W_600, color=ft.Colors.GREY_500),
-                    ft.Container(content=self._pending_list, expand=True),
-                ], spacing=4, expand=True),
-                expand=3,
-            ),
-            ft.Container(
-                content=ft.IconButton(
-                    icon=ft.Icons.EXIT_TO_APP,
-                    icon_color=ft.Colors.GREY_400,
-                    tooltip="退出",
-                    expand=True
-                ),
-                padding=ft.Padding(12, 8, 12, 8),
-                bgcolor=ft.Colors.WHITE,
+                content=self._build_exit_bar(),
                 expand=1,
             ),
         ], spacing=0, expand=True)
         self._panel = ft.Container(
             visible=self._visible,
-            expand_loose=True,
             width=self.WIDTH,
             bgcolor=self.BGCOLOR,
             content=content_col,
@@ -142,17 +115,30 @@ class StatusSidebar:
         )
 
     def _build_title_bar(self) -> ft.Container:
-        title_row = [] #[ft.Text(self.TITLE, weight=ft.FontWeight.W_600, size=13)]
         add_btn = ft.IconButton(
             icon=ft.Icons.ADD, icon_size=18, tooltip="添加任务",
             on_click=lambda e: self._show_add_task_dialog())
-        title_row.append(add_btn)
+        title_row = [add_btn]
         if self._extra_controls:
             title_row.append(ft.Row(self._extra_controls, spacing=4))
         return ft.Container(
             content=ft.Row(title_row, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.Padding(12, 8, 12, 8),
             bgcolor=self.TITLE_BGCOLOR,
+        )
+    
+    def _build_exit_bar(self) -> ft.Container:
+        return ft.Container(
+            content=ft.Row([
+                ft.IconButton(
+                    icon=ft.Icons.EXIT_TO_APP, icon_size=18,
+                    icon_color=ft.Colors.GREY_400,
+                    tooltip="退出",
+                ),
+            ], expand=True),
+            padding=ft.Padding(12, 8, 12, 8),
+            expand=True,
+            bgcolor=ft.Colors.WHITE,
         )
 
     # ── 数据加载 ──
@@ -165,14 +151,6 @@ class StatusSidebar:
 
     # ── 卡片 ──
 
-    def _card_border(self, color=ft.Colors.GREY_200) -> ft.border.Border:
-        return ft.border.Border(
-            left=ft.BorderSide(1, color),
-            top=ft.BorderSide(1, color),
-            right=ft.BorderSide(1, color),
-            bottom=ft.BorderSide(1, color),
-        )
-
     def _status_badge(self, status: str) -> ft.Container:
         color = self.STATUS_COLORS.get(status, ft.Colors.GREY)
         label = self.STATUS_LABELS.get(status, status)
@@ -183,31 +161,74 @@ class StatusSidebar:
         )
 
     def _task_card(self, task: dict) -> ft.Container:
-        """子任务卡片（扁平列表，单选）"""
-        name = task.get("name", "未知任务")[:36]
+        """任务卡片（单选）；周期任务额外显示图标、次数、下次执行时间"""
+        name = (task.get("name") or task.get("task_name", "未知任务"))[:36]
         status = task.get("status", SubTaskStatus.PENDING.value)
         pp = task.get("project_path", "")
-        state_file = task.get("state_file", "")
+        state_file = task.get("state_file") or task.get("file", "")
         key = state_file
-        selected = (self._selected_key == key)
+        selected = (self._selected_task_file == key)
+        is_pending = bool(task.get("file") and not task.get("state_file"))
+        is_periodic = task.get("is_periodic", False)
+        periodic_counter = task.get("periodic_counter", 0)
+        next_time = task.get("next_execution_time", "")
+        next_display = ""
+        if next_time:
+            try:
+                dt = datetime.fromisoformat(next_time)
+                next_display = dt.strftime("%m/%d %H:%M")
+            except Exception:
+                next_display = next_time[:16]
+
         menu_items = [
+            ft.PopupMenuItem(content=ft.Text("编辑", size=14),
+                             on_click=lambda e, t=task: self._show_add_task_dialog(task_data=t)),
             ft.PopupMenuItem(content=ft.Text("删除", size=14),
-                             on_click=lambda e, t=task: self._confirm_delete_task(t)),
+                             on_click=lambda e, t=task: self._confirm_delete_task(
+                                 t.get("state_file") or t.get("file", ""),
+                                 t.get("name") or t.get("task_name", ""))),
         ]
+        if is_pending:
+            menu_items.append(
+                ft.PopupMenuItem(content=ft.Text("启动", size=14),
+                                 on_click=lambda e, f=state_file: self._start_pending(f)))
+
+        name_children = []
+        name_children.append(
+            ft.Text(name, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                    color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700))
+
+        if is_periodic or status == "pending":
+            name_children.append(ft.Text(" | ", size=11, color=ft.Colors.GREY_400))
+        if is_periodic:
+            name_children.append(ft.Text("🔄", size=11))
+        elif status == "pending":
+            name_children.append(ft.Text("➡️", size=11))
+
+        name_children.append(ft.Text(" | ", size=11, color=ft.Colors.GREY_400))
+        name_children.append(self._status_badge(status))
+
+        col_children = [
+            ft.Row(name_children, spacing=0, expand=True,
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ]
+        if is_periodic or (status == "pending" and next_display):
+            extras = []
+            if periodic_counter:
+                extras.append(f"第{periodic_counter}次")
+            if next_display:
+                extras.append(f"下次: {next_display}")
+            if extras:
+                col_children.append(
+                    ft.Text(" · ".join(extras), size=10, color=ft.Colors.GREY_500))
+
         card = ft.Container(
             content=ft.Row([
-                ft.Column([
-                    ft.Row([
-                        ft.Text(name, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
-                                color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
-                        self._status_badge(status),
-                    ], spacing=0, expand=True,
-                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ], expand=True),
-                ft.PopupMenuButton(items=menu_items, icon_size=16),
+                ft.Column(col_children, expand=True, spacing=0),
+                ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16),
             ],height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=ft.Colors.WHITE, border_radius=6,
-            padding=ft.Padding(8, 6, 4, 6),
+            padding=ft.Padding(8, 6, 8, 6),
             border=ft.border.Border(
                 left=ft.BorderSide(0, ft.Colors.TRANSPARENT),
                 top=ft.BorderSide(0, ft.Colors.TRANSPARENT),
@@ -222,46 +243,19 @@ class StatusSidebar:
 
     def _select_card(self, key: str, path: str, state_file: str = ""):
         """选中卡片，切换项目目录。"""
-        if key == self._selected_key:
+        if key == self._selected_task_file:
             # 点击已选中卡片：取消选中，重置回默认目录
-            self._selected_key = ""
+            self._selected_task_file = ""
             self._needs_refresh = True
             self.refresh()
             if self._default_work_dir and self._on_chat_select:
                 self._on_chat_select(self._default_work_dir, "")
             return
-        self._selected_key = key
+        self._selected_task_file = key
         if path and self._on_chat_select:
             self._on_chat_select(path, state_file)
         self._needs_refresh = True
         self.refresh()
-
-    def _pending_card(self, pending: dict, idx: int) -> ft.Container:
-        name = pending.get("task_name", "未知")[:36]
-        if len(pending.get("task_name", "")) > 36:
-            name += "…"
-        exec_time = pending.get("next_execution_time", "")
-        periodic = " 🔁" if pending.get("is_periodic") else "➡️"
-        status = pending.get("status", SubTaskStatus.PENDING.value)
-
-        header = ft.Row([
-            ft.Column([
-                ft.Text(name + periodic, size=12, weight=ft.FontWeight.W_500,
-                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Text(f"执行: {exec_time.replace('T', ' ').split('+')[0]}", size=10, color=ft.Colors.GREY_500, overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
-            ], expand=True, spacing=2),
-            ft.Column([
-                self._status_badge(status),
-            ], tight=True),
-        ], spacing=4)
-
-        return ft.Container(
-            content=ft.Column([header], spacing=4),
-            bgcolor=ft.Colors.WHITE, border_radius=6,
-            padding=ft.Padding(8, 6, 8, 6),
-            border=self._card_border(),
-            on_click=lambda e, p=pending, i=idx: self._on_pending_card_click(p, i),
-        )
 
     # ── 菜单操作 ──
 
@@ -294,285 +288,6 @@ class StatusSidebar:
         except (ValueError, AssertionError):
             pass
 
-    def _show_pending_menu(self, pending: dict, idx: int):
-        dlg = ft.AlertDialog(
-            bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),
-            content_padding=ft.Padding(20, 20, 20, 20),
-            title=ft.Text("操作"),
-            content=ft.Column([
-                ft.TextButton("删除任务", on_click=lambda e: self._confirm_delete_pending_and_close(pending, dlg)),
-            ], spacing=10),
-        )
-        self._open_dialog(dlg)
-
-    def _open_project_and_close(self, task: dict, dlg: ft.AlertDialog):
-        self._open_project(task)
-        self._close_dialog(dlg)
-
-    def _confirm_delete_and_close(self, task: dict, dlg: ft.AlertDialog):
-        self._close_dialog(dlg)
-        self._confirm_delete_task(task)
-
-    def _confirm_delete_pending_and_close(self, pending: dict, dlg: ft.AlertDialog):
-        self._close_dialog(dlg)
-        self._confirm_delete_pending(pending)
-
-    def _open_project(self, task: dict):
-        """在系统文件管理器中打开项目文件夹"""
-        path = task.get("project_path", "")
-        if not path or not os.path.isdir(path):
-            return
-        system = platform.system()
-        if system == "Darwin":
-            subprocess.Popen(["open", path])
-        elif system == "Windows":
-            os.startfile(path)
-        else:
-            subprocess.Popen(["xdg-open", path])
-
-    def _open_path(self, path: str):
-        """在系统文件管理器中打开指定路径"""
-        if not path or not os.path.isdir(path):
-            return
-        system = platform.system()
-        if system == "Darwin":
-            subprocess.Popen(["open", path])
-        elif system == "Windows":
-            os.startfile(path)
-        else:
-            subprocess.Popen(["xdg-open", path])
-
-    def _confirm_delete_task(self, task: dict):
-        """弹出确认对话框后删除历史任务记录"""
-        def on_yes(e):
-            self._close_dialog(dlg)
-            self._delete_task(task)
-        def on_no(e):
-            self._close_dialog(dlg)
-
-        name = task.get("name", "未知")[:30]
-        dlg = ft.AlertDialog(
-            bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),
-            content_padding=ft.Padding(20, 20, 20, 20),
-            title=ft.Text("确认删除"),
-            content=ft.Text(f"确定删除项目「{name}」的记录吗？\n\n项目文件会一起删除。"),
-            actions=[
-                ft.TextButton("取消", on_click=on_no),
-                ft.TextButton("删除", on_click=on_yes),
-            ],
-        )
-        self._open_dialog(dlg)
-
-    def _delete_task(self, task: dict):
-        state_file = task.get("state_file")
-        if state_file and os.path.exists(state_file):
-            os.remove(state_file)
-        self.refresh()
-
-    def _on_pending_card_click(self, pending: dict, idx: int):
-        try:
-            self._show_pending_edit_dialog(pending, idx)
-        except Exception as ex:
-            import traceback
-            traceback.print_exc()
-
-    def _confirm_delete_pending(self, pending: dict):
-        """弹出确认对话框后删除计划任务文件"""
-        def on_yes(e):
-            self._close_dialog(dlg)
-            self._delete_pending(pending)
-
-        def on_no(e):
-            self._close_dialog(dlg)
-
-        name = pending.get("task_name", "未知")[:30]
-        dlg = ft.AlertDialog(
-            bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),
-            content_padding=ft.Padding(20, 20, 20, 20),
-            title=ft.Text("确认删除"),
-            content=ft.Text(f"确定删除计划任务「{name}」吗？"),
-            actions=[
-                ft.TextButton("取消", on_click=on_no),
-                ft.TextButton("删除", on_click=on_yes),
-            ],
-        )
-        self._open_dialog(dlg)
-
-    def _delete_pending(self, pending: dict):
-        file_path = pending.get("file", "")
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-        self.refresh()
-
-    def _save_pending(self, pending: dict, updated: dict):
-        """保存编辑后的计划任务，委托给 TaskManager.update_pending_task()"""
-        file_path = pending.get("file", "")
-        TaskManager.update_pending_task(file_path, {
-            "task_name": updated.get("task_name", ""),
-            "next_execution_time": updated.get("next_execution_time", ""),
-            "is_periodic": updated.get("is_periodic", False),
-            "period": updated.get("period", ""),
-            "is_interactive": updated.get("is_interactive", False),
-        })
-        self.refresh()
-
-    def _show_pending_edit_dialog(self, pending: dict, idx: int):
-        """点击计划任务卡片时弹出编辑对话框"""
-        # 时间可变状态
-        time_data = {"value": pending.get("next_execution_time", "")}
-
-        time_display = ft.Text(
-            time_data["value"] or "点击选择执行时间",
-            size=13,
-            color=ft.Colors.GREY_700 if time_data["value"] else ft.Colors.GREY_400,
-            italic=not bool(time_data["value"]),
-            expand=True,
-        )
-
-        picker_ref = ft.Ref[ft.CupertinoDatePicker]()
-        dialog = None
-
-        def confirm_datetime(_):
-            nonlocal dialog
-            p = picker_ref.current
-            if p and p.value:
-                time_data["value"] = p.value.strftime("%Y-%m-%d %H:%M:%S")
-                time_display.value = time_data["value"]
-                time_display.color = ft.Colors.GREY_700
-                time_display.italic = False
-                time_display.update()
-            if dialog:
-                dialog.open = False
-            self.page.update()
-
-        def pick_datetime(_):
-            nonlocal dialog
-            dialog = ft.AlertDialog(
-                title=ft.Text("选择执行时间"),
-                content=ft.Container(
-                    content=ft.CupertinoDatePicker(
-                        ref=picker_ref,
-                        value=datetime.now(),
-                        use_24h_format=True,
-                        date_picker_mode=ft.CupertinoDatePickerMode.DATE_AND_TIME,
-                        minute_interval=1,
-                    ),
-                    height=220,
-                ),
-                actions=[ft.TextButton("确定", on_click=confirm_datetime)],
-            )
-            self.page.show_dialog(dialog)
-
-        pick_btn = ft.IconButton(
-            icon=ft.icons.Icons.CALENDAR_MONTH,
-            tooltip="选择执行时间",
-            on_click=pick_datetime,
-        )
-        time_row = ft.Row(
-            [pick_btn, time_display], spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-        gs = ft.BorderSide(1, ft.Colors.GREY_300)
-
-        name_field = ft.TextField(
-            label="任务内容", value=pending.get("task_name", ""),
-            border_color=ft.Colors.GREY_300, dense=True, expand=True,
-            multiline=True, min_lines=2, max_lines=4,
-            prefix_icon=ft.icons.Icons.TASK_ALT,
-        )
-
-        is_periodic = pending.get("is_periodic", False)
-        periodic_switch = ft.Switch(label="周期性任务", value=is_periodic)
-        period_field = ft.TextField(
-            label="周期 (如 1d/2h/30m/1w)",
-            value=pending.get("period", ""),
-            border_color=ft.Colors.GREY_300,expand=True,
-            disabled=not is_periodic,
-            
-        )
-
-        is_interactive = pending.get("is_interactive", False)
-        interactive_switch = ft.Switch(label="交互模式", value=is_interactive)
-
-        status_dd = ft.Dropdown(
-            label="任务状态",
-            options=[ft.dropdown.Option(key=SubTaskStatus.PENDING.value, text="待处理"),
-                     ft.dropdown.Option(key=SubTaskStatus.IN_PROGRESS.value, text="执行中"),
-                     ft.dropdown.Option(key=SubTaskStatus.COMPLETED.value, text="已完成"),
-                     ft.dropdown.Option(key=SubTaskStatus.FAILED.value, text="已失败"),
-                     ft.dropdown.Option(key=SubTaskStatus.SKIPPED.value, text="已跳过")],
-            value=pending.get("status", SubTaskStatus.PENDING.value),
-            dense=True,
-            expand=True,
-        )
-
-        def on_periodic_change(e):
-            period_field.disabled = not periodic_switch.value
-            period_field.update()
-        periodic_switch.on_change = on_periodic_change
-
-        def on_save(e):
-            updated = dict(pending)
-            updated["task_name"] = name_field.value.strip() or "未命名"
-            updated["next_execution_time"] = time_data["value"]
-            updated["is_periodic"] = periodic_switch.value
-            updated["period"] = period_field.value.strip() if periodic_switch.value else ""
-            updated["is_interactive"] = interactive_switch.value
-            updated["status"] = status_dd.value
-            self._save_pending(pending, updated)
-            self._close_dialog(dlg)
-
-        def on_delete(e):
-            self._close_dialog(dlg)
-            self._confirm_delete_pending(pending)
-
-        dlg = ft.AlertDialog(
-            bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),  # 新增：弹窗整体直角
-            content_padding=ft.Padding(20, 10, 20, 4),
-            actions_padding=ft.Padding(20, 0, 20, 10),
-            title=ft.Row([
-                ft.Icon(ft.icons.Icons.EDIT_NOTE, size=20),
-                ft.Text("编辑计划任务", size=16, weight=ft.FontWeight.BOLD),
-            ]),
-            content=ft.Column([
-                ft.Column([
-                    
-                    name_field,
-                ], spacing=10),
-                ft.Column([
-                    ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    ft.Container(
-                        content=time_row,
-                        border=ft.Border(top=gs, left=gs, right=gs, bottom=gs),
-                        border_radius=1,
-                        padding=ft.Padding(left=8, top=0, right=8, bottom=0),
-                    ),
-                ], spacing=6),
-                ft.Column([
-                    ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    periodic_switch,
-                    period_field,
-                    interactive_switch,
-                    status_dd,
-                ], spacing=10),
-            ], spacing=16, width=400, tight=True),
-            actions=[
-                ft.TextButton("删除", on_click=on_delete,
-                              style=ft.ButtonStyle(color=ft.Colors.RED)),
-                ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
-                ft.FilledButton("保存", on_click=on_save),
-            ],
-        )
-        self._open_dialog(dlg)
-
-    # ── 添加任务 ──
-
     def _save_new_task(self, data: dict):
         """创建新任务文件并保存"""
         from task_manager import SubTaskRecord
@@ -602,215 +317,102 @@ class StatusSidebar:
         tm.save(file_path)
         self.refresh()
 
-    def _show_add_task_dialog(self):
-        """显示添加任务对话框"""
+    def _show_add_task_dialog(self, task_data=None):
+        """统一任务对话框：task_data=None 新建，否则编辑"""
         attr_mgr = TaskAttributeManager(json_path=self.task_config_file_path)
         categories = attr_mgr.get_categories()
         cat_names = list(categories.keys())
-        if not cat_names:
-            return
+        is_edit = task_data is not None
 
-        # ── 级联数据 ──
-        current_cat = cat_names[0]
-        current_subs = [s[0] for s in categories.get(current_cat, [])]
-
-        # ── 表单数据 ──
-        form = {
-            "task_type": current_cat,
-            "task_sub_type": current_subs[0] if current_subs else "",
-            "task_name": "",
-            "sub_task_detail": "",
-            "next_execution_time": "",
-            "project_path": "",
-            "is_periodic": False,
-            "period": "1d",
-            "is_interactive": False,
-            "status": SubTaskStatus.PENDING.value,
-        }
-
-        # ── 大类下拉 ──
-        def on_cat_change(e):
-            form["task_type"] = cat_dd.value or ""
-            new_subs = [s[0] for s in categories.get(form["task_type"], [])]
-            sub_dd.options = [ft.dropdown.Option(key=n, text=n) for n in new_subs]
-            if new_subs:
-                sub_dd.value = new_subs[0]
-                form["task_sub_type"] = new_subs[0]
+        if is_edit:
+            state_file = task_data.get("state_file") or task_data.get("file", "")
+            if state_file and os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        sd = json.load(f)
+                    sub = sd.get("subtask", {})
+                    pd = sd.get("periodic", {})
+                    _name = sub.get("sub_task_name", task_data.get("name", task_data.get("task_name", "")))
+                    _detail = sub.get("sub_task_detail", "")
+                    _time = pd.get("next_execution_time", sub.get("next_execution_time", ""))
+                    _path = sub.get("project_path", task_data.get("project_path", ""))
+                    _periodic = pd.get("is_periodic", sub.get("is_periodic", False))
+                    _period = pd.get("period", sub.get("period", "1d"))
+                    _interactive = sub.get("is_interactive", False)
+                    _status = sub.get("status", SubTaskStatus.PENDING.value)
+                    _cat = sub.get("task_type", "")
+                    _sub_cat = sub.get("task_sub_type", "")
+                except Exception:
+                    _name = task_data.get("name", task_data.get("task_name", ""))
+                    _detail = _time = _path = _cat = _sub_cat = ""
+                    _periodic = _interactive = False
+                    _period = "1d"
+                    _status = task_data.get("status", SubTaskStatus.PENDING.value)
             else:
-                sub_dd.value = None
-                form["task_sub_type"] = ""
-            dlg.update()
+                _name = task_data.get("task_name", "")
+                _detail = _time = _path = _cat = _sub_cat = ""
+                _periodic = _interactive = False
+                _period = "1d"
+                _status = task_data.get("status", SubTaskStatus.PENDING.value)
+            current_cat = _cat or (cat_names[0] if cat_names else "")
+        else:
+            if not cat_names:
+                return
+            _name = _detail = _time = _path = _sub_cat = ""
+            _periodic = _interactive = False
+            _period = "1d"
+            _status = SubTaskStatus.PENDING.value
+            current_cat = cat_names[0]
+
+        current_subs = [s[0] for s in categories.get(current_cat, [])]
 
         cat_dd = ft.Dropdown(
             options=[ft.dropdown.Option(key=n, text=n) for n in cat_names],
-            value=current_cat,
-            dense=True,
-            expand=True,
-            on_select=on_cat_change,
+            value=current_cat, dense=True, expand=True,
         )
-
-        # ── 子类下拉 ──
         sub_dd = ft.Dropdown(
             options=[ft.dropdown.Option(key=n, text=n) for n in current_subs],
-            value=form["task_sub_type"],
-            dense=True,
-            expand=True,
+            value=_sub_cat if is_edit and _sub_cat else (current_subs[0] if current_subs else ""),
+            dense=True, expand=True,
         )
-
-        def on_sub_change(e):
-            form["task_sub_type"] = sub_dd.value or ""
-
-        sub_dd.on_select = on_sub_change
-
-        # ── 任务名称 ──
         name_field = ft.TextField(
-            label="任务名称",
-            hint_text="输入任务名称",
-            border_color=ft.Colors.GREY_300,
-            dense=True,
-            expand=True,
+            label="任务名称", hint_text="输入任务名称",
+            value=_name, border_color=ft.Colors.GREY_300, dense=True, expand=True,
         )
-
-        # ── 描述输入 ──
         detail_field = ft.TextField(
-            label="任务描述",
-            hint_text="简要描述任务内容",
-            border_color=ft.Colors.GREY_300,
-            prefix_icon=ft.Icons.TASK_ALT,
-            multiline=True,
-            expand=True,
-            min_lines=2,
-            max_lines=4,
-            dense=True,
+            label="任务描述", hint_text="简要描述任务内容",
+            value=_detail, border_color=ft.Colors.GREY_300,
+            prefix_icon=ft.Icons.TASK_ALT, multiline=True,
+            expand=True, min_lines=2, max_lines=4, dense=True,
         )
 
-        # ── 时间选择 ──
-        time_data = {"value": ""}
+        time_data = {"value": _time}
         time_display = ft.Text(
-            "点击选择执行时间",
-            size=13,
-            color=ft.Colors.GREY_400,
-            italic=True,
-            expand=True,
+            _time or "点击选择执行时间", size=13,
+            color=ft.Colors.GREY_700 if _time else ft.Colors.GREY_400,
+            italic=not bool(_time), expand=True,
         )
         picker_ref = ft.Ref[ft.CupertinoDatePicker]()
-        time_dialog = None
-
-        def confirm_datetime(_):
-            nonlocal time_dialog
-            p = picker_ref.current
-            if p and p.value:
-                time_data["value"] = p.value.strftime("%Y-%m-%d %H:%M:%S")
-                time_display.value = time_data["value"]
-                time_display.color = ft.Colors.GREY_700
-                time_display.italic = False
-                time_display.update()
-            if time_dialog:
-                time_dialog.open = False
-            self.page.update()
-
-        def pick_datetime(_):
-            nonlocal time_dialog
-            time_dialog = ft.AlertDialog(
-                title=ft.Text("选择执行时间"),
-                content=ft.Container(
-                    content=ft.CupertinoDatePicker(
-                        ref=picker_ref,
-                        value=datetime.now(),
-                        use_24h_format=True,
-                        date_picker_mode=ft.CupertinoDatePickerMode.DATE_AND_TIME,
-                        minute_interval=1,
-                    ),
-                    height=220,
-                ),
-                actions=[ft.TextButton("确定", on_click=confirm_datetime)],
-            )
-            self.page.show_dialog(time_dialog)
-
         pick_btn = ft.IconButton(
-            icon=ft.Icons.CALENDAR_MONTH,
-            tooltip="选择执行时间",
-            icon_size=18,
-            on_click=pick_datetime,
+            icon=ft.Icons.CALENDAR_MONTH, tooltip="选择执行时间", icon_size=18,
         )
 
-        # ── 项目路径 ──
         path_field = ft.TextField(
-            label="项目路径",
-            hint_text="选择项目文件夹（必填）",
-            dense=True,
-            read_only=True,
-            border_color=ft.Colors.GREY_300,
-            prefix_icon=ft.Icons.FOLDER_OPEN,
-            expand=True,
+            label="项目路径", hint_text="选择项目文件夹（必填）",
+            value=_path, dense=True, read_only=True,
+            border_color=ft.Colors.GREY_300, prefix_icon=ft.Icons.FOLDER_OPEN, expand=True,
         )
-
-        def pick_project(_):
-            import subprocess
-            try:
-                result = subprocess.run(
-                    ["zenity", "--file-selection", "--directory",
-                     "--title=选择项目文件夹"],
-                    capture_output=True, text=True, timeout=30)
-                if result.returncode == 0 and result.stdout.strip():
-                    path_field.value = result.stdout.strip()
-                    path_field.update()
-            except Exception:
-                pass
-
-        path_btn = ft.IconButton(
-            icon=ft.Icons.FOLDER_OPEN,
-            tooltip="选择文件夹",
-            icon_size=18,
-            on_click=pick_project,
-        )
-
-        path_error = ft.Text(
-            "",
-            size=11,
-            color=ft.Colors.RED_400,
-            visible=False,
-        )
+        path_btn = ft.IconButton(icon=ft.Icons.FOLDER_OPEN, tooltip="选择文件夹", icon_size=18)
+        path_error = ft.Text("", size=11, color=ft.Colors.RED_400, visible=False)
 
         gs = ft.BorderSide(1, ft.Colors.GREY_300)
 
-        # ── 周期开关 ──
-        def on_periodic_change(e):
-            form["is_periodic"] = e.control.value
-
-        periodic_switch = ft.Switch(
-            label="周期任务",
-            value=False,
-            on_change=on_periodic_change,
-        )
-
+        periodic_switch = ft.Switch(label="周期任务", value=_periodic)
         period_field = ft.TextField(
-            label="周期间隔",
-            hint_text="如 1d / 12h / 30m",
-            value="1d",
-            dense=True,
-            visible=False,
+            label="周期间隔", hint_text="如 1d / 12h / 30m",
+            value=_period, dense=True, visible=_periodic,
         )
-
-        def on_periodic_change_ui(e):
-            form["is_periodic"] = e.control.value
-            period_field.visible = e.control.value
-            period_field.update()
-            self.page.update()
-
-        periodic_switch.on_change = on_periodic_change_ui
-
-        # ── 交互开关 ──
-        def on_interactive_change(e):
-            form["is_interactive"] = e.control.value
-
-        interactive_switch = ft.Switch(
-            label="交互模式",
-            value=False,
-            on_change=on_interactive_change,
-        )
-
-        # ── 状态下拉 ──
+        interactive_switch = ft.Switch(label="交互模式", value=_interactive)
         status_dd = ft.Dropdown(
             label="任务状态",
             options=[ft.dropdown.Option(key=SubTaskStatus.PENDING.value, text="待处理"),
@@ -818,78 +420,272 @@ class StatusSidebar:
                      ft.dropdown.Option(key=SubTaskStatus.COMPLETED.value, text="已完成"),
                      ft.dropdown.Option(key=SubTaskStatus.FAILED.value, text="已失败"),
                      ft.dropdown.Option(key=SubTaskStatus.SKIPPED.value, text="已跳过")],
-            value=SubTaskStatus.PENDING.value,
-            dense=True,
-            expand=True,
+            value=_status, dense=True, expand=True,
         )
 
-        # ── 保存 ──
-        def on_save(e):
-            if not path_field.value:
-                path_error.value = "请选择项目路径"
-                path_error.visible = True
-                dlg.update()
-                return
-            form["task_name"] = name_field.value or ""
-            form["sub_task_detail"] = detail_field.value or ""
-            form["next_execution_time"] = time_data["value"]
-            form["project_path"] = path_field.value or ""
-            form["period"] = period_field.value or "1d"
-            form["status"] = status_dd.value
-            self._close_dialog(dlg)
-            self._save_new_task(form)
+        self._ds = {
+            "is_edit": is_edit, "task_data": task_data,
+            "categories": categories,
+            "cat_dd": cat_dd, "sub_dd": sub_dd,
+            "name_field": name_field, "detail_field": detail_field,
+            "time_data": time_data, "time_display": time_display,
+            "picker_ref": picker_ref, "time_dialog": None,
+            "path_field": path_field, "path_error": path_error,
+            "periodic_switch": periodic_switch,
+            "period_field": period_field,
+            "interactive_switch": interactive_switch,
+            "status_dd": status_dd,
+            "form": {
+                "task_type": current_cat,
+                "task_sub_type": sub_dd.value,
+                "task_name": _name, "sub_task_detail": _detail,
+                "next_execution_time": _time, "project_path": _path,
+                "is_periodic": _periodic, "period": _period,
+                "is_interactive": _interactive, "status": _status,
+            },
+        }
 
-        # ── 组装对话框 ──
+        cat_dd.on_select = self._on_dlg_cat_change
+        sub_dd.on_select = self._on_dlg_sub_change
+        pick_btn.on_click = self._on_dlg_pick_time
+        path_btn.on_click = self._on_dlg_pick_path
+        periodic_switch.on_change = self._on_dlg_periodic_change
+
+        content_sections = []
+
+        if not is_edit:
+            content_sections.append(ft.Column([
+                ft.Text("任务类型", size=12, color=ft.Colors.GREY_500,
+                        weight=ft.FontWeight.BOLD),
+                ft.Row([cat_dd, sub_dd], spacing=8),
+            ], spacing=6))
+
+        content_sections.append(ft.Column([
+            ft.Text("任务描述", size=12, color=ft.Colors.GREY_500,
+                    weight=ft.FontWeight.BOLD),
+            name_field, detail_field,
+        ], spacing=10))
+
+        content_sections.append(ft.Column([
+            ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
+                    weight=ft.FontWeight.BOLD),
+            ft.Container(
+                content=ft.Row([time_display, pick_btn], spacing=8,
+                               vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                border=ft.Border(top=gs, left=gs, right=gs, bottom=gs),
+                border_radius=1,
+                padding=ft.Padding(left=8, top=0, right=8, bottom=0),
+            ),
+        ], spacing=6))
+
+        if not is_edit:
+            content_sections.append(ft.Column([
+                ft.Text("项目路径", size=12, color=ft.Colors.GREY_500,
+                        weight=ft.FontWeight.BOLD),
+                ft.Row([path_field, path_btn], spacing=4),
+                path_error,
+            ], spacing=6))
+
+        content_sections.append(ft.Column([
+            ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
+                    weight=ft.FontWeight.BOLD),
+            periodic_switch, period_field, interactive_switch, status_dd,
+        ], spacing=10))
+
+        title_text = "编辑任务" if is_edit else "添加任务"
+        title_icon = ft.Icons.EDIT_NOTE if is_edit else ft.Icons.ADD_TASK
+
         dlg = ft.AlertDialog(
             bgcolor=self.DIALOG_BGCOLOR,
             shape=ft.RoundedRectangleBorder(radius=3),
             content_padding=ft.Padding(20, 10, 20, 4),
             actions_padding=ft.Padding(20, 0, 20, 10),
             title=ft.Row([
-                ft.Icon(ft.Icons.ADD_TASK, size=20),
-                ft.Text("添加任务", size=16, weight=ft.FontWeight.BOLD),
+                ft.Icon(title_icon, size=20),
+                ft.Text(title_text, size=16, weight=ft.FontWeight.BOLD),
             ]),
-            content=ft.Column([
-                ft.Column([
-                    ft.Text("任务类型", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    ft.Row([cat_dd, sub_dd], spacing=8),
-                ], spacing=6),
-                ft.Column([
-                    ft.Text("任务描述", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    name_field,
-                    detail_field,
-                ], spacing=10),
-                ft.Column([
-                    ft.Text("执行时间", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    ft.Container(
-                        content=ft.Row([time_display, pick_btn], spacing=8,
-                                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                        border=ft.Border(top=gs, left=gs, right=gs, bottom=gs),
-                        border_radius=1,
-                        padding=ft.Padding(left=8, top=0, right=8, bottom=0),
-                    ),
-                ], spacing=6),
-                ft.Column([
-                    ft.Text("项目路径", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    ft.Row([path_field, path_btn], spacing=4),
-                    path_error,
-                ], spacing=6),
-                ft.Column([
-                    ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
-                            weight=ft.FontWeight.BOLD),
-                    periodic_switch,
-                    period_field,
-                    interactive_switch,
-                    status_dd,
-                ], spacing=10),
-            ], spacing=16, width=400, tight=True, scroll=ft.ScrollMode.AUTO),
+            content=ft.Column(
+                content_sections,
+                spacing=16, width=400, tight=True, scroll=ft.ScrollMode.AUTO,
+            ),
             actions=[
                 ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
-                ft.FilledButton("保存", on_click=on_save),
+                ft.FilledButton("保存", on_click=self._on_dlg_save),
+            ],
+        )
+        self._ds["dlg"] = dlg
+        self._open_dialog(dlg)
+
+    # ── 扁平化事件处理 ──
+
+    def _on_dlg_cat_change(self, e):
+        ds = self._ds
+        ds["form"]["task_type"] = ds["cat_dd"].value or ""
+        new_subs = [s[0] for s in ds["categories"].get(ds["form"]["task_type"], [])]
+        ds["sub_dd"].options = [ft.dropdown.Option(key=n, text=n) for n in new_subs]
+        if new_subs:
+            ds["sub_dd"].value = new_subs[0]
+            ds["form"]["task_sub_type"] = new_subs[0]
+        else:
+            ds["sub_dd"].value = None
+            ds["form"]["task_sub_type"] = ""
+        ds["dlg"].update()
+
+    def _on_dlg_sub_change(self, e):
+        self._ds["form"]["task_sub_type"] = self._ds["sub_dd"].value or ""
+
+    def _on_dlg_pick_time(self, e):
+        ds = self._ds
+        td = ft.AlertDialog(
+            title=ft.Text("选择执行时间"),
+            content=ft.Container(
+                content=ft.CupertinoDatePicker(
+                    ref=ds["picker_ref"],
+                    value=datetime.now(),
+                    use_24h_format=True,
+                    date_picker_mode=ft.CupertinoDatePickerMode.DATE_AND_TIME,
+                    minute_interval=1,
+                ),
+                height=220,
+            ),
+            actions=[ft.TextButton("确定", on_click=self._on_dlg_confirm_time)],
+        )
+        ds["time_dialog"] = td
+        self.page.show_dialog(td)
+
+    def _on_dlg_confirm_time(self, e):
+        ds = self._ds
+        p = ds["picker_ref"].current
+        if p and p.value:
+            v = p.value.strftime("%Y-%m-%d %H:%M:%S")
+            ds["time_data"]["value"] = v
+            ds["form"]["next_execution_time"] = v
+            ds["time_display"].value = v
+            ds["time_display"].color = ft.Colors.GREY_700
+            ds["time_display"].italic = False
+            ds["time_display"].update()
+        if ds["time_dialog"]:
+            ds["time_dialog"].open = False
+        self.page.update()
+
+    def _on_dlg_pick_path(self, e):
+        self._pick_folder(self._ds["path_field"])
+
+    def _on_dlg_periodic_change(self, e):
+        ds = self._ds
+        v = e.control.value
+        ds["form"]["is_periodic"] = v
+        ds["period_field"].visible = v
+        ds["period_field"].update()
+        self.page.update()
+
+    def _on_dlg_save(self, e):
+        ds = self._ds
+        if not ds:
+            return
+        is_edit = ds.get("is_edit", False)
+
+        if not is_edit and not ds["path_field"].value:
+            ds["path_error"].value = "请选择项目路径"
+            ds["path_error"].visible = True
+            ds["dlg"].update()
+            return
+
+        ds["form"]["task_name"] = ds["name_field"].value or ""
+        ds["form"]["sub_task_detail"] = ds["detail_field"].value or ""
+        ds["form"]["next_execution_time"] = ds["time_data"]["value"]
+        ds["form"]["project_path"] = ds["path_field"].value or ""
+        ds["form"]["period"] = ds["period_field"].value or "1d"
+        ds["form"]["status"] = ds["status_dd"].value
+        ds["form"]["is_interactive"] = ds["interactive_switch"].value
+
+        self._close_dialog(ds["dlg"])
+
+        if is_edit:
+            self._save_edit(ds["task_data"], ds["form"])
+        else:
+            self._save_new_task(ds["form"])
+
+        self._ds = {}
+
+    def _save_edit(self, task_data: dict, form: dict):
+        """编辑保存 — TaskManager 统一路径"""
+        state_file = task_data.get("state_file") or task_data.get("file", "")
+        if not state_file or not os.path.exists(state_file):
+            return
+        try:
+            tm = TaskManager.load(state_file)
+            if tm._subtask:
+                tm._subtask.sub_task_name = form.get("task_name", "")
+                tm._subtask.sub_task_detail = form.get("sub_task_detail", "")
+                tm._subtask.next_execution_time = form.get("next_execution_time", "")
+                tm._subtask.is_periodic = form.get("is_periodic", False)
+                tm._subtask.period = form.get("period", "")
+                tm._subtask.is_interactive = form.get("is_interactive", False)
+                tm._subtask.status = SubTaskStatus(form.get("status", "pending"))
+                tm.save(state_file)
+        except Exception:
+            pass
+        self.refresh()
+
+    # ── 删除 ──
+
+    def _confirm_delete_task(self, state_file: str, name: str):
+        """确认删除任务／计划"""
+
+        def _do_delete(e):
+            self._close_dialog(dlg)
+            if state_file and os.path.exists(state_file):
+                os.remove(state_file)
+            self._selected_task_file = ""
+            self.refresh()
+
+        dlg = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
+            shape=ft.RoundedRectangleBorder(radius=3),
+            title=ft.Text("确认删除"),
+            content=ft.Text(f"确认删除任务「{name}」？此操作不可撤销。", size=13),
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: self._close_dialog(dlg)),
+                ft.FilledButton("确认删除", on_click=_do_delete),
             ],
         )
         self._open_dialog(dlg)
+
+    # ── 计划任务操作 ──
+
+    def _start_pending(self, file_path: str):
+        """立即启动计划任务：将执行时间设为现在"""
+        if not file_path or not os.path.exists(file_path):
+            return
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # 更新 periodic 层（list_pending_tasks 优先读取）
+            if "periodic" in data:
+                data["periodic"]["next_execution_time"] = now
+            # 更新 subtask 层（兜底读取）
+            if "subtask" in data:
+                data["subtask"]["next_execution_time"] = now
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            return
+        self.refresh()
+
+    def _open_project(self, task: dict):
+        """在文件管理器中打开项目路径"""
+        pp = task.get("project_path", "")
+        if not pp:
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(pp)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", pp])
+            else:
+                subprocess.Popen(["xdg-open", pp])
+        except Exception:
+            pass
+

@@ -1,0 +1,41 @@
+{
+  "subtask": {
+    "subtask_index": 1,
+    "sub_task_detail": "查询当前系统运行的程序列表",
+    "task_type": "其他",
+    "task_sub_type": "其他",
+    "dir_from": "temp",
+    "status": "skipped",
+    "project_path": "/home/agent_native/workspace/temp",
+    "result_judge": "true",
+    "result_content": "系统进程查询完成。总进程 438，较上轮 448 下降 10。核心变化：kworker/u49 从 16 骤降至 7；Chrome 升至 17；Edge 保持 23。按用户指令 finish 结束。",
+    "round_count": 0,
+    "messages": [],
+    "created_at": "2026-07-23T15:33:19",
+    "completed_at": "2026-07-23T19:12:08",
+    "plan_steps": {
+      "系统查询": [
+        {
+          "step": "查询当前系统运行的程序列表",
+          "status": "completed"
+        },
+        {
+          "step": "整理并展示结果",
+          "status": "completed"
+        }
+      ]
+    },
+    "phase_msgs": [],
+    "llm_context_info": "memory.jsonl",
+    "extra_prompt": "",
+    "sub_task_name": "系统进程查询"
+  },
+  "conversation_log": [],
+  "general_messages": [],
+  "periodic": {
+    "counter": 9,
+    "next_execution_time": "2026-07-23T19:31:13",
+    "is_periodic": true,
+    "period": "20m"
+  }
+}

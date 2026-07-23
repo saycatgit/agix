@@ -530,6 +530,7 @@ class TaskManager:
                 "task_type": s.get(TaskField.TASK_TYPE, ""),
                 "project_path": s.get(TaskField.PROJECT_PATH, ""),
                 "sub_task_detail": s.get(TaskField.SUB_TASK_DETAIL, ""),
+                "periodic_counter": pd.get("counter", 0),
             })
         return result
 
