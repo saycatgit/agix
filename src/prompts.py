@@ -266,7 +266,7 @@ class Prompts:
 
 # 工具调用特别要求
 ## start_task
-- start_task提交任务后直接调用finish工具结束会话，**禁止执行将要提交或之前已经提交到任务模式的任务**。
+- **start_task提交任务后直接调用finish工具结束会话，禁止执行将要提交或之前已经提交到任务模式的任务**。
 
 """   
 )
@@ -316,7 +316,7 @@ class Prompts:
   - 如果信息表明当前需求是之前某个项目的延续，直接用start_task启动任务模式，不要试图了解之前的项目信息，项目信息只在任务模式存档,严格按照用户指令，不能随意增减需求。
 - 如果用户需求不足以启动任务模式，但涉及 2 个以上 file_patch、跨文件修改、或多个独立操作步骤，必须先调用 update_plan 规划执行步骤，每个步骤完成后及时更新状态，直至任务完成。禁止跳过 update_plan 直接执行多步骤操作。
  
- """)
+""")
 
         self.chat_prompt = (Prompts.assistant_role + "\n" +
             Prompts.other + "\n" +

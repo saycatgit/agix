@@ -176,9 +176,9 @@ class Chater:
                         if summary:
                             return {"judge": "true", "content": summary}
                 if rounds % 5 == 0:
-                    msg = (f"[工具执行完毕，{len(result['calls'])} 个结果，"
-                       f"总计 {total_len} 字符]\n"
-                       f" {self.chat_stage_progress.format_status()}")
+                    msg = self.chat_stage_progress.format_status()
+                else:
+                    msg = "继续。"
                 continue
             else:
                 content_text = result.get("content", "")

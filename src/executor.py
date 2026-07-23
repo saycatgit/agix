@@ -324,7 +324,9 @@ class Executor:
                     self._log(f"     → {str(exec_result)[:500]}")
 
                 if num % 5 == 0:
-                    msg = f"{msg_base}:\n{task_manager._stage_progress.format_status()}"
+                    msg = task_manager._stage_progress.format_status()
+                else:
+                    msg = "继续。"
 
                 rounds_used = num + 1
                 convergence = ""
