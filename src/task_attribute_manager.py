@@ -350,7 +350,7 @@ class TaskAttributeManager:
 - dir_from 仅两类：无产出填 "temp"，有产出填 "[项目名]"（英文/拼音，如 [snake]）（⚠️ 一对半角方括号是必须的，否则会被当作 temp）。
 - task_sub_type: 按 type 从下表中选取。
 
-- first_execution_time: "string"类型, 首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
+- next_execution_time: "string"类型, 下次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
 - is_periodic: "boolean"类型,  是否周期性任务，默认false
 - period: "string"类型,周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要
     
@@ -428,7 +428,7 @@ class TaskAttributeManager:
 - related_task_file_name: 仅当前子任务有关联任务时填写,表示关联的子任务文件名（如 task_3_state.json）。
 - reason: 当前子任务有历史关联任务时必填，简述判断理由。
 
-- first_execution_time: "string"类型, 首次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
+- next_execution_time: "string"类型, 下次执行时间。ISO格式如2026-07-08T20:00:00，或相对时间如+10m/+2h/+1d，默认为now立即执行,
 - is_periodic: "boolean"类型,  是否周期性任务，默认false
 - period: "string"类型,周期间隔，如1d/12h/30m/1w。仅is_periodic为true时需要
 

@@ -68,10 +68,10 @@ class SubTaskRecord:
     extra_prompt:    str = ""
     phase_msgs:     list = field(default_factory=list)
     status:         SubTaskStatus = SubTaskStatus.PENDING
-    first_execution_time: str = ""
     next_execution_time:  str = ""
     is_periodic:     bool = False
     period:          str = ""
+    is_interactive:  bool = False
     dir_from:       str = ""
     project_path:   str = ""
     extra:          str = ""
@@ -87,7 +87,7 @@ class SubTaskRecord:
     def from_orchestrate_item(index: int, item: dict) -> "SubTaskRecord":
         """从 orchestrate 列表项构造记录"""
         # 解析时间字段
-        first_time = item.get("first_execution_time", "now")
+        first_time = item.get("next_execution_time", "now")
         is_periodic = bool(item.get("is_periodic", False))
         period = str(item.get("period", ""))
         rec = SubTaskRecord(
@@ -185,7 +185,6 @@ class TaskManager:
     def set_subtask_execution_time(self, first_time: str, is_periodic: bool = False, period: str = ""):
         """设置子任务的执行时间相关字段并计算 next_execution_time。"""
         if self._subtask:
-            self._subtask.first_execution_time = first_time
             self._subtask.is_periodic = is_periodic
             self._subtask.period = period
             self._subtask.next_execution_time = _parse_execution_time(first_time)
@@ -201,9 +200,11 @@ class TaskManager:
             return False
 
     def reschedule_next_execution(self):
-        """周期任务：将 next_execution_time 推进一个 period。非周期任务或无 period 不操作。"""
+        """周期任务：将 next_execution_time 推进一个 period。非周期任务清空 next_execution_time。"""
         sub = self._subtask
         if not sub or not sub.is_periodic or not sub.period or not sub.next_execution_time:
+            if sub and not sub.is_periodic and sub.next_execution_time:
+                sub.next_execution_time = ""
             return
         try:
             current = datetime.fromisoformat(sub.next_execution_time)
@@ -223,8 +224,6 @@ class TaskManager:
         """直接设置 next_execution_time（如 Planner 已计算好）。"""
         if self._subtask:
             self._subtask.next_execution_time = next_time_iso
-            if not self._subtask.first_execution_time:
-                self._subtask.first_execution_time = next_time_iso
 
     @property
     def subtask(self) -> SubTaskRecord | None:
@@ -270,6 +269,8 @@ class TaskManager:
             }
             if s.sub_task_name:
                 d[TaskField.SUB_TASK_NAME] = s.sub_task_name
+            if s.is_interactive:
+                d["is_interactive"] = s.is_interactive
             return d
 
         return {
@@ -278,7 +279,6 @@ class TaskManager:
             TaskField.GENERAL_MSGS: [_msg_to_dict(m) for m in self._global_messages],
             "periodic": {
                 "counter": self._periodic_counter,
-                "first_execution_time": self._subtask.first_execution_time if self._subtask else "",
                 "next_execution_time": self._subtask.next_execution_time if self._subtask else "",
                 "is_periodic": self._subtask.is_periodic if self._subtask else False,
                 "period": self._subtask.period if self._subtask else "",
@@ -335,11 +335,11 @@ class TaskManager:
             )
             # 从 periodic 对象读取调度字段（兼容旧格式：字段可能仍在 subtask 顶层）
             pd = data.get("periodic", {})
-            rec.first_execution_time = pd.get("first_execution_time") or sd.get("first_execution_time", "")
             rec.next_execution_time = pd.get("next_execution_time") or sd.get("next_execution_time", "")
             rec.is_periodic = pd.get("is_periodic", sd.get("is_periodic", False))
             rec.period = pd.get("period") or sd.get("period", "")
             rec.plan_steps = sd.get("plan_steps", {})
+            rec.is_interactive = sd.get("is_interactive", False)
             tm._subtask = rec
 
         tm._conversation_log = data.get("conversation_log", [])
@@ -532,6 +532,26 @@ class TaskManager:
                 "sub_task_detail": s.get(TaskField.SUB_TASK_DETAIL, ""),
             })
         return result
+
+    @staticmethod
+    def update_pending_task(file_path: str, updates: dict) -> bool:
+        """更新计划任务的可编辑字段，通过 load→修改→save 保证数据一致性。"""
+        if not file_path or not os.path.exists(file_path):
+            return False
+        try:
+            tm = TaskManager.load(file_path)
+            if not tm._subtask:
+                return False
+            sub = tm._subtask
+            sub.sub_task_name = updates.get("task_name", sub.sub_task_name)
+            sub.next_execution_time = updates.get("next_execution_time", sub.next_execution_time)
+            sub.is_periodic = updates.get("is_periodic", sub.is_periodic)
+            sub.period = updates.get("period", sub.period)
+            sub.is_interactive = updates.get("is_interactive", sub.is_interactive)
+            tm.save(file_path)
+            return True
+        except (json.JSONDecodeError, IOError):
+            return False
 
     @staticmethod
     def build_history_context(log_dir: str, max_chars: int = 8000) -> str:

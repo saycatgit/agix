@@ -32,7 +32,7 @@ HISTORY_CONTEXT_SUMMARY_PROMPT = """请对以下对话历史进行总结提炼�
 
 class LLMClient:
 
-    def __init__(self, config,eqm=None, logger=None, log_history=False, memory_file=None):
+    def __init__(self, config, eqm=None, logger=None, log_history=False, memory_file=None, user: str = ""):
         # 支持 LLMConfig 或 dict
         if hasattr(config, "provider"):
             # LLMConfig
@@ -43,6 +43,9 @@ class LLMClient:
             temperature = config.temperature
             max_tokens = config.max_tokens
             context_window = config.context_window
+            organization = getattr(config, "organization", "")
+            project = getattr(config, "project", "")
+            default_headers = getattr(config, "default_headers", {})
         else:
             # dict (兼容)
             provider = config.get("provider", "deepseek")
@@ -52,6 +55,12 @@ class LLMClient:
             temperature = config.get("temperature", 0.7)
             max_tokens = config.get("max_tokens", 10240)
             context_window = config.get("context_window", 20)
+            organization = config.get("organization", "")
+            project = config.get("project", "")
+            default_headers = config.get("default_headers", {})
+
+        self.provider = provider
+        self._api_key = api_key
 
         self.model = model
         self.temperature = temperature
@@ -67,9 +76,21 @@ class LLMClient:
             print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
             print("（可在设置中配置密钥后重试）")
 
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.provider = provider
-        self._api_key = api_key
+        # 按供应商构建不同的 OpenAI 客户端
+        if provider == "openai":
+            client_kwargs: dict = {"api_key": api_key}
+            if organization:
+                client_kwargs["organization"] = organization
+            if project:
+                client_kwargs["project"] = project
+        elif provider == "deepseek":
+            client_kwargs = {"api_key": api_key, "base_url": base_url}
+        else:
+            client_kwargs = {"api_key": api_key, "base_url": base_url}
+            if default_headers:
+                client_kwargs["default_headers"] = default_headers
+
+        self.client = OpenAI(**client_kwargs)
         self.provider_name = provider_info["name"]
 
         # 会话记忆
@@ -91,6 +112,8 @@ class LLMClient:
         self.log_history = log_history
         self.last_system_prompt = ""  # 最近一次系统提示词
         self.eqm=eqm
+        self.user = user
+
     # ---- 核心聊天 ----
 
     def _query_balance(self) -> dict | None:
@@ -251,6 +274,8 @@ class LLMClient:
         )
         if json_mode and _supports_json_object:
             kwargs["response_format"] = {"type": "json_object"}
+        if self.user:
+            kwargs["user"] = self.user
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -341,6 +366,8 @@ class LLMClient:
             "tools": tools,
             "tool_choice": "auto",
         }
+        if self.user:
+            kwargs["user"] = self.user
         self.last_system_prompt = prompt
         try:
             response = self.client.chat.completions.create(**kwargs)
@@ -477,7 +504,7 @@ class LLMClient:
 
         try:
             resp = self.client.chat.completions.create(
-                model=self.model, messages=msgs,
+                model=self.model, messages=msgs, user=self.user,
                 temperature=0.2, max_tokens=9182,
             )
             summary = resp.choices[0].message.content or ""

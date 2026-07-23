@@ -61,7 +61,6 @@ class Planner:
                              history_ctx=history_ctx)
 
     def run(self, user_task: str,
-            first_execution_time: str = "now",
             is_periodic: bool = False,
             period: str = "",
             enable_history: bool = True) -> dict:
@@ -93,7 +92,7 @@ class Planner:
             tm = TaskManager(save_path=save_path)
             tm.set_subtask(item)
             tm.set_subtask_execution_time(
-                first_execution_time or item.get("next_execution_time", "now"),
+                item.get("next_execution_time", "now"),
                 is_periodic=item.get("is_periodic", False),
                 period=item.get("period", ""),
             )

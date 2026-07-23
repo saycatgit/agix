@@ -15,6 +15,36 @@ PROVIDERS = {
         "base_url": "https://api.deepseek.com/v1",
         "balance_url": "https://api.deepseek.com/user/balance",
     },
+    "openai": {
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "balance_url": "https://platform.openai.com/usage",
+    },
+    "moonshot": {
+        "name": "月之暗面 Kimi",
+        "base_url": "https://api.moonshot.cn/v1",
+        "balance_url": "https://api.moonshot.cn/v1/users/me/balance",
+    },
+    "minimax": {
+        "name": "MiniMax",
+        "base_url": "https://api.minimax.chat/v1",
+        "balance_url": "",
+    },
+    "stepfun": {
+        "name": "阶跃星辰",
+        "base_url": "https://api.stepfun.com/v1",
+        "balance_url": "",
+    },
+    "siliconflow": {
+        "name": "硅基流动",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "balance_url": "https://api.siliconflow.cn/v1/user/info",
+    },
+    "groq": {
+        "name": "Groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "balance_url": "",
+    },
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -88,6 +118,9 @@ class LLMConfig:
     temperature: float = 0.7
     max_tokens: int = 10240
 
+    organization: str = ""
+    project: str = ""
+    default_headers: dict = field(default_factory=dict)
     context_window: int = 40
     label: str = ""
     active: bool = True

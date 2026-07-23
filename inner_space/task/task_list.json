@@ -1,232 +1,138 @@
 [
   {
-    "main_task_name": "贪吃蛇游戏",
-    "main_task_detail": "开发一个单文件HTML贪吃蛇游戏，使用Canvas绘制游戏面板，实现蛇的移动、食物随机生成、蛇吃食物变长、碰撞检测（墙壁和自身）、实时分数显示、游戏结束提示与重新开始按钮，通过键盘方向键控制蛇的移动方向，整体界面现代化、适配桌面浏览器。",
-    "status": "in_progress",
-    "created_at": "2026-07-17T18:43:01",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260717_184301_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_142339_444345.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "俄罗斯方块游戏",
-    "main_task_detail": "开发一个完整的俄罗斯方块游戏，单文件HTML实现，包含7种标准方块、旋转、下落、消行、分数统计、游戏结束判定，界面美观，操作流畅。",
-    "status": "in_progress",
-    "created_at": "2026-07-17T19:20:29",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260717_192029_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_142525_864475.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "超级玛丽完整游戏",
-    "main_task_detail": "开发一个完整的超级玛丽风格横版跳跃闯关游戏，单文件HTML实现，包含：玩家控制角色马里奥左右移动与跳跃，多种敌人类型与碰撞判定，金币收集机制，得分系统与UI显示，障碍物（如砖块、管道）、至少一个可玩关卡，游戏结束/胜利条件，界面美观，适配桌面浏览器。",
-    "status": "in_progress",
-    "created_at": "2026-07-17T20:31:32",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260717_203132_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_150333_690459_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇游戏实现",
-    "main_task_detail": "实现一个完整的贪吃蛇网页游戏，使用Canvas绘制游戏区域，支持键盘方向键控制蛇的移动，随机生成食物，蛇吃到食物后长度增加并更新得分，当蛇碰到边界或自身时游戏结束并显示最终得分，整体界面包含得分面板和重新开始功能。",
-    "status": "in_progress",
-    "created_at": "2026-07-18T13:29:42",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260718_132942_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_150635_704757_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "实现俄罗斯方块游戏",
-    "main_task_detail": "开发一个完整的俄罗斯方块游戏，包含所有要求的功能，生成单文件index.html，放置于指定目录。",
-    "status": "in_progress",
-    "created_at": "2026-07-18T20:59:37",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260718_205937_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_153150_601405_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "完整游戏开发",
-    "main_task_detail": "使用HTML/CSS/JavaScript开发完整的Web俄罗斯方块游戏，实现所有核心功能：7种标准方块（I、O、T、S、Z、J、L）的生成、旋转（SRS规则）、下落、锁死、消行；10x20游戏面板渲染；分数系统（单消100、双消300、三消500、四消800）和等级递增速度；下一个方块预览窗口；键盘控制（方向键左右移动、下键软降、上键旋转、空格键硬降）；游戏结束检测并显示分数，提供重新开始按钮；界面采用现代响应式设计，适配不同屏幕。所有代码整合在一个HTML文件中，无需外部依赖，可直接在浏览器打开运行。",
-    "status": "in_progress",
-    "created_at": "2026-07-18T22:29:42",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260718_222942_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_153533_316931_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "Web贪吃蛇游戏",
-    "main_task_detail": "开发完整的Web贪吃蛇游戏，使用纯HTML/CSS/JS单文件实现，包含画布渲染蛇和食物、键盘方向键控制移动、吃食物增长和随机食物生成、撞墙/撞自身检测、分数显示、游戏结束和重新开始机制、适配桌面端和移动端触屏方向滑动，以及现代化UI设计。",
-    "status": "in_progress",
-    "created_at": "2026-07-18T23:30:13",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260718_233013_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_154642_798141_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "Web贪吃蛇游戏",
-    "main_task_detail": "开发一个完整的Web贪吃蛇游戏，采用纯HTML/CSS/JS单文件实现，包含Canvas渲染、键盘方向键控制、食物增长、碰撞检测、分数显示、游戏结束与重新开始、移动端触屏适配、现代化深色主题UI。",
-    "status": "in_progress",
-    "created_at": "2026-07-18T23:34:07",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260718_233407_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_160208_304900_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "查询日期",
-    "main_task_detail": "查询当前系统日期并返回。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T11:04:30",
+    "status": "pending",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_110430_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_160958_381911_state.json",
+    "has_subtask": true,
+    "completed": false
   },
   {
-    "main_task_name": "俄罗斯方块游戏开发",
-    "main_task_detail": "开发一个单文件HTML的WEB俄罗斯方块游戏。要求：标准七种方块（I/O/T/S/Z/J/L）带颜色区分；支持旋转（含踢墙）、左右移动、加速下落、硬降；下一个方块预览；分数/行数/等级实时统计；最高分 localStorage 持久化；键盘控制（方向键/WASD、空格暂停、回车硬降）；移动端触摸（点击旋转、下滑硬降、左右滑移动）；暂停/恢复功能；游戏结束提示；深色系 UI（GitHub 暗色风格），Canvas 绘制，方块 3D 高光效果，ghost piece 投影提示，网格线；等级随行数增长，下落速度递增。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T13:31:03",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_133103_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_193333_143899_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇游戏开发",
-    "main_task_detail": "开发一个单文件HTML/CSS/JS实现的贪吃蛇小游戏。核心功能包括：游戏画布和蛇的渲染；键盘方向键控制蛇的移动；随机生成食物；吃到食物后蛇身增长、分数增加；碰撞检测（撞墙或撞自己）导致游戏结束；分数显示；游戏结束后可重新开始。要求界面简洁美观，可直接在浏览器中打开运行。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T14:28:34",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_142834_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_202728_087260_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇游戏",
-    "main_task_detail": "开发一个web贪吃蛇游戏，纯HTML/CSS/JS实现，包括：画布渲染蛇和食物，键盘方向键控制移动，吃到食物蛇身增长、分数增加，撞墙或撞到自己时游戏结束，显示分数，游戏结束后可重新开始，界面美观、操作流畅。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T15:01:48",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_150148_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_210539_545132_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇web游戏",
-    "main_task_detail": "开发一个单文件HTML的贪吃蛇游戏，包含移动控制、食物生成、分数统计、游戏结束判定等核心功能，使用HTML/CSS/JS实现，可直接在浏览器打开。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T22:31:22",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_223122_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260722_213548_971345_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇Web游戏",
-    "main_task_detail": "开发一个贪吃蛇web游戏，要求：单文件HTML/CSS/JS实现，包含键盘方向键控制蛇移动、随机食物生成、分数统计、游戏结束判定与重新开始功能，界面美观可直接在浏览器打开。",
-    "status": "in_progress",
-    "created_at": "2026-07-19T22:40:15",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260719_224015_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_093614_717488_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇游戏",
-    "main_task_detail": "开发一个完整的Web贪吃蛇小游戏，包含蛇的移动控制（方向键）、食物随机生成、得分系统、碰撞检测（墙壁和自身）、游戏结束与重新开始功能，使用纯HTML/CSS/JS实现，单文件即可运行。",
-    "status": "in_progress",
-    "created_at": "2026-07-20T14:01:24",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260720_140124_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_101301_996781_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇游戏",
-    "main_task_detail": "开发一个完整的Web贪吃蛇小游戏，使用纯HTML/CSS/JS实现，单文件即可运行。游戏包含：蛇的移动控制（通过方向键）、食物随机生成、得分系统、碰撞检测（墙壁和自身），以及游戏结束和重新开始功能。",
-    "status": "in_progress",
-    "created_at": "2026-07-20T14:18:13",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260720_141813_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_100701_442832_state.json",
+    "has_subtask": true,
+    "completed": true
   },
   {
-    "main_task_name": "贪吃蛇Web游戏",
-    "main_task_detail": "开发一个纯HTML/CSS/JS实现的单文件贪吃蛇游戏，包含方向键控制、食物随机生成、得分系统、碰撞检测（墙壁和自身）、游戏结束与重新开始功能。",
-    "status": "in_progress",
-    "created_at": "2026-07-20T14:34:04",
+    "status": "completed",
+    "created_at": "",
     "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260720_143404_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "俄罗斯方块游戏",
-    "main_task_detail": "开发一个完整的Web俄罗斯方块游戏，包含方块生成与下落、旋转、左右移动、加速下落、消行、得分系统、游戏结束判断、重新开始功能，使用纯HTML/CSS/JS实现，单文件即可运行。",
-    "status": "in_progress",
-    "created_at": "2026-07-20T18:39:21",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260720_183921_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "贪吃蛇游戏开发",
-    "main_task_detail": "使用HTML/CSS/JS创建完整的贪吃蛇游戏，包含游戏画布、键盘控制、得分系统、游戏结束判定和重新开始功能，要求界面美观、操作流畅、代码整洁。",
-    "status": "in_progress",
-    "created_at": "2026-07-21T05:14:18",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260721_051418_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "日期获取展示",
-    "main_task_detail": "获取当前系统日期并显示给用户",
-    "status": "in_progress",
-    "created_at": "2026-07-21T08:35:48",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260721_083548_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "多时区美国时间",
-    "main_task_detail": "在Linux终端中获取并展示美国四个主要时区（东部、中部、山区、太平洋）的当前时间，包含时区缩写和夏令时判断。",
-    "status": "in_progress",
-    "created_at": "2026-07-21T08:50:41",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260721_085041_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "北京时间展示",
-    "main_task_detail": "在Linux终端中获取并展示当前北京时间",
-    "status": "in_progress",
-    "created_at": "2026-07-21T08:57:46",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260721_085746_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
-  },
-  {
-    "main_task_name": "展示北京时间",
-    "main_task_detail": "获取并展示当前北京时间",
-    "status": "in_progress",
-    "created_at": "2026-07-21T09:03:49",
-    "completed_at": "",
-    "state_file": "/home/agent_native/inner_space/task/task_20260721_090349_state.json",
-    "subtasks_count": 1,
-    "completed_count": 1
+    "state_file": "/home/agent_native/inner_space/task/task_20260723_110924_691989_state.json",
+    "has_subtask": true,
+    "completed": true
   }
 ]

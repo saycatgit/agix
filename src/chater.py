@@ -32,7 +32,7 @@ class Chater:
         self.task_dir = config.paths.task_dir
 
         self.chat_llm = LLMClient(config.llm, eqm=eqm, logger=self.logger,
-                                  log_history=config.log.history)
+                                  log_history=config.log.history,user="chater")
         self.prompts = Prompts(config.paths.task_config_file_path)
 
         self.work_dir = config.execution.work_dir
@@ -175,7 +175,8 @@ class Chater:
                         summary = exec_result["summary"]
                         if summary:
                             return {"judge": "true", "content": summary}
-                msg = (f"[工具执行完毕，{len(result['calls'])} 个结果，"
+                if rounds % 5 == 0:
+                    msg = (f"[工具执行完毕，{len(result['calls'])} 个结果，"
                        f"总计 {total_len} 字符]\n"
                        f" {self.chat_stage_progress.format_status()}")
                 continue
