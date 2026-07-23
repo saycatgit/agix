@@ -37,6 +37,7 @@ class TaskPanel:
     CLOSE_TOOLTIP: str = "关闭任务面板"
 
     LABEL_SIZE: int = 10
+    STOP_TOOLTIP: str = "停止任务"
     LABEL_COLOR = ft.Colors.GREY_500
     TITLE_SIZE: int = 13
     TITLE_WEIGHT = ft.FontWeight.W_600
@@ -57,11 +58,13 @@ class TaskPanel:
         style_visuals: dict,
         msg_style,
         on_close=None,
+        thinking_enabled: bool = True,
     ):
         self.page = page
         self.eqm = eqm
         self._style_visuals = style_visuals
         self._M = msg_style  # MsgStyle 命名空间
+        self._thinking_enabled = thinking_enabled
         self._on_close = on_close
 
         self._panel_pos = [self.INITIAL_LEFT, self.INITIAL_TOP]
@@ -153,10 +156,12 @@ class TaskPanel:
             dense=True,
         )
         ask_send_btn = ft.IconButton(
-            icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._send()
+            icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._send(),
         )
+        ask_stop_btn = ft.IconButton(icon=ft.Icons.STOP, icon_size=16,
+                                     on_click=lambda e: self._stop(), tooltip=self.STOP_TOOLTIP)
         self.ask_container = ft.Container(
-            content=ft.Row([self.ask_input, ask_send_btn], spacing=4),
+            content=ft.Row([self.ask_input, ask_send_btn, ask_stop_btn], spacing=4),
             padding=ft.Padding(0, 4, 0, 0),
             visible=True,
         )
@@ -227,7 +232,7 @@ class TaskPanel:
                     bgcolor=self.STATUS_BGCOLOR,
                 ),
                 ft.VerticalDivider(width=1, color=self.DIVIDER_COLOR),
-                # 右侧：步骤 + 思考
+                # 右侧：步骤 + 思考（thinking 关闭时思考区隐藏）
                 ft.Container(
                     content=ft.Column([
                         ft.Column([
@@ -237,15 +242,11 @@ class TaskPanel:
                             ),
                             ft.Container(content=self.action_list, expand=True),
                         ], spacing=2, expand=2),
-                        ft.Divider(height=1, color=self.DIVIDER_COLOR),
-                        ft.Column([
-                            ft.Text(
-                                self.THINK_LABEL, size=self.LABEL_SIZE,
-                                color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
-                            ),
-                            ft.Container(content=self.think_list, expand=True),
-                        ], spacing=2, expand=3),
-                        ft.Divider(height=1, color=self.THINK_DIVIDER_COLOR),
+                        ft.Divider(height=1, color=self.DIVIDER_COLOR,
+                                   visible=self._thinking_enabled),
+                        self._build_think_section(),
+                        ft.Divider(height=1, color=self.THINK_DIVIDER_COLOR,
+                                   visible=self._thinking_enabled),
                         self.ask_container,
                     ], spacing=0),
                     expand=True,
@@ -257,6 +258,17 @@ class TaskPanel:
             padding=ft.Padding(6, 4, 6, 6),
         )
 
+
+    def _build_think_section(self) -> ft.Column:
+        """构建思考区域，visible 受 thinking_enabled 控制"""
+        self._think_section = ft.Column([
+            ft.Text(
+                self.THINK_LABEL, size=self.LABEL_SIZE,
+                color=self.LABEL_COLOR, weight=self.TITLE_WEIGHT,
+            ),
+            ft.Container(content=self.think_list, expand=True),
+        ], spacing=2, expand=3, visible=self._thinking_enabled)
+        return self._think_section
 
     def _build_wrapper(self):
         self._wrapper = ft.GestureDetector(
@@ -281,6 +293,10 @@ class TaskPanel:
         self._panel_pos[1] = max(0, min(self._panel_pos[1], self.page.window.height - 400))
         self._wrapper.left = self._panel_pos[0]
         self._wrapper.top = self._panel_pos[1]
+
+    def _stop(self):
+        """停止任务"""
+        self.eqm.request_cancel("task")
         self.page.update()
 
     def _panel_enter(self, e):

@@ -269,7 +269,7 @@ class Executor:
         for num in range(max_rounds):
 
             if self.eqm and self.eqm.is_cancelled("task"):
-                self.eqm.send_display("⏹ 已取消", mode="task")
+                self.eqm.send_display("⏹ 任务已取消", mode="task")
                 return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
 
             drained = ""
@@ -287,7 +287,8 @@ class Executor:
             result = self.llm.chat_with_tools(base_prompt, msg, task_tools)
 
             reasoning = result.get("reasoning_content", "")
-            if reasoning:
+            thinking_enabled = self.agent.config.execution.thinking
+            if reasoning and thinking_enabled:
                 print(f"[debug] model={self.agent.config.llm.model}, reasoning={len(reasoning)} chars")
                 if self.eqm:
                     sentences = reasoning.split("。")

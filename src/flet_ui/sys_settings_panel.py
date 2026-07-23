@@ -61,9 +61,10 @@ class SystemSettingsPanel:
         self._sys_work_dir = ft.TextField(value=cfg.execution.work_dir, read_only=True, **tf)
         self._sys_enable_history = ft.Switch(label="历史任务关联", height=30,
             value=cfg.execution.enable_history_task_association)
+        self._sys_thinking = ft.Switch(label="思考模式", height=30, value=cfg.execution.thinking)
         self._sys_log_enabled = ft.Switch(label="启用日志", height=30, value=cfg.log.enabled)
         self._sys_log_history = ft.Switch(label="记录历史", height=30, value=cfg.log.history)
-        self._sys_auth_interactive = ft.Switch(label="交互模式", height=30, value=cfg.auth.interactive)
+        self._sys_auth_interactive = ft.Switch(label="交互模式", height=30, value=cfg.execution.interactive)
         self._sys_auth_sensitive = ft.Switch(label="敏感命令检查", height=30,
             value=cfg.auth.sensitive_command_check)
 
@@ -77,12 +78,12 @@ class SystemSettingsPanel:
                 self._sys_timeout, self._sys_rounds,
             ], spacing=24),
             ft.Row([self._sys_mem_en, self._sys_enable_history], spacing=24),
-            ft.Divider(height=1),
+            ft.Row([self._sys_auth_interactive, self._sys_thinking], spacing=24), ft.Divider(height=1),
             ft.Text(self.SECTION_LOG, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
             ft.Row([self._sys_log_enabled, self._sys_log_history], spacing=24, wrap=True),
             ft.Divider(height=1),
             ft.Text(self.SECTION_SECURITY, weight=ft.FontWeight.W_600, size=16, color=self.LABEL_COLOR),
-            ft.Row([self._sys_auth_interactive, self._sys_auth_sensitive], spacing=24, wrap=True),
+            ft.Row([self._sys_auth_sensitive], spacing=24, wrap=True),
             ft.Container(expand=True),
             ft.Container(content=ft.Row([
                 ft.ElevatedButton(self.SAVE_LABEL, on_click=self._save, height=32),
@@ -147,7 +148,8 @@ class SystemSettingsPanel:
             cfg.execution.enable_history_task_association = self._sys_enable_history.value
             cfg.log.enabled = self._sys_log_enabled.value
             cfg.log.history = self._sys_log_history.value
-            cfg.auth.interactive = self._sys_auth_interactive.value
+            cfg.execution.interactive = self._sys_auth_interactive.value
+            cfg.execution.thinking = self._sys_thinking.value
             cfg.auth.sensitive_command_check = self._sys_auth_sensitive.value
             cfg.save()
             self.close()

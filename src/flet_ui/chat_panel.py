@@ -14,7 +14,7 @@ class ChatPanel:
     INPUT_HINT: str = "输入消息..."
 
     ASK_COLOR = ft.Colors.ORANGE
-    STATUS_BAR_BGCOLOR = ft.Colors.GREY_50
+    STATUS_BAR_BGCOLOR = ft.Colors.WHITE
     STATUS_BAR_HEIGHT: int = 32
     MODEL_LABEL_COLOR = ft.Colors.GREY_500
     WORK_DIR_COLOR = ft.Colors.GREY_500

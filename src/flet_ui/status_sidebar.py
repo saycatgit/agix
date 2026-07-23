@@ -94,16 +94,16 @@ class StatusSidebar:
                 self._on_chat_select(self._default_work_dir, "")
 
         content_col = ft.Column([
-            ft.Container(content=self._build_title_bar(), expand=1),
+            ft.Container(content=self._build_title_bar(), expand=7),
             ft.Container(
                 content=ft.Column([
                     ft.Container(content=self._history_list, expand=True),
                 ], spacing=4, expand=True),
-                expand=8,
+                expand=86,
             ),
             ft.Container(
                 content=self._build_exit_bar(),
-                expand=1,
+                expand=7,
             ),
         ], spacing=0, expand=True)
         self._panel = ft.Container(

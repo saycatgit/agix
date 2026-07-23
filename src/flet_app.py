@@ -48,6 +48,7 @@ class AgixUI:
         self.task_panel = TaskPanel(
             page, eqm, _STYLE_VISUALS, MsgStyle,
             on_close=lambda: setattr(self.task_switch, 'value', False),
+            thinking_enabled=agent.config.execution.thinking,
         )
         self._build_lights_and_switch()
         self.chat_panel = ChatPanel(
@@ -127,13 +128,13 @@ class AgixUI:
             ft.IconButton(icon=ft.Icons.MINIMIZE, icon_size=18, tooltip="最小化", on_click=self._minimize),
             ft.IconButton(icon=ft.Icons.CROP_SQUARE, icon_size=18, tooltip="最大化/还原", on_click=self._maximize, ref=self._max_btn_ref),
             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, tooltip="关闭", on_click=self._close),
-        ], spacing=4), bgcolor=ft.Colors.WHITE, padding=ft.Padding(left=12, right=4, top=4, bottom=4), height=40)
+        ], spacing=4), bgcolor=ft.Colors.WHITE, padding=ft.Padding(left=12, right=4, top=4, bottom=4))
 
     # ── 页面组装 ──
 
     def _assemble_page(self):
         self.page.add(ft.Container(
-            content=ft.Stack([ft.Row([self.status_sidebar.container, ft.Column([self.tb, self.chat_panel.container], expand=True)], expand=True),
+            content=ft.Stack([ft.Row([self.status_sidebar.container, ft.Column([ft.Container(content=self.tb.content, bgcolor=self.tb.bgcolor, padding=self.tb.padding, expand=7), ft.Container(content=self.chat_panel.container, expand=93)], expand=True)], expand=True),
                 self.task_panel.wrapper, self.unified_settings.panel], expand=True),
             bgcolor=ft.Colors.WHITE,
             border_radius=ft.BorderRadius(3, 3, 3, 3),

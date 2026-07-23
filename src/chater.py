@@ -155,7 +155,8 @@ class Chater:
             result = self.chat_llm.chat_with_tools(prompt, msg, TOOLS,
                                                    use_memory=True)
             reasoning = result.get("reasoning_content", "")
-            if reasoning:
+            thinking_enabled = self.config.execution.thinking
+            if reasoning and thinking_enabled:
                 if self.eqm:
                     sentences = reasoning.split("。")
                     for s in sentences:

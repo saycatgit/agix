@@ -328,7 +328,7 @@ class ToolExecutor:
     def _resolve_sudo_password(self, command: str, note: str = ""):
         """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""
         agent = getattr(self, "agent", None)
-        if agent and not agent.config.auth.interactive:
+        if agent and not agent.config.execution.interactive:
             # 非交互模式：有缓存密码直接用，没有返回 None
             if agent.config and agent.config.sudo_password:
                 return agent.config.sudo_password
@@ -402,7 +402,7 @@ class ToolExecutor:
         # 优先使用 EventQueueManager 进行交互
         eqm = getattr(self, "eqm", None)
         # 非交互模式直接拒绝，不管有没有 eqm
-        if self.agent and not self.agent.config.auth.interactive:
+        if self.agent and not self.agent.config.execution.interactive:
             return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
 
         if eqm is not None:

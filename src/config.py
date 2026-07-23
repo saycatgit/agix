@@ -132,6 +132,8 @@ class ExecutionConfig:
     enable_history_task_association: bool = True
     max_rounds: int = 40
     memory_enabled: bool = True  # chat 模式持久记忆
+    interactive: bool = True
+    thinking: bool = True
     work_dir: str = ""  # 工作目录，空则默认 os.getcwd()
 
 
@@ -143,7 +145,6 @@ class LogConfig:
 
 @dataclass
 class AuthConfig:
-    interactive: bool = True
     sensitive_command_check: bool = True
 
 

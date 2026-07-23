@@ -32,7 +32,7 @@ def main(page: ft.Page):
     """Flet 桌面应用入口 —— 先检查本地 token，有效则跳过登录。"""
     config = AppConfig.load()
     auth_handler = AuthHandler(
-        interactive=config.auth.interactive,
+        interactive=config.execution.interactive,
         sensitive_command_check=config.auth.sensitive_command_check,
     )
     eqm = EventQueueManager(config=config)

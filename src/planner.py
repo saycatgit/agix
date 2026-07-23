@@ -131,10 +131,10 @@ class Planner:
         elif dir_from.startswith("[") and dir_from.endswith("]"):
             default_name = dir_from[1:-1]
 
-            if self.config.auth.interactive and self._eqm:
+            if self.config.execution.interactive and self._eqm:
                 folder_name = self._eqm.ask_user(
                     f"请输入项目文件夹名（默认: {default_name}）",
-                    mode="task",
+                    mode="chat",
                     timeout=self.config.execution.timeout,
                 )
                 if not folder_name:
