@@ -21,12 +21,16 @@ class StatusSidebar:
         SubTaskStatus.IN_PROGRESS.value: ft.Colors.BLUE,
         SubTaskStatus.FAILED.value: ft.Colors.RED,
         SubTaskStatus.PENDING.value: ft.Colors.ORANGE,
+        SubTaskStatus.SKIPPED.value: ft.Colors.WHITE,
+
     }
     STATUS_LABELS = {
         SubTaskStatus.COMPLETED.value: "已完成",
         SubTaskStatus.IN_PROGRESS.value: "进行中",
         SubTaskStatus.FAILED.value: "失败",
         SubTaskStatus.PENDING.value: "待执行",
+        SubTaskStatus.SKIPPED.value: "跳过",
+
     }
 
     def __init__(self, page: ft.Page, task_dir: str, visible: bool = True, extra_controls: list = None, on_chat_select=None):
@@ -358,10 +362,11 @@ class StatusSidebar:
         else:
             if not cat_names:
                 return
-            _name = _detail = _time = _path = _sub_cat = ""
+            _name = _detail = _time = _sub_cat = ""
+            _path = self._default_work_dir
             _periodic = _interactive = False
             _period = "1d"
-            _status = SubTaskStatus.PENDING.value
+            _status = SubTaskStatus.SKIPPED.value
             current_cat = cat_names[0]
 
         current_subs = [s[0] for s in categories.get(current_cat, [])]
@@ -375,6 +380,11 @@ class StatusSidebar:
             value=_sub_cat if is_edit and _sub_cat else (current_subs[0] if current_subs else ""),
             dense=True, expand=True,
         )
+        path_field = ft.TextField(
+                    label="项目路径", hint_text="选择项目文件夹（必填）",
+                    value=_path, dense=True, read_only=True,
+                    border_color=ft.Colors.GREY_300, prefix_icon=ft.Icons.FOLDER_OPEN, expand=True,
+                )
         name_field = ft.TextField(
             label="任务名称", hint_text="输入任务名称",
             value=_name, border_color=ft.Colors.GREY_300, dense=True, expand=True,
@@ -397,11 +407,7 @@ class StatusSidebar:
             icon=ft.Icons.CALENDAR_MONTH, tooltip="选择执行时间", icon_size=18,
         )
 
-        path_field = ft.TextField(
-            label="项目路径", hint_text="选择项目文件夹（必填）",
-            value=_path, dense=True, read_only=True,
-            border_color=ft.Colors.GREY_300, prefix_icon=ft.Icons.FOLDER_OPEN, expand=True,
-        )
+        
         path_btn = ft.IconButton(icon=ft.Icons.FOLDER_OPEN, tooltip="选择文件夹", icon_size=18)
         path_error = ft.Text("", size=11, color=ft.Colors.RED_400, visible=False)
 
@@ -415,11 +421,12 @@ class StatusSidebar:
         interactive_switch = ft.Switch(label="交互模式", value=_interactive)
         status_dd = ft.Dropdown(
             label="任务状态",
-            options=[ft.dropdown.Option(key=SubTaskStatus.PENDING.value, text="待处理"),
+            options=[ft.dropdown.Option(key=SubTaskStatus.SKIPPED.value, text="已跳过"),
+                     ft.dropdown.Option(key=SubTaskStatus.PENDING.value, text="待处理"),
                      ft.dropdown.Option(key=SubTaskStatus.IN_PROGRESS.value, text="执行中"),
                      ft.dropdown.Option(key=SubTaskStatus.COMPLETED.value, text="已完成"),
-                     ft.dropdown.Option(key=SubTaskStatus.FAILED.value, text="已失败"),
-                     ft.dropdown.Option(key=SubTaskStatus.SKIPPED.value, text="已跳过")],
+                     ft.dropdown.Option(key=SubTaskStatus.FAILED.value, text="已失败")
+                     ],
             value=_status, dense=True, expand=True,
         )
 
@@ -460,6 +467,14 @@ class StatusSidebar:
                 ft.Row([cat_dd, sub_dd], spacing=8),
             ], spacing=6))
 
+        if not is_edit:
+            content_sections.append(ft.Column([
+                ft.Text("项目路径", size=12, color=ft.Colors.GREY_500,
+                        weight=ft.FontWeight.BOLD),
+                ft.Row([path_field, path_btn], spacing=4),
+                path_error,
+            ], spacing=6))
+
         content_sections.append(ft.Column([
             ft.Text("任务描述", size=12, color=ft.Colors.GREY_500,
                     weight=ft.FontWeight.BOLD),
@@ -477,14 +492,6 @@ class StatusSidebar:
                 padding=ft.Padding(left=8, top=0, right=8, bottom=0),
             ),
         ], spacing=6))
-
-        if not is_edit:
-            content_sections.append(ft.Column([
-                ft.Text("项目路径", size=12, color=ft.Colors.GREY_500,
-                        weight=ft.FontWeight.BOLD),
-                ft.Row([path_field, path_btn], spacing=4),
-                path_error,
-            ], spacing=6))
 
         content_sections.append(ft.Column([
             ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
