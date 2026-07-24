@@ -21,7 +21,7 @@ class StatusSidebar:
         SubTaskStatus.IN_PROGRESS.value: ft.Colors.BLUE,
         SubTaskStatus.FAILED.value: ft.Colors.RED,
         SubTaskStatus.PENDING.value: ft.Colors.ORANGE,
-        SubTaskStatus.SKIPPED.value: ft.Colors.WHITE,
+        SubTaskStatus.SKIPPED.value: ft.Colors.TEAL,
 
     }
     STATUS_LABELS = {
@@ -61,11 +61,11 @@ class StatusSidebar:
         self.page.update()
 
     def refresh(self):
-        tasks, pending, chat_tasks = self._load_all()
+        tasks, pending, skipped = self._load_all()
 
         # hash 缓存：数据不变且无强制刷新标记时跳过重建
         import hashlib, json as _json
-        data_str = _json.dumps({"tasks": tasks, "pending": pending, "selected": self._selected_task_file}, sort_keys=True, default=str)
+        data_str = _json.dumps({"tasks": tasks, "pending": pending, "skipped": skipped, "selected": self._selected_task_file}, sort_keys=True, default=str)
         data_hash = hashlib.md5(data_str.encode()).hexdigest()
         if not self._needs_refresh and data_hash == self._last_data_hash:
             return
@@ -74,11 +74,11 @@ class StatusSidebar:
 
         self._history_list.controls.clear()
 
-        for t in tasks + pending:
+        for t in skipped + tasks + pending:
             self._history_list.controls.append(self._task_card(t))
 
         # 全空时提示
-        if not tasks and not pending:
+        if not tasks and not pending and not skipped:
             self._history_list.controls.append(
                 ft.Text(self.EMPTY_TEXT, size=12, color=ft.Colors.GREY_400, italic=True))
 
@@ -148,10 +148,19 @@ class StatusSidebar:
     # ── 数据加载 ──
 
     def _load_all(self) -> tuple:
-        """返回 (当前任务列表, 计划任务列表)"""
-        tasks = TaskManager.list_history_tasks(self.task_dir)
-        pending = TaskManager.list_pending_tasks(self.task_dir)
-        return tasks, pending, []
+        """返回 (当前任务列表, 计划任务列表, 已跳过任务列表)"""
+        all_tasks = TaskManager.list_history_tasks(self.task_dir)
+        terminal = {"completed", "failed"}
+        skip_status = SubTaskStatus.SKIPPED.value
+
+        tasks = [t for t in all_tasks
+                 if t["status"] in terminal and not t.get("is_periodic", False)
+                 and t["status"] != skip_status]
+        pending = [t for t in all_tasks
+                   if t["status"] != skip_status and (
+                       t.get("is_periodic", False) or t["status"] not in terminal)]
+        skipped = [t for t in all_tasks if t["status"] == skip_status]
+        return tasks, pending, skipped
 
     # ── 卡片 ──
 
@@ -168,11 +177,46 @@ class StatusSidebar:
         """任务卡片（单选）；周期任务额外显示图标、次数、下次执行时间"""
         name = (task.get("name") or task.get("task_name", "未知任务"))[:36]
         status = task.get("status", SubTaskStatus.PENDING.value)
+
+        # SKIPPED 状态极简卡片：仅名称 + 编辑按钮
+        if status == SubTaskStatus.SKIPPED.value:
+            key = task.get("file_full_path") or task.get("file", "")
+            selected = (self._selected_task_file == key)
+            menu_items = [
+                ft.PopupMenuItem(content=ft.Text("编辑", size=14),
+                                 on_click=lambda e, t=task: self._show_add_task_dialog(task_data=t)),
+                ft.PopupMenuItem(content=ft.Text("删除", size=14),
+                                 on_click=lambda e, t=task: self._confirm_delete_task(
+                                     t.get("file_full_path") or t.get("file", ""),
+                                     t.get("name") or t.get("task_name", ""))),
+            ]
+            card = ft.Container(
+                content=ft.Row([
+                    ft.Text(name, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
+                    ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16),
+                ], height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                bgcolor=ft.Colors.WHITE, border_radius=6,
+                on_click=lambda e, k=key, p=task.get("project_path", ""),
+                              s=key: self._select_card(k, p, s),
+                padding=ft.Padding(8, 6, 8, 6),
+                border=ft.border.Border(
+                    left=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+                    top=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+                    right=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+                    bottom=ft.BorderSide(1, ft.Colors.GREY_200),
+                ),
+            )
+            if selected:
+                card.bgcolor = ft.Colors.BLUE_50
+            return card
+
         pp = task.get("project_path", "")
-        state_file = task.get("state_file") or task.get("file", "")
+        state_file = task.get("file_full_path") or task.get("file", "")
         key = state_file
         selected = (self._selected_task_file == key)
-        is_pending = bool(task.get("file") and not task.get("state_file"))
+        is_pending = task.get("is_periodic", False) or task.get("status", "") in ("pending", "in_progress")
         is_periodic = task.get("is_periodic", False)
         periodic_counter = task.get("periodic_counter", 0)
         next_time = task.get("next_execution_time", "")
@@ -189,7 +233,7 @@ class StatusSidebar:
                              on_click=lambda e, t=task: self._show_add_task_dialog(task_data=t)),
             ft.PopupMenuItem(content=ft.Text("删除", size=14),
                              on_click=lambda e, t=task: self._confirm_delete_task(
-                                 t.get("state_file") or t.get("file", ""),
+                                 t.get("file_full_path") or t.get("file", ""),
                                  t.get("name") or t.get("task_name", ""))),
         ]
         if is_pending:
@@ -329,7 +373,7 @@ class StatusSidebar:
         is_edit = task_data is not None
 
         if is_edit:
-            state_file = task_data.get("state_file") or task_data.get("file", "")
+            state_file = task_data.get("file_full_path") or task_data.get("file", "")
             if state_file and os.path.exists(state_file):
                 try:
                     with open(state_file, "r", encoding="utf-8") as f:
@@ -617,7 +661,7 @@ class StatusSidebar:
 
     def _save_edit(self, task_data: dict, form: dict):
         """编辑保存 — TaskManager 统一路径"""
-        state_file = task_data.get("state_file") or task_data.get("file", "")
+        state_file = task_data.get("file_full_path") or task_data.get("file", "")
         if not state_file or not os.path.exists(state_file):
             return
         try:
@@ -669,7 +713,7 @@ class StatusSidebar:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # 更新 periodic 层（list_pending_tasks 优先读取）
+            # 更新 periodic 层（list_history_tasks 优先读取）
             if "periodic" in data:
                 data["periodic"]["next_execution_time"] = now
             # 更新 subtask 层（兜底读取）

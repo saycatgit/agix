@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 from prompts import history_context_summary_prompt
 from openai import BadRequestError
 from meta import MsgStyle
-
+from utils import Utils
 # ── 历史压缩提示词 ──
 HISTORY_CONTEXT_SUMMARY_PROMPT = """请对以下对话历史进行总结提炼，保留以下关键信息：
 - 用户的核心需求、目标和偏好
@@ -82,13 +82,13 @@ class LLMClient:
             if organization:
                 client_kwargs["organization"] = organization
             if project:
-                client_kwargs["project"] = project
+                client_kwargs["project"] = project+user
         elif provider == "deepseek":
             client_kwargs = {"api_key": api_key, "base_url": base_url}
         else:
             client_kwargs = {"api_key": api_key, "base_url": base_url}
             if default_headers:
-                client_kwargs["default_headers"] = default_headers
+                client_kwargs["default_headers"] = default_headers+user
 
         self.client = OpenAI(**client_kwargs)
         self.provider_name = provider_info["name"]
@@ -469,6 +469,7 @@ class LLMClient:
         if not self.memory_file:
             return
 
+
         threshold = self.context_window - 3
         # half = max(1, self.context_window // 2)
         hold_items = max(1, self.context_window // 3)
@@ -493,6 +494,7 @@ class LLMClient:
         if new_count <= threshold:
             return  # 还不够一轮压缩
 
+        Utils.play_notification()
         # 调用 LLM 生成总结
         msgs = [{"role": "system", "content": history_context_summary_prompt}]
         msgs.extend(to_summarize)
@@ -512,10 +514,10 @@ class LLMClient:
         except Exception as e:
             if self.logger:
                 self.logger.log(f"[WARN] 历史压缩失败: {e}")
-            return
+            return f"[WARN] 历史压缩失败: {e}"
 
         # 检查压缩输出是否残留 XML 工具调用标记，有则直接终止
-        if re.search(r'</?\w*(?:tool_calls|invoke|parameter)', summary):
+        if re.search(r'</?\w*(?:tool_calls|invoke|parameter|｜｜DSML｜｜)', summary):
             return (f"历史压缩输出包含 XML 残留，终止执行。summary 前200字: {summary[:200]}")
         else: 
             # 保留最近的 half 条

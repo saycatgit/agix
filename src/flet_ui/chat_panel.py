@@ -1,6 +1,6 @@
 """聊天面板 UI 组件"""
 
-import os, subprocess
+import os, subprocess, asyncio
 import flet as ft
 
 
@@ -10,7 +10,7 @@ class ChatPanel:
     # ── 颜色/尺寸默认值 ──
     INPUT_BORDER_COLOR = ft.Colors.GREY_300
     INPUT_FOCUSED_BORDER_COLOR = ft.Colors.GREY_400
-    INPUT_BORDER_RADIUS: int = 10
+    INPUT_BORDER_RADIUS: int = 16
     INPUT_HINT: str = "输入消息..."
 
     ASK_COLOR = ft.Colors.ORANGE
@@ -31,6 +31,7 @@ class ChatPanel:
     WORK_DIR_TOOLTIP: str = "打开工作目录"
     SEND_TOOLTIP: str = "发送"
     STOP_TOOLTIP: str = "停止执行"
+    END_TOOLTIP: str = "结束执行"
     CANCEL_LABEL: str = "取消"
     CONFIRM_LABEL: str = "确认"
 
@@ -54,6 +55,9 @@ class ChatPanel:
         self._MsgType = msg_type
         self._providers = providers
         self._build()
+
+        self._input_focused = False
+        self._paused = False
 
     # ── 对外接口 ──
 
@@ -129,9 +133,14 @@ class ChatPanel:
             border_color=self.INPUT_BORDER_COLOR,
             focused_border_color=self.INPUT_FOCUSED_BORDER_COLOR,
             border_radius=self.INPUT_BORDER_RADIUS,
-            min_lines=1, max_lines=5, expand=True, text_size=14,
+            multiline=True,
+            min_lines=2,  expand=True, text_size=14,
+            on_focus=lambda e: setattr(self, '_input_focused', True),
+            on_blur=lambda e: setattr(self, '_input_focused', False),
+            on_change=lambda e: self._toggle_action_btn(),
         )
         self._ci.on_submit = lambda e: self._send()
+
 
         self._model_label = ft.Text(self._get_active_label(), size=13, color=self.MODEL_LABEL_COLOR)
         self._work_dir_text = ft.Text(
@@ -172,6 +181,8 @@ class ChatPanel:
             padding=ft.padding.Padding(12, 10, 12, 10),
         )
 
+        self._action_btn = ft.IconButton(icon=ft.Icons.STOP, on_click=lambda e: self._stop(), icon_size=24, tooltip=self.STOP_TOOLTIP)
+
         self._cp = ft.Column([
             ft.Container(content=self._cl, expand=True),
             ft.Divider(height=1),
@@ -179,12 +190,28 @@ class ChatPanel:
             ft.Row([self._ca], alignment=ft.MainAxisAlignment.START),
             ft.Container(content=ft.Row([
                 self._ci,
-                ft.IconButton(icon=ft.Icons.SEND, on_click=lambda e: self._send(), icon_size=20),
-                ft.IconButton(icon=ft.Icons.STOP, on_click=lambda e: self._stop(),
-                    icon_size=20, tooltip=self.STOP_TOOLTIP),
+                self._action_btn,
             ]), padding=ft.Padding(left=10, right=10, top=6, bottom=4)),
             sb_ctrl,
         ], expand=True)
+
+    def _toggle_action_btn(self):
+        """按钮三态：暂停中→结束, 有内容→发送, 无内容→停止"""
+        if self._paused:
+            self._action_btn.icon = ft.Icons.CANCEL
+            self._action_btn.tooltip = self.END_TOOLTIP
+            self._action_btn.on_click = lambda e: self._stop()
+            self._action_btn.update()
+            return
+        if self._ci.value.strip():
+            self._action_btn.icon = ft.Icons.SEND
+            self._action_btn.tooltip = self.SEND_TOOLTIP
+            self._action_btn.on_click = lambda e: self._send()
+        else:
+            self._action_btn.icon = ft.Icons.STOP
+            self._action_btn.tooltip = self.STOP_TOOLTIP
+            self._action_btn.on_click = lambda e: self._stop()
+        self._action_btn.update()
 
     # ── 发送 / 停止 ──
 
@@ -192,6 +219,7 @@ class ChatPanel:
         t = self._ci.value.strip()
         if not t:
             return
+        self._paused = False
         if self.eqm.is_asking("chat"):
             self._cl.controls.append(self._r(self._msg(t, is_user=True)))
             self.eqm.respond_to_ask(t, msg_id=self.eqm.get_pending_ask_id("chat"), mode="chat")
@@ -199,17 +227,38 @@ class ChatPanel:
             self._cl.controls.append(self._r(self._msg(t, is_user=True)))
             self.eqm.send_user_input(t, mode="chat")
         self._ci.value = ""
-        self.page.update()
+        self._ci.update()
+        self._toggle_action_btn()
 
         async def _refocus():
+            await asyncio.sleep(0.1)
             await self._ci.focus()
-            self.page.update()
+            self._ci.value = ""
+            self._ci.update()
+            self._toggle_action_btn()
         self.page.run_task(_refocus)
 
+    def _on_page_keyboard(self, e: ft.KeyboardEvent):
+        if not self._input_focused:
+            return
+        if e.key == "Enter" and not e.ctrl and not e.shift:
+            # Enter → 发送消息
+            self._send()
+        elif e.key == "Enter" and e.ctrl:
+            # Ctrl+Enter → 插入换行
+            self._ci.value += "\n"
+            self._ci.update()
+
+
     def _stop(self):
-        self.eqm.request_cancel("chat")
-        self._cl.controls.append(self._r(self._msg(self.STOPPING_TEXT, is_user=False)))
-        self.page.update()
+        if not self._paused:
+            self.eqm.send_control("stop", mode="chat")
+            self._paused = True
+            self._toggle_action_btn()
+        else:
+            self.eqm.send_control("end", mode="chat")
+            self._paused = False
+            self._toggle_action_btn()
 
     # ── 模型切换 ──
 

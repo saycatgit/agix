@@ -129,25 +129,45 @@ class Chater:
         self.chat_stage_progress = StageProgress()
         rounds = 0
         while True:
-            if self.eqm and self.eqm.is_cancelled("chat"):
-                self.eqm.send_display("⏹ 已取消", mode="chat")
-                return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
             rounds += 1
             if rounds > self.max_rounds:
                 self.eqm.send_display("超过最大调用次数", mode="chat",
                                       style=MsgStyle.WARN)
                 return {TaskField.JUDGE: "false", "content": "超过最大调用次数"}
 
-            # 检查是否有新消息（工具执行期间用户可能发了新消息）
+            # 排空队列，处理用户输入和控制消息
             drained = ""
+            control_action = None
             if self.eqm:
                 try:
                     while True:
                         m = self.eqm.to_chat_queue.get_nowait()
                         if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                        elif m.get(MsgField.TYPE) == MsgType.CONTROL:
+                            control_action = m.get(MsgField.CONTENT, "")
+                            # 遇到 stop 立即停止排空，剩余消息留给后续阻塞等待处理
+                            if control_action == "stop":
+                                break
                 except queue.Empty:
                     pass
+                if control_action == "end":
+                    self.eqm.send_display("⏹ 已结束", mode="chat")
+                    return {TaskField.JUDGE: "false", "content": "用户结束执行"}
+                if control_action == "stop":
+                    self.eqm.send_display("⏸ 已暂停", mode="chat")
+                    while True:
+                        m = self.eqm.to_chat_queue.get()  # 阻塞等待
+                        if m.get(MsgField.TYPE) == MsgType.CONTROL:
+                            a = m.get(MsgField.CONTENT, "")
+                            if a == "end":
+                                self.eqm.send_display("⏹ 已结束", mode="chat")
+                                return {TaskField.JUDGE: "false", "content": "用户结束执行"}
+                            elif a == "stop":
+                                continue
+                        elif m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                            drained += m.get(MsgField.CONTENT, "") + "\n"
+                            break
                 if drained.strip():
                     msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"
                     self._log(f"{msg}")

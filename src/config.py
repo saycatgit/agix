@@ -86,7 +86,6 @@ class PathConfig:
     config_file_path: str = ""
     token_file: str = ""
     task_config_file_path: str = ""
-    pending_tasks_file_path: str = ""
     log_dir: str = ""
     ssh_dir: str = ""
     ssh_config_path: str = ""
@@ -103,7 +102,6 @@ class PathConfig:
         self.config_file_path = _os.path.join(isd, "config.json")
         self.token_file = _os.path.join(isd, "auth_token.json")
         self.task_config_file_path = _os.path.join(self.task_dir, "task_config.json")
-        self.pending_tasks_file_path = _os.path.join(self.task_dir, "pending_tasks.json")
         self.log_dir = _os.path.join(r, "workspace", "log")
         self.ssh_dir = _os.path.join(isd, ".ssh")
         self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")

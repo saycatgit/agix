@@ -32,8 +32,6 @@ class EventQueueManager:
         self.task_display_queue = queue.Queue()
         self.to_chat_queue = queue.Queue()
         self.to_task_queue = queue.Queue()
-        self.chat_cancel_event = threading.Event()
-        self.task_cancel_event = threading.Event()
 
         self.chat_ask = threading.Event()
         self.task_ask = threading.Event()
@@ -135,7 +133,7 @@ class EventQueueManager:
                     remain = 1.0
                 try:
                     response = resp_q.get(timeout=remain)
-                    if (response.get(MsgField.TYPE) == MsgType.RESPONSE and
+                    if (response.get(MsgField.TYPE) == MsgType.USER_INPUT and
                             response.get(MsgField.ID) == msg_id):
                         return response.get(MsgField.CONTENT, "")
                     resp_q.put(response)
@@ -150,7 +148,7 @@ class EventQueueManager:
 
     def respond_to_ask(self, content: str, *, msg_id: str, mode: str = "chat"):
         """UI 线程调用: 回复某个 ask 消息"""
-        msg = self.make_msg(content, MsgType.RESPONSE, msg_id)
+        msg = self.make_msg(content, MsgType.USER_INPUT, msg_id)
         if mode == "chat":
             self.to_chat_queue.put(msg)
         else:
@@ -181,25 +179,13 @@ class EventQueueManager:
                 break
         return items
 
-    # ── 取消机制 ──
+    # ── 控制消息 ──
 
-    def request_cancel(self, mode: str = "chat"):
-        """UI 线程调用：请求取消指定模式的执行"""
+    def send_control(self, action: str, mode: str = "chat"):
+        """UI 线程调用：发送控制消息（stop/end）到 worker 队列"""
 
-        self.send_user_input("取消执行",mode=mode)
-        if mode == "task":
-            self.task_cancel_event.set()
+        msg = self.make_msg(action, MsgType.CONTROL)
+        if mode == "chat":
+            self.to_chat_queue.put(msg)
         else:
-            self.chat_cancel_event.set()
-
-    def is_cancelled(self, mode: str = "chat") -> bool:
-        if mode == "task":
-            return self.task_cancel_event.is_set()
-        return self.chat_cancel_event.is_set()
-
-    def reset_cancel(self, mode: str = "chat"):
-        """新消息开始前清除取消标志"""
-        if mode == "task":
-            self.task_cancel_event.clear()
-        else:
-            self.chat_cancel_event.clear()
+            self.to_task_queue.put(msg)

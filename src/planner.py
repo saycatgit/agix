@@ -85,12 +85,27 @@ class Planner:
             rec = SubTaskRecord.from_orchestrate_item(i, item)
             subtask_records.append(rec)
 
-            # 为每个子任务创建独立的 TaskManager 并保存到 task_dir
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            save_path = os.path.join(task_dir, f"task_{ts}_state.json")
+            dir_from = item.get("dir_from", "")
+            related = item.get("related_task_file_name", "")
 
-            tm = TaskManager(save_path=save_path)
-            tm.set_subtask(item)
+            if dir_from == "reuse" and related:
+                # 复用已有 in_progress 任务文件，不新建
+                related_path = os.path.join(task_dir, related)
+                try:
+                    tm = TaskManager.load(related_path)
+                    tm.set_subtask_merge(item)
+                    save_path = related_path
+                except Exception:
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    save_path = os.path.join(task_dir, f"task_{ts}_state.json")
+                    tm = TaskManager(save_path=save_path)
+                    tm.set_subtask(item)
+            else:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                save_path = os.path.join(task_dir, f"task_{ts}_state.json")
+                tm = TaskManager(save_path=save_path)
+                tm.set_subtask(item)
+
             tm.set_subtask_execution_time(
                 item.get("next_execution_time", "now"),
                 is_periodic=item.get("is_periodic", False),

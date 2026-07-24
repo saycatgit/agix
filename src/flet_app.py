@@ -54,6 +54,7 @@ class AgixUI:
         self.chat_panel = ChatPanel(
             page, eqm, agent, _STYLE_VISUALS, _AVATAR_DATA, MsgStyle, MsgType, PROVIDERS,
         )
+        self.page.on_keyboard_event = self._global_keyboard
         self.model_settings_panel = ModelSettingsPanel(page, agent.config, PROVIDERS)
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
@@ -70,12 +71,22 @@ class AgixUI:
         self._assemble_page()
         self._start_poll_loop()
 
+    def _global_keyboard(self, e: ft.KeyboardEvent):
+        """全局键盘事件分发：按输入框焦点路由到对应 panel"""
+        if self.task_panel._input_focused:
+            self.task_panel._on_page_keyboard(e)
+            return
+        if self.chat_panel._input_focused:
+            self.chat_panel._on_page_keyboard(e)
+            return
+
     # ── 窗口控制 ──
 
     def _on_sidebar_select(self, path: str, state_file: str = ""):
         """侧边栏选中项目目录，切换 work_dir 并重新初始化 chat 记忆。"""
         if path and path != self.agent.config.execution.work_dir:
             self.agent.config.execution.work_dir = path
+            self.eqm.send_display(f"切换到路径：{path}",mode="chat",style=MsgStyle.WARN)
             self.chat_panel.update_work_dir()
         if state_file:
             self.agent.chater._chat_init(state_file)
@@ -105,7 +116,9 @@ class AgixUI:
         self.page.update()
 
     def _close(self, e):
-        async def _do(): await self.page.window.close()
+        async def _do():
+            try: await self.page.window.close()
+            except RuntimeError: pass  # session 已关闭时忽略
         self.page.run_task(_do)
 
     # ── 标题栏 ──

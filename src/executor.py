@@ -131,7 +131,6 @@ class Executor:
             content,
         )
         task_manager.increment_periodic_counter()
-        task_manager.update_task_list(self.task_dir)
         task_manager.save()
 
     # ── 内部：子任务初始化 ──
@@ -268,19 +267,36 @@ class Executor:
 
         for num in range(max_rounds):
 
-            if self.eqm and self.eqm.is_cancelled("task"):
-                self.eqm.send_display("⏹ 任务已取消", mode="task")
-                return {TaskField.JUDGE: "false", "content": "用户取消了执行"}
 
             drained = ""
+            control_action = None
             if self.eqm:
                 try:
                     while True:
                         m = self.eqm.to_task_queue.get_nowait()
                         if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                        elif m.get(MsgField.TYPE) == MsgType.CONTROL:
+                            control_action = m.get(MsgField.CONTENT, "")
+                            if control_action == "stop":
+                                break
                 except queue.Empty:
                     pass
+                if control_action == "end":
+                    self.eqm.send_display("⏹ 已结束", mode="task")
+                    return TaskField.RET_JSON_FALSE("用户结束任务")
+                if control_action == "stop":
+                    self.eqm.send_display("⏸ 已暂停", mode="task")
+                    while True:
+                        m = self.eqm.to_task_queue.get()
+                        if m.get(MsgField.TYPE) == MsgType.CONTROL:
+                            a = m.get(MsgField.CONTENT, "")
+                            if a == "end":
+                                self.eqm.send_display("⏹ 已结束", mode="task")
+                                return TaskField.RET_JSON_FALSE("用户结束任务")
+                        elif m.get(MsgField.TYPE) == MsgType.USER_INPUT:
+                            drained += m.get(MsgField.CONTENT, "") + "\n"
+                            break
             if drained.strip():
                 msg = f"【用户新消息】\n{drained.strip()}\n\n{msg}"
 
@@ -313,12 +329,10 @@ class Executor:
                             task_manager.set_subtask_result("false", exec_result["summary"])
                             task_manager.set_subtask_status(SubTaskStatus.FAILED)
                             self._log(f"\n  {task_manager._stage_progress.format_status()}")
-                            task_manager.update_task_list(self.task_dir)
                             return TaskField.RET_JSON_FALSE(exec_result["summary"])
 
                         task_manager.set_subtask_status(SubTaskStatus.COMPLETED)
                         self._log(f"\n任务总结: {exec_result['summary']}")
-                        task_manager.update_task_list(self.task_dir)
                         return TaskField.RET_JSON_TRUE(exec_result["summary"])
                     else:
                         self.llm.submit_tool_result(call["id"], str(exec_result))
@@ -345,6 +359,8 @@ class Executor:
             elif result["type"] == "error":
                 self._log(f"\n❌ API错误: {result.get('message', '')}\n")
                 return TaskField.RET_JSON_FALSE(result.get("message", "API错误"))
+            elif result["type"] == "text":
+                pass
             continue
 
         return TaskField.RET_JSON_FALSE(f"达到最大轮次 ({max_rounds})，任务未完成")

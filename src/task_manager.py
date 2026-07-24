@@ -73,6 +73,7 @@ class SubTaskRecord:
     period:          str = ""
     is_interactive:  bool = False
     dir_from:       str = ""
+    related_task_file_name: str = ""
     project_path:   str = ""
     extra:          str = ""
     result_judge:   str = ""
@@ -97,6 +98,7 @@ class SubTaskRecord:
             task_type=item.get("task_type", "其他"),
             task_sub_type=item.get("task_sub_type", ""),
             dir_from=item.get("dir_from", ""),
+            related_task_file_name=item.get("related_task_file_name", ""),
             is_periodic=is_periodic,
             period=period,
             created_at=_now_iso(),
@@ -133,6 +135,24 @@ class TaskManager:
         rec = SubTaskRecord.from_orchestrate_item(1, item)
         self._subtask = rec
         return rec
+
+    def set_subtask_merge(self, item: dict):
+        """合并式设置：只在原记录字段为空时，从 item 填充，已有值不覆盖。"""
+        if not self._subtask:
+            self._subtask = SubTaskRecord.from_orchestrate_item(1, item)
+            return
+
+        new_rec = SubTaskRecord.from_orchestrate_item(1, item)
+        merge_fields = [
+            "sub_task_detail", "sub_task_name", "task_type",
+            "task_sub_type", "dir_from", "related_task_file_name",
+        ]
+        for f in merge_fields:
+            existing = getattr(self._subtask, f, "")
+            if not existing:
+                incoming = getattr(new_rec, f, "")
+                if incoming:
+                    setattr(self._subtask, f, incoming)
 
     def set_subtask_status(self, status: SubTaskStatus):
         """更新子任务的状态"""
@@ -267,6 +287,8 @@ class TaskManager:
                 "llm_context_info": s.llm_context_info,
                 "extra_prompt": s.extra_prompt,
             }
+            if s.related_task_file_name:
+                d["related_task_file_name"] = s.related_task_file_name
             if s.sub_task_name:
                 d[TaskField.SUB_TASK_NAME] = s.sub_task_name
             if s.is_interactive:
@@ -330,6 +352,7 @@ class TaskManager:
                 phase_msgs=sd.get("phase_msgs", []),
                 llm_context_info=sd.get("llm_context_info", ""),
                 extra_prompt=sd.get("extra_prompt", ""),
+                related_task_file_name=sd.get("related_task_file_name", ""),
                 created_at=sd.get("created_at", ""),
                 completed_at=sd.get("completed_at", ""),
             )
@@ -384,120 +407,13 @@ class TaskManager:
         if stage_progress:
             self.update_plan_steps(stage_progress)
         self.save(self._save_path)
-
-    def update_task_list(self, task_dir: str):
-        """更新 task_list.json 任务索引，保留最近 50 条"""
-        try:
-            list_path = os.path.join(task_dir, "task_list.json")
-            task_list = []
-            if os.path.exists(list_path):
-                try:
-                    with open(list_path, 'r', encoding='utf-8') as f:
-                        task_list = json.load(f)
-                except Exception:
-                    task_list = []
-
-            existing = None
-            for i, t in enumerate(task_list):
-                if t.get("state_file") == self._save_path:
-                    existing = i
-                    break
-
-            entry = {
-                "status": "",
-                "created_at": "",
-                "completed_at": "",
-                "state_file": self._save_path,
-                "has_subtask": self._subtask is not None,
-                "status": self._subtask.status.value if self._subtask else "",
-                "completed": self._subtask.status == SubTaskStatus.COMPLETED if self._subtask else False,
-            }
-            if existing is not None:
-                task_list[existing] = entry
-            else:
-                task_list.append(entry)
-
-            if len(task_list) > 50:
-                task_list = task_list[-50:]
-
-            with open(list_path, 'w', encoding='utf-8') as f:
-                json.dump(task_list, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
+    
     @staticmethod
-    def scan_history_tasks(log_dir: str) -> list[dict]:
-        """扫描日志目录，获取所有已完成/进行中的历史任务摘要"""
-        tasks = []
-        if not os.path.isdir(log_dir):
-            return tasks
-        _pat = re.compile(r'task_(.+)_state\.json$')
-        for task_file in glob.glob(os.path.join(log_dir, "task_*_state.json")):
-            basename = os.path.basename(task_file)
-            m = _pat.search(task_file)
-            ts = m.group(1) if m else ""
-            try:
-                with open(task_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            except Exception:
-                continue
-            if not isinstance(data, dict):
-                continue
-            st = data.get("subtask")
-            if not st:
-                continue
-            pd = data.get("periodic", {})
-            if bool(pd.get("is_periodic", False)):
-                continue
-            status = st.get("status", "")
-            # 仅终态任务归入历史（pending/in_progress 仍在计划列表中）
-            if status not in ("completed", "failed", "skipped"):
-                continue
-            tasks.append({
-                "file": task_file,
-                "file_name": basename,
-                "task_num": ts,
-                "status": st.get("status", ""),
-                "subtask": {
-                    TaskField.SUBTASK_INDEX: st.get(TaskField.SUBTASK_INDEX, 1),
-                    TaskField.SUB_TASK_DETAIL: st.get(TaskField.SUB_TASK_DETAIL, ""),
-                    TaskField.SUB_TASK_NAME: st.get(TaskField.SUB_TASK_NAME, ""),
-                    TaskField.TASK_TYPE: st.get(TaskField.TASK_TYPE, ""),
-                    TaskField.PROJECT_PATH: st.get(TaskField.PROJECT_PATH, ""),
-                    "status": st.get("status", ""),
-                    "result_judge": st.get("result_judge", ""),
-                    "result_content": st.get("result_content", ""),
-                    "messages": st.get("messages", []),
-                },
-            })
-        tasks.sort(key=lambda t: t["file_name"])
-        return tasks
+    def list_history_tasks(task_dir: str, status_filter: str = None) -> list[dict]:
+        """返回任务列表（扁平结构，供 UI 消费），涵盖所有状态与周期任务。
 
-    @staticmethod
-    def list_history_tasks(task_dir: str) -> list[dict]:
-        """返回已执行任务列表（扁平结构，供 UI 消费）
-
-        每个元素: {name, status, state_file, project_path, task_type}
-        """
-        raw = TaskManager.scan_history_tasks(task_dir)
-        result = []
-        for t in raw:
-            s = t["subtask"]
-            pp = s.get(TaskField.PROJECT_PATH, "")
-            result.append({
-                "name": s.get(TaskField.SUB_TASK_NAME, "未知任务"),
-                "status": s.get("status", "pending"),
-                "state_file": t["file"],
-                "project_path": pp,
-                "task_type": s.get(TaskField.TASK_TYPE, ""),
-            })
-        return result
-
-    @staticmethod
-    def list_pending_tasks(task_dir: str) -> list[dict]:
-        """返回未执行任务列表（扁平结构，供 UI 消费）
-
-        扫描 task_dir 下 task_*_state.json，排除已完成的一次性任务。
+        Args:
+            status_filter: 可选，按状态过滤，如 SubTaskStatus.PENDING.value
         """
         if not os.path.isdir(task_dir):
             return []
@@ -515,20 +431,24 @@ class TaskManager:
                 continue
             pd = data.get("periodic", {})
             is_periodic = bool(pd.get("is_periodic", s.get("is_periodic", False)))
-            # 非周期性任务 + 已终态 → 已完成的一次性任务，跳过
             status = s.get("status", "")
-            if not is_periodic and status in ("completed", "failed", "skipped"):
+            if status_filter is not None and status != status_filter:
                 continue
             result.append({
-                "file": fpath,
-                "task_name": s.get(TaskField.SUB_TASK_NAME, "未命名"),
+                "name": s.get(TaskField.SUB_TASK_NAME, "未知任务"),
+                "file_name": os.path.basename(fpath),
                 "status": status,
+                "subtask_status": status,
+                "result_judge": s.get("result_judge", ""),
+                "result_content": s.get("result_content", ""),
+                "messages": s.get("messages", []),
+                "file_full_path": fpath,
+                "project_path": s.get(TaskField.PROJECT_PATH, ""),
+                "task_type": s.get(TaskField.TASK_TYPE, ""),
                 "next_execution_time": pd.get("next_execution_time") or s.get("next_execution_time", ""),
                 "is_periodic": is_periodic,
                 "is_interactive": s.get("is_interactive", False),
                 "period": pd.get("period") or s.get("period", ""),
-                "task_type": s.get(TaskField.TASK_TYPE, ""),
-                "project_path": s.get(TaskField.PROJECT_PATH, ""),
                 "sub_task_detail": s.get(TaskField.SUB_TASK_DETAIL, ""),
                 "periodic_counter": pd.get("counter", 0),
             })
@@ -560,39 +480,38 @@ class TaskManager:
 
         仅包含最近 5 个历史任务的摘要和关键对话。
         """
-        tasks = TaskManager.scan_history_tasks(log_dir)
+        tasks = [
+            t for t in TaskManager.list_history_tasks(log_dir)
+            if t['status'] != 'skipped'
+        ]
         if not tasks:
             return ""
         lines = ["## 历史任务记录（最近任务）"]
         total = 0
         for ti, t in enumerate(tasks[:15]):
-            header = (
-                f"\n### 历史任务 {ti+1}: (状态: {t['status']}, 文件: {t['file_name']})"
-            )
+            header = f"\n### 历史任务 {ti+1}: (状态: {t['status']}, 文件: {t['file_name']})"
             total += len(header)
             if total > max_chars:
                 lines.append("\n...(更多历史任务省略)")
                 break
             lines.append(header)
-            s = t["subtask"]
-            icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"}\
-                   .get(s["status"], "?")
+            icon = {"completed": "●", "failed": "✕", "in_progress": "◉", "pending": "○"} \
+                   .get(t["status"], "?")
             sline = (
-                f"  {icon} [{s[TaskField.TASK_TYPE]}] {s.get(TaskField.SUB_TASK_NAME, '')} - {s.get(TaskField.SUB_TASK_DETAIL, '')[:100]}"
+                f"  {icon} [{t['task_type']}] {t.get('name', '')} - {t.get('sub_task_detail', '')[:100]}"
             )
-            if s.get("result_judge"):
-                sline += f" → 结果: {s['result_judge']}"
+            if t.get("result_judge"):
+                sline += f" → 结果: {t['result_judge']}"
             total += len(sline)
             if total > max_chars:
                 break
             lines.append(sline)
-            # 对话记录
-            msgs = s.get("messages", [])
+            msgs = t.get("messages", [])
             if msgs:
                 lines.append(f"  对话 ({len(msgs)} 条):")
                 for m in msgs[-3:]:
                     mline = (
-                        f"    [{m.get('timestamp','')[:16]}] "
+                        f"    [{str(m.get('timestamp', ''))[:16]}] "
                         f"{m.get('role','')}: {m.get('content','')[:120]}"
                     )
                     total += len(mline)

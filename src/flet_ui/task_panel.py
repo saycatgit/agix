@@ -1,5 +1,6 @@
 """任务面板 UI 组件 —— 可拖拽、半透明悬浮任务监控面板"""
 
+import asyncio
 import flet as ft
 
 
@@ -38,6 +39,8 @@ class TaskPanel:
 
     LABEL_SIZE: int = 10
     STOP_TOOLTIP: str = "停止任务"
+    END_TOOLTIP: str = "结束执行"
+    SEND_TOOLTIP: str = "发送"
     LABEL_COLOR = ft.Colors.GREY_500
     TITLE_SIZE: int = 13
     TITLE_WEIGHT = ft.FontWeight.W_600
@@ -71,6 +74,9 @@ class TaskPanel:
         self._drag_start = [self.INITIAL_LEFT, self.INITIAL_TOP]
         self._hover_cnt = 0
 
+        self._input_focused = False
+        self._paused = False
+
         # 暴露给外部轮询的控件
         self.status_text: ft.Text = None
         self.action_list: ft.ListView = None
@@ -82,6 +88,7 @@ class TaskPanel:
         self._name_ref: ft.Ref[ft.Text] = ft.Ref[ft.Text]()
 
         self._build()
+
 
     # ── 公共属性 ──
 
@@ -149,19 +156,22 @@ class TaskPanel:
             border=ft.InputBorder.OUTLINE,
             border_color=ft.Colors.GREY_300,
             border_radius=6,
-            min_lines=1,
+            multiline=True,
+            min_lines=2,
             max_lines=3,
             expand=True,
             text_size=self.ASK_TEXT_SIZE,
             dense=True,
+            on_focus=lambda e: setattr(self, '_input_focused', True),
+            on_blur=lambda e: setattr(self, '_input_focused', False),
         )
-        ask_send_btn = ft.IconButton(
-            icon=ft.Icons.SEND, icon_size=16, on_click=lambda e: self._send(),
+        self.ask_input.on_change = lambda e: self._toggle_ask_action_btn()
+        self._ask_action_btn = ft.IconButton(
+            icon=ft.Icons.STOP, icon_size=22,
+            tooltip=self.STOP_TOOLTIP, on_click=lambda e: self._stop(),
         )
-        ask_stop_btn = ft.IconButton(icon=ft.Icons.STOP, icon_size=16,
-                                     on_click=lambda e: self._stop(), tooltip=self.STOP_TOOLTIP)
         self.ask_container = ft.Container(
-            content=ft.Row([self.ask_input, ask_send_btn, ask_stop_btn], spacing=4),
+            content=ft.Row([self.ask_input, self._ask_action_btn], spacing=4),
             padding=ft.Padding(0, 4, 0, 0),
             visible=True,
         )
@@ -295,9 +305,14 @@ class TaskPanel:
         self._wrapper.top = self._panel_pos[1]
 
     def _stop(self):
-        """停止任务"""
-        self.eqm.request_cancel("task")
-        self.page.update()
+        if not self._paused:
+            self.eqm.send_control("stop", mode="task")
+            self._paused = True
+            self._toggle_ask_action_btn()
+        else:
+            self.eqm.send_control("end", mode="task")
+            self._paused = False
+            self._toggle_ask_action_btn()
 
     def _panel_enter(self, e):
         self._hover_cnt += 1
@@ -320,10 +335,42 @@ class TaskPanel:
         self._panel.opacity = self.HOVER_OPACITY
         self.page.update()
 
+    def _toggle_ask_action_btn(self):
+        """按钮三态：暂停中→结束, 有内容→发送, 无内容→停止"""
+        if self._paused:
+            self._ask_action_btn.icon = ft.Icons.CANCEL
+            self._ask_action_btn.tooltip = self.END_TOOLTIP
+            self._ask_action_btn.on_click = lambda e: self._stop()
+            self._ask_action_btn.update()
+            return
+        if self.ask_input.value.strip():
+            self._ask_action_btn.icon = ft.Icons.SEND
+            self._ask_action_btn.tooltip = self.SEND_TOOLTIP
+            self._ask_action_btn.on_click = lambda e: self._send()
+        else:
+            self._ask_action_btn.icon = ft.Icons.STOP
+            self._ask_action_btn.tooltip = self.STOP_TOOLTIP
+            self._ask_action_btn.on_click = lambda e: self._stop()
+        self._ask_action_btn.update()
+
+    def _on_page_keyboard(self, e: ft.KeyboardEvent):
+        print(f"[DEBUG] _on_page_keyboard: key={e.key!r}, ctrl={e.ctrl}, shift={e.shift}, focused={self._input_focused}")
+        if not self._input_focused:
+            return
+        if e.key == "Enter" and not e.ctrl and not e.shift:
+            print("[DEBUG] Enter → calling _send()")
+            self._send()
+        elif e.key == "Enter" and e.ctrl:
+            print("[DEBUG] Ctrl+Enter → inserting newline")
+            self.ask_input.value += "\n"
+            self.ask_input.update()
+
     def _send(self):
         t = self.ask_input.value.strip()
+        print(f"[DEBUG] _send: value={self.ask_input.value!r}, stripped={t!r}")
         if not t:
             return
+        self._paused = False
         self.action_list.controls.append(
             task_msg(t, self._M.USER, self._style_visuals, self._M.ASSISTANT)
         )
@@ -332,3 +379,12 @@ class TaskPanel:
         )
         self.ask_input.value = ""
         self.page.update()
+        self._toggle_ask_action_btn()
+
+        async def _refocus():
+            await asyncio.sleep(0.1)
+            await self.ask_input.focus()
+            self.ask_input.value = ""
+            self.page.update()
+            self._toggle_ask_action_btn()
+        self.page.run_task(_refocus)

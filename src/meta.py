@@ -21,6 +21,7 @@ class MsgType(str, Enum):
     TASK_NAME = "task_name"
     ACTION = "action"
     THINKING = "thinking"
+    CONTROL = "control"
 
 
 
