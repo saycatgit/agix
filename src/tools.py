@@ -102,56 +102,73 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "ask_user",
+            "name": "user_interaction",
             "description": (
-                "向用户提问并等待回答。在需要用户决策、澄清需求、\\n"
-                "或遇到无法自动判断的问题时调用此工具。\\n"
-                "工具会阻塞等待用户输入，然后将用户回答返回给 LLM。\\n"
-                "仅在必要时使用，不要频繁打断用户。"
+                "与用户交互的统一入口。支持两种类型：\\n"
+                "1. type='ask'：向用户提问并阻塞等待回答，用于需要用户决策或澄清需求时；\\n"
+                "2. type='thinking'：向用户传递思维链，非阻塞，不等待响应。\\n"
+                "通过发送thinking 信息让用户能够了解到完成任务的整个思维过程，调用时机和频率llm自己把握，但是要穿插在工具调用过程中，不能让用户感觉有思路断层"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "向用户提出的问题"
+                    "input": {
+                        "type": "object",
+                        "description": "交互参数",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "description": "交互类型: ask(向用户提问并等待回答) 或 thinking(传递思维链，非阻塞)",
+                                "enum": ["ask", "thinking"]
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "ask类型时为向用户提出的问题，thinking类型时为思维链"
+                            }
+                        },
+                        "required": ["type", "content"]
                     }
                 },
-                "required": ["question"]
+                "required": ["input"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "start_task",
+            "name": "task_management",
             "description": (
-                "启动任务模式：将对话中的需求转化为正式任务，进入完整的规划→分解→执行流程。"
-                "所有时间/周期/交互模式信息直接写入 task 描述中，由 Planner 统一解析。"
-                "调用完start_task后，必须调用finish工具结束任务，禁止继续执行。"
-                 ),
+                "任务管理工具，统一管理任务生命周期。"
+                "参数 task 是一个字典："
+                "type='start'时 content 为任务描述，启动任务模式，调用后必须结束会话等待用户下一步指令；"
+                "type='finish'时 content 为任务总结，success 为是否成功；"
+                "type='requirement'时 content 为从用户的消息中提取的新增需求汇总。，如果content为空则返回当前任务已存储的需求"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "task": {"type": "string", "description": "要执行的任务描述，包含时间/周期/交互模式等所有信息"}
+                    "task": {
+                        "type": "object",
+                        "description": "任务管理参数字典",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "description": "操作类型: start(启动任务) | finish(结束任务) | requirement(新增需求汇总)",
+                                "enum": ["start", "finish", "requirement"]
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "type=start时为任务描述, type=finish时为任务总结, type=requirement时为需求汇总"
+                            },
+                            "success": {
+                                "type": "boolean",
+                                "description": "仅type=finish时有效，任务是否成功完成，默认true"
+                            }
+                        },
+                        "required": ["type", "content"]
+                    }
                 },
                 "required": ["task"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "finish",
-            "description": ("标记任务完成。会话结束,或者任务已经提交必须调用此工具。"),
-
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "success": {"type": "boolean", "description": "任务是否成功完成"},
-                    "summary": {"type": "string", "description": "任务完成情况全面总结"}
-                },
-                "required": ["success", "summary"]
             }
         }
     },
@@ -203,10 +220,52 @@ class ToolExecutor:
         "write_file": ["path", "content"],
         "read_file": ["path"],
         "run_shell": ["command"],
-        "ask_user": ["question"],
-        "start_task": ["task"],
-        "finish": ["success", "summary"],
+        "user_interaction": ["input"],
+        "task_management": ["task"],
     }
+
+    def _format_tool_display(self, name: str, args: dict) -> str:
+        """将工具调用格式化为结构化展示信息。
+        提取 note 作为主描述，按工具类型提取关键参数作为辅助信息。
+        """
+        note = str(args.get("note", "")).replace("\n", " ")
+
+        def _trunc(s: str, n: int = 80) -> str:
+            s = s.replace("\n", " ")
+            return s if len(s) <= n else s[:n] + "…"
+
+        param_str = ""
+        if name == "write_file":
+            param_str = _trunc(args.get("path", ""))
+        elif name == "read_file":
+            param_str = _trunc(args.get("path", ""))
+        elif name == "run_shell":
+            param_str = _trunc(args.get("command", ""))
+        elif name == "file_patch":
+            inp = args.get("input", "")
+            first_line = inp.split("\n")[0] if inp else ""
+            param_str = _trunc(first_line)
+        elif name == "user_interaction":
+            inp = args.get("input", {})
+            if isinstance(inp, str):
+                try: inp = json.loads(inp)
+                except Exception: inp = {}
+            param_str = f"{inp.get('type', '?')}: {_trunc(str(inp.get('content', '')), 60)}"
+        elif name == "task_management":
+            task = args.get("task", {})
+            if isinstance(task, str):
+                try: task = json.loads(task)
+                except Exception: task = {}
+            param_str = f"{task.get('type', '?')}: {_trunc(str(task.get('content', '')), 60)}"
+        elif name == "update_plan":
+            param_str = f"stage={args.get('stage', '?')}"
+
+        if note and param_str:
+            return f"{note}  [{name}] {param_str}"
+        elif note:
+            return f"{note}  [{name}]"
+        else:
+            return f"[{name}] {param_str}" if param_str else f"[{name}]"
 
     def execute(self, name: str, args: dict) -> str:
         """执行单个工具调用，返回结果字符串"""
@@ -226,7 +285,7 @@ class ToolExecutor:
 
         try:
             result = method(args)
-            tool_msg = f"{str(args.get('note','')).replace(chr(10),' ')} ({name}: {str(args)[9:100].replace(chr(10),' ')})"
+            tool_msg = self._format_tool_display(name, args)
             if self.agent and self.agent.eqm:
                 mode = self.mode
                 self.agent.eqm.send_display(tool_msg, mode=mode, style=MsgStyle.ACTION)
@@ -361,10 +420,9 @@ class ToolExecutor:
             return password
         return None
 
-    def _tool_start_task(self, args: dict) -> str:
+    def _start_task(self, content: str) -> str:
         """调用 Planner 对任务进行分类拆解并生成任务文件"""
-        task = args.get("task", "")
-        if not task:
+        if not content:
             return "start_task 需要 task 参数，任务描述中应包含时间/周期/交互模式等所有信息"
         if not self.agent:
             return "start_task 不可用：未关联 agent 实例"
@@ -372,12 +430,12 @@ class ToolExecutor:
             return "start_task 不可用：已在任务模式中，不能嵌套启动"
 
         planner = Planner(self.agent.config, self.agent.logger, eqm=self.eqm)
-        r = planner.run(task)
+        r = planner.run(content)
         if r["ok"]:
             n_subtasks = len(r.get("subtasks", []))
             n_files = len(r.get("task_files", []))
             msg = (f"任务规划完成:\n"
-                   f"  任务: {task[:100]}\n"
+                   f"  任务: {content[:100]}\n"
                    f"  子任务数: {n_subtasks}\n"
                    f"  生成文件: {n_files}\n"
                    f"任务提交成功，任务结束。")
@@ -391,25 +449,46 @@ class ToolExecutor:
             return msg
 
 
-    def _tool_ask_user(self, args: dict) -> str:
-        """向用户提问并获取输入，返回用户回答或错误信息。"""
-        question = str(args.get("question", "") or "")
-        if not question.strip():
-            return "ask_user 需要 question 参数"
+    def _tool_user_interaction(self, args: dict) -> str:
+        """与用户交互：type='ask' 阻塞提问，type='thinking' 非阻塞传递思维链/进度。"""
+        input_data = args.get("input", {})
+        if isinstance(input_data, str):
+            try:
+                input_data = json.loads(input_data)
+            except json.JSONDecodeError:
+                return "user_interaction 需要 input 字典，格式: {\"type\": \"ask\"|\"thinking\", \"content\": \"...\"}"
 
-        Utils.play_notification()
+        interaction_type = input_data.get("type", "")
+        content = str(input_data.get("content", "") or "")
 
-        # 优先使用 EventQueueManager 进行交互
-        eqm = getattr(self, "eqm", None)
-        # 非交互模式直接拒绝，不管有没有 eqm
-        if self.agent and not self.agent.config.execution.interactive:
-            return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {question}"
+        if interaction_type == "thinking":
+            eqm = getattr(self, "eqm", None)
+            if eqm is not None:
+                eqm.send_thinking(content, mode=getattr(self, "mode", "chat"))
+            return "thinking 已发送"
 
-        if eqm is not None:
-            return eqm.ask_user(question, mode=getattr(self, "mode", "chat"))
+        if interaction_type == "ask":
+            if not content.strip():
+                return "user_interaction: ask 类型需要 content 参数"
 
-        # 回退: 无 eqm 时返回错误提示
-        return f"无法获取用户输入: 交互界面不可用。\n原问题: {question}"
+            Utils.play_notification()
+
+            eqm = getattr(self, "eqm", None)
+            if self.agent and not self.agent.config.execution.interactive:
+                return f"无法获取用户输入: 当前任务不是交互模式。\n原问题: {content}"
+
+            if eqm is not None:
+                tm = getattr(self, "task_manager", None)
+                if tm is not None and hasattr(tm, "add_conversation_entry"):
+                    tm.add_conversation_entry("assistant", content)
+                    answer = eqm.ask_user(content, mode=getattr(self, "mode", "chat"))
+                    tm.add_conversation_entry("user", answer)
+                    return answer
+                return eqm.ask_user(content, mode=getattr(self, "mode", "chat"))
+
+            return f"无法获取用户输入: 交互界面不可用。\n原问题: {content}"
+
+        return f"user_interaction: 未知 type '{interaction_type}'，支持 ask 和 thinking"
 
     def _tool_file_patch(self, args: dict) -> str:
         """通过 unified diff patch 精确修改文件，上下文匹配。"""
@@ -719,7 +798,34 @@ class ToolExecutor:
         }
         return json.dumps(result, ensure_ascii=False, indent=2)
 
-    def _tool_finish(self, args: dict) -> dict:
-        """特殊工具：返回 dict 而非 str，由调用方处理"""
-        Utils.play_notification()
-        return {"type": "finish", "success": args["success"], "summary": args["summary"]}
+    def _tool_task_management(self, args: dict):
+        """统一任务管理：type=start|finish|requirement"""
+        task = args.get("task", {})
+        if isinstance(task, str):
+            task = json.loads(task)
+        t = task.get("type", "")
+        content = task.get("content", "")
+
+        if t == "start":
+            # self.eqm.send_debug("start task"+content)
+
+            return self._start_task(content)
+        elif t == "finish":
+            Utils.play_notification()
+            # self.eqm.send_debug("finish task"+content)
+
+            return {"type": "finish", "success": task.get("success", True), "summary": content}
+        elif t == "requirement":
+            if not content:
+                if self.task_manager and hasattr(self.task_manager, '_subtask') and self.task_manager._subtask:
+                    return self.task_manager._subtask.sub_task_detail or "(无任务描述)"
+                return "(当前无活跃任务)"
+            else:
+                if self.task_manager and hasattr(self.task_manager, '_subtask') and self.task_manager._subtask:
+                    current_detail = getattr(self.task_manager._subtask, 'sub_task_detail', '') or ''
+                    new_detail = (current_detail + '\n' + content).strip() if current_detail else content
+                    self.task_manager._subtask.sub_task_detail = new_detail
+                    return f"需求已追加到任务: {content}"
+                return f"需求已记录(无活跃任务): {content}"
+        else:
+            return f"未知任务管理类型: {t}"

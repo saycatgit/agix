@@ -52,6 +52,11 @@ class Chater:
     def _log(self, msg: str, always: bool = False):
         self.logger.log(msg)
 
+    def add_conversation_entry(self, role: str, content: str):
+        """委托给 frontend_task_manager 记录对话日志。"""
+        if self.frontend_task_manager:
+            self.frontend_task_manager.add_conversation_entry(role, content)
+
     # ── 初始化 ──
 
     def _chat_init(self, task_file_path: str = ""):
@@ -103,6 +108,8 @@ class Chater:
                 if msg.get(MsgField.TYPE) == MsgType.USER_INPUT:
                     content = msg.get(MsgField.CONTENT, "")
                     try:
+                        self.frontend_task_manager.add_conversation_entry("user", content)
+                        self.frontend_task_manager.save()
                         self.run(content)
                     except Exception as ex:
                         self.eqm.send_display(f"Error: {ex}", mode="chat",
@@ -144,6 +151,8 @@ class Chater:
                         m = self.eqm.to_chat_queue.get_nowait()
                         if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                            self.frontend_task_manager.add_conversation_entry("user", m.get(MsgField.CONTENT, ""))
+                            self.frontend_task_manager.save()
                         elif m.get(MsgField.TYPE) == MsgType.CONTROL:
                             control_action = m.get(MsgField.CONTENT, "")
                             # 遇到 stop 立即停止排空，剩余消息留给后续阻塞等待处理
@@ -167,6 +176,8 @@ class Chater:
                                 continue
                         elif m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                            self.frontend_task_manager.add_conversation_entry("user", m.get(MsgField.CONTENT, ""))
+                            self.frontend_task_manager.save()
                             break
                 if drained.strip():
                     msg = f"【用户新消息】\n{drained.strip()}\n\n【当前上下文】\n{msg}"

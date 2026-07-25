@@ -79,15 +79,13 @@ TaskManager(save_path)
 静态方法:
   TaskManager.scan_history_tasks(dir) → [SubTaskRecord]
   TaskManager.list_history_tasks(dir) → [dict]
-  TaskManager.list_pending_tasks(dir) → [dict]
 ```
 
 ## 数据持久化
 
 ```
 inner_space/task/
-├── task_{ts}_state.json    任务状态 (subtask + periodic + qa + stage_progress)
-└── task_list.json          任务索引 (最近 50 条)
+└── task_{ts}_state.json    任务状态 (subtask + periodic + qa + stage_progress)
 
 state 文件结构:
 {

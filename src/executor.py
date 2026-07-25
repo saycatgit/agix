@@ -12,7 +12,7 @@ from task_manager import TaskManager, SubTaskStatus
 from logger import Logger
 from stage_progress import StageProgress
 from utils import Utils
-from tools import ToolExecutor, get_tools_excluding
+from tools import ToolExecutor, TOOLS
 
 
 class Executor:
@@ -174,7 +174,7 @@ class Executor:
             "- 可根据需求在已经存在的阶段和对应的步骤前面或者后面新增阶段及步骤\n"
             "- 如果完成该任务缺少必要的阶段和步骤，先调用 update_plan总体规划，然后分步执行。\n"
             "- 每个小步骤完成后及时更新状态。\n"
-            "- 所有阶段步骤完成后调用 finish 结束本任务。\n"
+            "- 所有阶段步骤完成后调用 task_management(type=\"finish\", content=\"完成总结\") 结束本任务。\n"
         )
 
         system_prompt = self.prompts.task_prompt_exclude_tools
@@ -221,8 +221,10 @@ class Executor:
     def _run_loop(self, task_manager: TaskManager, base_prompt: str = "") -> dict:
         """工具调用模式执行循环。当前子任务的某个阶段在此处执行。
 
-        LLM 通过 finish 工具标记完成/失败。
-        当 phases 传入时，finish 成功后自动切换到下一阶段提示词。
+        LLM 通过 task_management 工具标记完成/失败：
+        task_management(type="finish", content="总结", success=True) 成功，
+        task_management(type="finish", content="原因", success=False) 失败。
+        成功后自动切换到下一阶段提示词。
 
         Returns: {"judge": str, "content": str}
         """
@@ -236,7 +238,7 @@ class Executor:
 
         self._log(f"工作目录proj: {sub.project_path}")
 
-        task_tools = get_tools_excluding("start_task")
+        task_tools = TOOLS
 
         if sub and sub.plan_steps:
             try:
@@ -260,7 +262,7 @@ class Executor:
             f"如果阶段或步骤缺失以至不满足当前子任务要求，请先用update_plan完善相应内容\n"
             f"{periodic_hint}"
             f"禁止删除已经存在的阶段和步骤，仅可增加\n"
-            f"执行完调用finish结束"
+            f"执行完调用 task_management(type=\"finish\", content=\"任务完成总结\") 结束本任务"
         )
 
         self._log(f"[PHASE] prompt={len(base_prompt)}chars | msg= {msg}")
@@ -276,6 +278,7 @@ class Executor:
                         m = self.eqm.to_task_queue.get_nowait()
                         if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                            task_manager.add_conversation_entry("user", m.get(MsgField.CONTENT, ""))
                         elif m.get(MsgField.TYPE) == MsgType.CONTROL:
                             control_action = m.get(MsgField.CONTENT, "")
                             if control_action == "stop":
@@ -296,6 +299,7 @@ class Executor:
                                 return TaskField.RET_JSON_FALSE("用户结束任务")
                         elif m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
+                            task_manager.add_conversation_entry("user", m.get(MsgField.CONTENT, ""))
                             break
             if drained.strip():
                 msg = f"【用户新消息】\n{drained.strip()}\n\n{msg}"
@@ -345,7 +349,7 @@ class Executor:
                 if rounds_used >= max_rounds * 0.5:
                     convergence = (
                         f"\n[⚠ 已消耗 {rounds_used}/{max_rounds} 轮，"
-                        f"如当前任务无法在剩余轮次内完成，请调用 finish(success=False) 结束。]"
+                        f"如当前任务无法在剩余轮次内完成，请调用 task_management(type=\"finish\", content=\"无法完成\", success=False) 结束。]"
                     )
                 elif rounds_used >= max_rounds * 0.25:
                     convergence = (

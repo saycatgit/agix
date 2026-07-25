@@ -311,7 +311,7 @@ class TaskManager:
         """将状态序列化到 JSON 文件"""
         p = path or self._save_path
         if not p:
-            raise ValueError("save() 需要提供 path 参数")
+            return
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
 
