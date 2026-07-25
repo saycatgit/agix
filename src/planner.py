@@ -5,7 +5,7 @@ from datetime import datetime
 from llm_client import LLMClient
 from meta import TaskField
 from prompts import Prompts
-from task_manager import SubTaskRecord, TaskManager
+from task_manager import SubTaskRecord, SubTaskStatus, TaskManager
 
 
 class Planner:
@@ -94,6 +94,7 @@ class Planner:
                 try:
                     tm = TaskManager.load(related_path)
                     tm.set_subtask_merge(item)
+                    tm.set_subtask_status(SubTaskStatus.PENDING)
                     save_path = related_path
                 except Exception:
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

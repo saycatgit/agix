@@ -13,7 +13,7 @@ from flet_ui.about_panel import AboutPanel
 from event_queue_manager import EventQueueManager
 from meta import MsgType, MsgField, MsgStyle
 from llm_client import PROVIDERS
-MsgStyle.STATUS = "status"; MsgStyle.ACTION = "action"; MsgStyle.THINKING = "thinking"
+MsgStyle.STATUS = "status"; MsgStyle.ACTION = "action"; MsgStyle.THINKING = "thinking"; MsgStyle.DEBUG = "debug"
 
 _STYLE_VISUALS = {
     MsgStyle.USER:      {"bg": ft.Colors.GREEN_50,"size":16},
@@ -24,6 +24,7 @@ _STYLE_VISUALS = {
     MsgStyle.STATUS:    {"bg": ft.Colors.BLUE_50},
     MsgStyle.ACTION:    {"bg": ft.Colors.TEAL_50},
     MsgStyle.THINKING:  {"bg": ft.Colors.YELLOW_50},
+    MsgStyle.DEBUG:     {"bg": ft.Colors.PINK_50},
     # MsgStyle.THINKING:  {"bg": ft.Colors.PURPLE_50, "italic": True, "size": 12},
 }
 
@@ -36,6 +37,7 @@ _AVATAR_DATA = {
     MsgStyle.STATUS:    ("📊", None),
     MsgStyle.ACTION:    ("🔧",  None),
     MsgStyle.THINKING:  ("🧠", None),
+    MsgStyle.DEBUG:     ("🐛", None),
 }
 
 class AgixUI:
@@ -200,6 +202,8 @@ class AgixUI:
                         continue
                     if st == MsgStyle.STATUS or t == MsgType.STATUS:
                         self.task_panel.set_status(content)
+                    elif st == MsgStyle.DEBUG or t == MsgType.DEBUG:
+                        self.task_panel.add_message(content, MsgStyle.DEBUG)
                     elif st == MsgStyle.ACTION or t == MsgType.ACTION:
                         self.task_panel.add_message(content, MsgStyle.ACTION)
                     elif st == MsgStyle.THINKING or t == MsgType.THINKING:

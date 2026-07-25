@@ -343,7 +343,7 @@ class LLMClient:
 
         cmpret= self._compress_history()
         if self.eqm and cmpret:
-            self.eqm.send_display(cmpret, mode="chat", style=MsgStyle.WARN)
+            self.eqm.send_debug(cmpret, mode="chat")
         self._save_memory()
 
         messages = [{"role": "system", "content": prompt}]

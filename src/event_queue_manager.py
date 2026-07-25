@@ -67,6 +67,14 @@ class EventQueueManager:
         else:
             self.task_display_queue.put(msg)
 
+    def send_debug(self, content: str, *, mode: str = "chat"):
+        """工作线程 -> UI 线程: 发送 debug 信息，样式比普通 display 更显眼"""
+        msg = self.make_msg(content, MsgType.DEBUG, style=MsgStyle.DEBUG)
+        if mode == "chat":
+            self.chat_display_queue.put(msg)
+        else:
+            self.task_display_queue.put(msg)
+
     # ---------- user_input 消息 ----------
 
     def send_user_input(self, content: str, *, mode: str = "chat"):

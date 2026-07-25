@@ -212,6 +212,11 @@ def _send_aliyun_sms(phone: str, code: str) -> dict:
 #  user-facing routes
 # ---------------------------------------------------------------------------
 
+@app.route('/')
+def index():
+    """Agix 项目首页。"""
+    return render_template('index.html')
+
 @app.route('/login')
 def login_page():
     session_id = request.args.get('session_id', '')

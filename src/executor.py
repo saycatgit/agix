@@ -81,8 +81,8 @@ class Executor:
                 continue
             if tm.subtask.status in (SubTaskStatus.PENDING, None) and tm.is_execution_time_reached():
                 # 一次性任务只允许执行一次（counter==0 表示从未执行过）
-                if not tm.subtask.is_periodic and tm._periodic_counter > 0:
-                    continue
+                # if not tm.subtask.is_periodic and tm._periodic_counter > 0:
+                #     continue
                 ready.append(tm_path)
         return ready
 
