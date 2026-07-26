@@ -105,7 +105,7 @@ class PathConfig:
         self.token_file = _os.path.join(isd, "auth_token.json")
         self.task_config_file_path = _os.path.join(self.task_dir, "task_config.json")
         self.log_dir = _os.path.join(r, "workspace", "log")
-        self.ssh_dir = _os.path.join(isd, ".ssh")
+        self.ssh_dir = _os.path.join(isd, "ssh")
         self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")
         self.mcp_dir = _os.path.join(isd, "mcp")
         self.mcp_config_path = _os.path.join(isd, "mcp", "mcp.json")

@@ -18,7 +18,7 @@ class ConnectionSettingsPanel:
         self.config = config
         self._file_path = config.paths.ssh_config_path
         self._ssh_dir = config.paths.ssh_dir
-        self._keys_dir = os.path.join(self._ssh_dir, "keys")
+        self._keys_dir = os.path.join(self._ssh_dir, ".keys")
         self._mcp_dir = config.paths.mcp_dir
         self._data = self._load()
         self._mcp_servers = self._parse_mcp_table()
