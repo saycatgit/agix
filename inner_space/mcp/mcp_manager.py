@@ -43,12 +43,12 @@ def save_md_lines(lines):
 
 
 def find_table_range(lines):
-    """找到「可用服务器」表格的起止行号（从 1 开始），没有则返回 None"""
+    """找到「MCP可用服务器」表格的起止行号（从 1 开始），没有则返回 None"""
     in_table_section = False
     table_start = None
     table_end = None
     for i, line in enumerate(lines):
-        if line.strip() == "## 可用服务器":
+        if line.strip() == "## MCP可用服务器":
             in_table_section = True
             continue
         if in_table_section:

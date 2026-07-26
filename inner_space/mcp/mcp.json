@@ -7,7 +7,7 @@
       ],
       "desc": "高德地图：地理编码、逆地理编码、IP定位、天气、POI搜索、驾车/步行/公交/骑行路径规划、距离测量",
       "env": {
-        "AMAP_MAPS_API_KEY": "d611d04c031a6f2d2b0c4153510fdab6"
+        "AMAP_MAPS_API_KEY": "6d5e5cf229672e32a310f85b65cef8a7"
       }
     }
   }

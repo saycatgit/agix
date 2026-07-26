@@ -59,13 +59,15 @@ class Chater:
 
     def _chat_init(self, task_file_path: str = ""):
         """初始化 Chat 模式的任务管理及记忆。"""
-        cwd = self.work_dir
+        self.work_dir = self.config.execution.work_dir
         if task_file_path:
             self.frontend_task_manager = TaskManager.load(task_file_path)
             self._init_task_memory(self.frontend_task_manager, self.chat_llm)
             self.tool_executor = ToolExecutor(self.work_dir, agent=self,
                                               mode="chat", task_manager=self.frontend_task_manager)
+            self.frontend_task_manager = TaskManager()
             self.frontend_task_manager._stage_progress = StageProgress()
+
             return
 
         self.frontend_task_manager = TaskManager()
@@ -75,7 +77,7 @@ class Chater:
             TaskField.TASK_TYPE: "其他",
         }
         self.frontend_task_manager.set_subtask(subtask)
-        self.frontend_task_manager.set_subtask_project(cwd)
+        self.frontend_task_manager.set_subtask_project(self.work_dir)
         self._init_task_memory(self.frontend_task_manager, self.chat_llm)
         self.tool_executor = ToolExecutor(self.work_dir, agent=self,
                                           mode="chat", task_manager=self.frontend_task_manager)
@@ -87,6 +89,7 @@ class Chater:
         if not sub:
             return
         fpath = os.path.join(sub.project_path, ".memory", "memory.jsonl")
+        # self.eqm.send_debug(f"加载记忆路径：{fpath}")
         llm.set_memory_file(fpath)
         os.makedirs(os.path.dirname(fpath), exist_ok=True)
         if not os.path.exists(fpath):

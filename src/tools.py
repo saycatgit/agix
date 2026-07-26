@@ -217,7 +217,7 @@ class ToolExecutor:
         self.eqm = agent.eqm if agent else None
         self.logger = agent.logger if agent else None
         self.task_manager = task_manager
-
+        # self.eqm.send_debug(f"新tool 路径 ：{self.work_dir}")
     # 各工具必填参数
     _REQUIRED_ARGS = {
         "file_patch": ["input"],
@@ -826,7 +826,7 @@ class ToolExecutor:
                     current_detail = getattr(self.task_manager._subtask, 'sub_task_detail', '') or ''
                     new_detail = (current_detail + '\n' + content).strip() if current_detail else content
                     self.task_manager._subtask.sub_task_detail = new_detail
-                    self.task_manager.save()
+                    # self.task_manager.save()
                     return f"需求已追加到任务: {content}"
                 return f"需求已记录(无活跃任务): {content}"
         else:

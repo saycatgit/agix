@@ -36,7 +36,7 @@ python3 mcp_manager.py add '{"name":"<name>","command":"<cmd>","args":[...],"env
 python3 mcp_manager.py del <server_name>
 ```
 
-## 可用服务器
+## MCP可用服务器
 
 | 服务器 | 说明 |
 |--------|------|

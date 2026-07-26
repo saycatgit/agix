@@ -42,15 +42,15 @@ class Agent:
 
     def build_attach(self) -> str:
         """构建附加信息：可用技能列表 + SSH连接信息，供 LLM 上下文使用。"""
-        parts = []
-
-        skills_text = self._scan_skills_dir()
-        if skills_text:
-            parts.append(skills_text)
+        parts = ["当前可用外部工具及服务列表（mcp、技能、ssh站点）如下，使用之前先阅读相关md文档（有可用服务时优先使用MCP服务，非必要不创建新skill）"]
 
         mcp_text = self._scan_mcp_dir()
         if mcp_text:
             parts.append(mcp_text)
+
+        skills_text = self._scan_skills_dir()
+        if skills_text:
+            parts.append(skills_text)
 
         ssh_text = self._scan_ssh_config()
         if ssh_text:
@@ -65,7 +65,7 @@ class Agent:
         if not skills_dir or not os.path.isdir(skills_dir):
             return ""
 
-        lines = ["## 可用技能（优先查看是否有可用技能）："]
+        lines = ["## 可用技能："]
         for skill_dir in sorted(glob.glob(os.path.join(skills_dir, "*"))):
             if not os.path.isdir(skill_dir):
                 continue
@@ -101,16 +101,16 @@ class Agent:
                 return ""
 
             # 只提取"可用服务器"部分
-            marker = "## 可用服务器"
+            marker = "## MCP可用服务器"
             idx = content.find(marker)
             if idx != -1:
                 servers_section = content[idx:].strip()
             else:
                 servers_section = ""
+
             return (
-                f"## MCP 可用服务器\n"
                 f"{servers_section}\n\n"
-                f"使用方式、注意事项、服务器管理等详情见 `{mcp_md}` 文档。"
+                f"MCP服务的使用方式、注意事项、服务器管理等详情见 `{mcp_md}` 文档。"
             )
         except Exception:
             return ""
