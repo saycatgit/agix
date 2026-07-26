@@ -8,7 +8,7 @@ from flet_ui.model_settings_panel import ModelSettingsPanel
 from flet_ui.sys_settings_panel import SystemSettingsPanel
 from flet_ui.task_config_panel import TaskConfigPanel
 from flet_ui.unified_settings_panel import UnifiedSettingsPanel
-from flet_ui.ssh_settings_panel import SshSettingsPanel
+from flet_ui.connection_settings_panel import ConnectionSettingsPanel
 from flet_ui.about_panel import AboutPanel
 from event_queue_manager import EventQueueManager
 from meta import MsgType, MsgField, MsgStyle
@@ -60,9 +60,9 @@ class AgixUI:
         self.model_settings_panel = ModelSettingsPanel(page, agent.config, PROVIDERS)
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
-        self.ssh_settings_panel = SshSettingsPanel(page, agent.config)
+        self.connection_panel = ConnectionSettingsPanel(page, agent.config)
         self.about_panel = AboutPanel(page)
-        self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel, self.ssh_settings_panel, self.about_panel)
+        self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel, self.connection_panel, self.about_panel)
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir,
                                             extra_controls=[self.task_switch],
                                             on_chat_select=lambda p, s="": self._on_sidebar_select(p, s))

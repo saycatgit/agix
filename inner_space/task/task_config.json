@@ -19,6 +19,10 @@
         {
           "name": "cskill",
           "description": "仅用于创建新skill"
+        },
+        {
+          "name": "桌面应用",
+          "description": ""
         }
       ],
       "subtask_config": [

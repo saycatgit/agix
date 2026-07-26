@@ -11,7 +11,6 @@ from prompts import Prompts
 from task_manager import TaskManager, SubTaskStatus
 from logger import Logger
 from stage_progress import StageProgress
-from utils import Utils
 from tools import ToolExecutor, TOOLS
 
 
@@ -160,7 +159,7 @@ class Executor:
             for phase_idx, phase in enumerate(phases):
                 self._log(f"  阶段 {phase_idx+1}/{len(phases)}: {phase['name']}")
 
-        pretask = Utils.build_pretask_skills(self.agent.skills_dir)
+        pretask = self.agent.build_attach()
         extra_prompt_add = "\n" + pretask
         extra_prompt_add += "\n# 当前项目：\n"
         extra_prompt_add += f"当前任务: {sub.sub_task_detail}\n"
@@ -175,6 +174,7 @@ class Executor:
             "- 如果完成该任务缺少必要的阶段和步骤，先调用 update_plan总体规划，然后分步执行。\n"
             "- 每个小步骤完成后及时更新状态。\n"
             "- 所有阶段步骤完成后调用 task_management(type=\"finish\", content=\"完成总结\") 结束本任务。\n"
+            "- 如果是继续开发之前任务或者在开发过程中有需求变化，尽快更新用户需求task_management(type=\"requirement\", content=\"新需求或者需求变更\") "
         )
 
         system_prompt = self.prompts.task_prompt_exclude_tools
@@ -232,8 +232,8 @@ class Executor:
         max_rounds = self.agent.config.execution.max_rounds
 
         executor = ToolExecutor(
-            sub.project_path, logger=self.agent.logger,
-            agent=self.agent, eqm=self.eqm, mode="task", task_manager=task_manager,
+            sub.project_path,
+            agent=self.agent, mode="task", task_manager=task_manager,
         )
 
         self._log(f"工作目录proj: {sub.project_path}")

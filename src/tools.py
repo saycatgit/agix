@@ -3,7 +3,7 @@ from utils import Utils
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
 from planner import Planner
 
-import os, sys, threading , re, subprocess, json
+import os , re, subprocess, json
 
 
 def get_tools_excluding(*names: str) -> list:
@@ -107,8 +107,12 @@ TOOLS = [
                 "与用户交互的统一入口。支持两种类型：\\n"
                 "1. type='ask'：向用户提问并阻塞等待回答，用于需要用户决策或澄清需求时；\\n"
                 "2. type='thinking'：向用户传递思维链，非阻塞，不等待响应。\\n"
-                "通过发送thinking 信息让用户能够了解到完成任务的整个思维过程，调用时机和频率llm自己把握，但是要穿插在工具调用过程中，不能让用户感觉有思路断层"
-            ),
+                "【thinking 使用规则】\\n"
+                "- 每次执行实质性操作（read_file/write_file/run_shell/file_patch）之前，必须先发 thinking 说明接下来要做什么、为什么这样做。\\n"
+                "- 收到工具执行结果后，如果结果与预期不符或需要调整方向，立即发 thinking 说明当前判断和下一步思路。\\n"
+                "- thinking 内容要信息密集：当前卡在什么问题、打算怎么解决、为什么选这个方案。不要发\"正在分析\"这类空话。\\n"
+                "- 宁可多发不要漏发，用户通过 thinking 跟踪你的思考过程，漏发会让用户感觉思路断层。"
+             ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -143,6 +147,7 @@ TOOLS = [
                 "type='start'时 content 为任务描述，启动任务模式，调用后必须结束会话等待用户下一步指令；"
                 "type='finish'时 content 为任务总结，success 为是否成功；"
                 "type='requirement'时 content 为从用户的消息中提取的新增需求汇总。，如果content为空则返回当前任务已存储的需求"
+                "如果是继续开发之前任务或者在开发过程中有需求变化，及时用task_management(type=\"requirement\", content=\"新需求或者需求变更\") 更新用户需求"
             ),
             "parameters": {
                 "type": "object",
@@ -205,12 +210,12 @@ TOOLS = [
 class ToolExecutor:
     """工具执行器：将 tool_call 转换为实际操作"""
 
-    def __init__(self, work_dir: str, logger=None, agent=None, eqm=None, mode: str = "chat", task_manager=None):
+    def __init__(self, work_dir: str, agent=None, mode: str = "chat", task_manager=None):
         self.work_dir = os.path.abspath(work_dir)
-        self.eqm = eqm            # EventQueueManager
         self.mode = mode          # "chat" | "task"
-        self.logger = logger
         self.agent = agent
+        self.eqm = agent.eqm if agent else None
+        self.logger = agent.logger if agent else None
         self.task_manager = task_manager
 
     # 各工具必填参数
@@ -774,16 +779,12 @@ class ToolExecutor:
         if not self.task_manager:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
-        if self.mode == "chat":
-            progress = getattr(self.task_manager, "chat_stage_progress", None)
-        else:
-            progress = getattr(self.task_manager, "_stage_progress", None)
+        progress = self.task_manager._stage_progress
         if not progress:
             return json.dumps({"error": "no stage progress initialized"}, ensure_ascii=False)
 
         progress.update_steps(stage, steps)
-        if self.mode == "task":
-            self.task_manager.save_plan_steps(progress)
+        self.task_manager.save_plan_steps(progress)
 
         # 打印更新后的进度
         if self.logger:
@@ -825,6 +826,7 @@ class ToolExecutor:
                     current_detail = getattr(self.task_manager._subtask, 'sub_task_detail', '') or ''
                     new_detail = (current_detail + '\n' + content).strip() if current_detail else content
                     self.task_manager._subtask.sub_task_detail = new_detail
+                    self.task_manager.save()
                     return f"需求已追加到任务: {content}"
                 return f"需求已记录(无活跃任务): {content}"
         else:

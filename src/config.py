@@ -89,6 +89,8 @@ class PathConfig:
     log_dir: str = ""
     ssh_dir: str = ""
     ssh_config_path: str = ""
+    mcp_dir: str = ""
+    mcp_config_path: str = ""
 
     def __post_init__(self):
         import os as _os
@@ -105,6 +107,8 @@ class PathConfig:
         self.log_dir = _os.path.join(r, "workspace", "log")
         self.ssh_dir = _os.path.join(isd, ".ssh")
         self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")
+        self.mcp_dir = _os.path.join(isd, "mcp")
+        self.mcp_config_path = _os.path.join(isd, "mcp", "mcp.json")
 
 
 @dataclass
@@ -212,6 +216,13 @@ class AppConfig:
         self._init_api_key()
         if not self.llm_list:
             self.llm_list = [asdict(self.llm)]
+    
+    def __getattr__(self, name: str):
+        """将未命中属性委托到 self.paths，支持 config.mcp_config_path 等扁平访问。"""
+        paths = self.__dict__.get('paths')
+        if paths is not None and hasattr(paths, name):
+            return getattr(paths, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def _init_dirs(self):
         """创建必要的目录。"""

@@ -13,7 +13,6 @@ from stage_progress import StageProgress
 from prompts import Prompts
 from tools import TOOLS, ToolExecutor
 from meta import TaskField, MsgType, MsgField, MsgStyle
-from utils import Utils
 
 
 class Chater:
@@ -40,7 +39,6 @@ class Chater:
         self.skills_dir = config.paths.skills_dir
 
         self.frontend_task_manager = None
-        self.chat_stage_progress: StageProgress | None = None
 
         self._chat_init()
 
@@ -65,6 +63,9 @@ class Chater:
         if task_file_path:
             self.frontend_task_manager = TaskManager.load(task_file_path)
             self._init_task_memory(self.frontend_task_manager, self.chat_llm)
+            self.tool_executor = ToolExecutor(self.work_dir, agent=self,
+                                              mode="chat", task_manager=self.frontend_task_manager)
+            self.frontend_task_manager._stage_progress = StageProgress()
             return
 
         self.frontend_task_manager = TaskManager()
@@ -76,6 +77,9 @@ class Chater:
         self.frontend_task_manager.set_subtask(subtask)
         self.frontend_task_manager.set_subtask_project(cwd)
         self._init_task_memory(self.frontend_task_manager, self.chat_llm)
+        self.tool_executor = ToolExecutor(self.work_dir, agent=self,
+                                          mode="chat", task_manager=self.frontend_task_manager)
+        self.frontend_task_manager._stage_progress = StageProgress()
 
     def _init_task_memory(self, task_manager, llm):
         """初始化记忆：设置 memory_file，有快照则加载。"""
@@ -89,8 +93,7 @@ class Chater:
             with open(fpath, "w") as _:
                 pass
         task_manager.set_subtask_llm_context_info("memory.jsonl")
-        if task_manager._save_path:
-            task_manager.save()
+        task_manager.save()
         if os.path.exists(fpath):
             llm.load_memory()
             if llm.history:
@@ -125,15 +128,12 @@ class Chater:
 
         Returns: {"judge": str, "content": str}
         """
-        executor = ToolExecutor(self.work_dir, logger=self.logger, agent=self, eqm=self.eqm,
-                                mode="chat", task_manager=self)
 
-        pretask = Utils.build_pretask_skills(self.skills_dir)
+        pretask = self._agent.build_attach()
         prompt = (self.prompts.chat_prompt + pretask
                   + f"当前工作目录: {self.work_dir}\n所有文件操作请在此目录下进行。\n")
 
         msg = user_message
-        self.chat_stage_progress = StageProgress()
         rounds = 0
         while True:
             rounds += 1
@@ -199,7 +199,7 @@ class Chater:
             if result["type"] == "tool_calls":
                 total_len = 0
                 for call in result["calls"]:
-                    exec_result = executor.execute(call["name"], call["args"])
+                    exec_result = self.tool_executor.execute(call["name"], call["args"])
                     exec_str = str(exec_result)
                     self.chat_llm.submit_tool_result(call["id"], exec_str)
                     total_len += len(exec_str)

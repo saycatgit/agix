@@ -1,0 +1,46 @@
+{
+  "subtask": {
+    "subtask_index": 0,
+    "sub_task_detail": "",
+    "task_type": "软件开发",
+    "task_sub_type": "web应用",
+    "dir_from": "",
+    "status": "skipped",
+    "project_path": "/home/agent_native/server",
+    "result_judge": "",
+    "result_content": "",
+    "round_count": 0,
+    "messages": [],
+    "created_at": "",
+    "completed_at": "",
+    "plan_steps": {},
+    "phase_msgs": [],
+    "llm_context_info": "memory.jsonl",
+    "extra_prompt": "",
+    "sub_task_name": "agix 服务"
+  },
+  "conversation_log": [
+    {
+      "role": "user",
+      "content": "你好",
+      "timestamp": "2026-07-25T19:11:54"
+    },
+    {
+      "role": "user",
+      "content": "改下，下载提示那里，如果网络条件好的话可能要2到3分钟",
+      "timestamp": "2026-07-25T19:12:57"
+    },
+    {
+      "role": "user",
+      "content": "你来选刷新一下页面",
+      "timestamp": "2026-07-25T19:14:23"
+    }
+  ],
+  "general_messages": [],
+  "periodic": {
+    "counter": 0,
+    "next_execution_time": "",
+    "is_periodic": false,
+    "period": "1d"
+  }
+}

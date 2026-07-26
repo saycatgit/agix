@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agix — 个人通用人工智能助理</title>
+<meta name="description" content="Agix — 个人通用 AI 助理，本地部署、隐私优先。">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f8f9fb;
+    --card-bg: #fff;
+    --border: #e2e6ed;
+    --accent: #2563eb;
+    --accent2: #7c3aed;
+    --text: #1a1d28;
+    --text-dim: #6b7280;
+    --text-muted: #9ca3af;
+    --warn-bg: #fffbeb;
+    --warn-border: #fcd34d;
+    --warn-text: #92400e;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { opacity: .8; }
+
+  /* ===== subtle grid ===== */
+  .bg-dots {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(circle, #d1d5db 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: .5;
+  }
+
+  .wrapper { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== nav ===== */
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 28px 0; }
+  .nav-logo { font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; color: var(--text); }
+  .nav-logo em { font-style: normal; color: var(--accent); }
+  .nav-links { display: flex; gap: 28px; font-size: .88rem; }
+  .nav-links a { color: var(--text-dim); }
+  .nav-links a:hover { color: var(--text); }
+
+  /* ===== hero ===== */
+  .hero { padding: 72px 0 48px; text-align: center; }
+  .hero h1 { font-size: 3rem; font-weight: 800; letter-spacing: -.04em; line-height: 1.2; color: var(--text); }
+  .hero h1 mark { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero .sub { font-size: 1.1rem; color: var(--text-dim); max-width: 500px; margin: 16px auto 0; }
+  .hero .en { font-size: .82rem; color: var(--text-muted); margin-top: 6px; }
+
+  /* ===== features ===== */
+  .features { padding: 48px 0; }
+  .sec-title { text-align: center; font-size: 1.5rem; font-weight: 700; margin-bottom: 36px; }
+  .sec-title::after { content: ''; display: block; width: 40px; height: 2px; background: var(--accent); margin: 10px auto 0; border-radius: 1px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; transition: box-shadow .25s, border-color .25s;
+  }
+  .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.06); border-color: #cbd5e1; }
+  .card .icon { font-size: 1.3rem; margin-bottom: 10px; }
+  .card h3 { font-size: 1rem; margin-bottom: 6px; }
+  .card p { font-size: .85rem; color: var(--text-dim); }
+
+  /* ===== download ===== */
+  .download { padding: 48px 0; }
+  .dl-box {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 36px; text-align: center; max-width: 580px; margin: 0 auto;
+  }
+  .dl-box h2 { font-size: 1.35rem; margin-bottom: 4px; }
+  .dl-box .ver { font-size: .82rem; color: var(--text-muted); margin-bottom: 18px; }
+  .btn-dl {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--text); color: #fff; border: none; border-radius: 8px;
+    padding: 13px 32px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    transition: background .25s, transform .15s;
+  }
+  .btn-dl:hover { background: #374151; transform: translateY(-1px); }
+  .plats { margin-top: 14px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .plats a { font-size: .8rem; color: var(--text-dim); padding: 5px 12px; border: 1px solid var(--border); border-radius: 5px; transition: all .2s; }
+  .plats a:hover { border-color: var(--accent); color: var(--accent); }
+  .dl-warn {
+    margin-top: 18px; padding: 12px 16px; background: var(--warn-bg);
+    border: 1px solid var(--warn-border); border-radius: 8px;
+    font-size: .82rem; color: var(--warn-text); text-align: left; line-height: 1.6;
+  }
+  .dl-warn strong { display: block; margin-bottom: 2px; }
+
+  /* ===== footer ===== */
+  .footer { padding: 28px 0 20px; border-top: 1px solid var(--border); margin-top: 48px; text-align: center; }
+  .footer p { font-size: .75rem; color: var(--text-muted); }
+  .footer .icp { margin-top: 2px; }
+  .footer .icp a { color: var(--text-muted); font-size: .74rem; }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 2rem; }
+    .hero { padding: 48px 0 32px; }
+    .dl-box { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-dots"></div>
+
+<div class="wrapper">
+
+  <nav class="nav">
+    <div class="nav-logo">Agix<em>.</em></div>
+    <div class="nav-links">
+      <a href="#features">特性</a>
+      <a href="#download">下载</a>
+      <a href="/admin">管理</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <h1>你的全能型 <mark>AI 助理</mark></h1>
+    <p class="sub">本地部署，隐私优先。从任务规划到代码执行，全程陪伴，让想法落地。</p>
+    <p class="en">Personal AI assistant. Local-first, privacy-first. Plan, code, execute.</p>
+  </section>
+
+  <section class="features" id="features">
+    <h2 class="sec-title">核心特性</h2>
+    <div class="card-grid">
+      <div class="card">
+        <div class="icon">🧠</div>
+        <h3>智能任务规划</h3>
+        <p>自动拆解复杂需求为可执行子任务，按依赖关系灵活调度。</p>
+      </div>
+      <div class="card">
+        <div class="icon">💻</div>
+        <h3>本地代码执行</h3>
+        <p>直接在本地环境运行代码，文件操作、Shell 命令、API 调用尽在掌控。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔒</div>
+        <h3>隐私优先</h3>
+        <p>所有数据留在本地，代码、文件、对话记录不上传任何第三方。</p>
+      </div>
+      <div class="card">
+        <div class="icon">⏰</div>
+        <h3>周期任务调度</h3>
+        <p>支持一次性与周期任务，按设定时间自动执行，无需值守。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔧</div>
+        <h3>工具链集成</h3>
+        <p>内置文件读写、搜索、Shell 等工具，LLM 可直接调用完成工程任务。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🌐</div>
+        <h3>开放架构</h3>
+        <p>模块化设计，可扩展自定义工具与 Skill，适配不同场景。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="download" id="download">
+    <div class="dl-box">
+      <h2>下载 Agix</h2>
+      <p class="ver">最新版本 · v0.1.0</p>
+      <a class="btn-dl" href="#" id="dlBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        立即下载
+      </a>
+      <div class="plats">
+        <a href="#">Windows</a>
+        <a href="#">macOS</a>
+        <a href="#">Linux</a>
+      </div>
+      <div class="dl-warn">
+        <strong>⚠️ 首次启动须知</strong>
+        初次打开需要配置系统环境（安装 Python 依赖、初始化本地数据库等），网络条件良好的情况下大约需要 2-3 分钟，请耐心等待不要关闭窗口。<br>
+        <em>First launch requires environment setup. With a stable network it takes about 2-3 minutes. Please wait.</em>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>Agix — 个人通用人工智能技术分享</p>
+    <p class="icp"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">冀ICP备2026027532号-1</a></p>
+  </footer>
+
+</div>
+
+<script>
+  document.getElementById('dlBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    alert('下载链接即将上线，敬请期待。\nComing soon.');
+  });
+</script>
+</body>
+</html>
