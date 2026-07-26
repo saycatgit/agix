@@ -403,7 +403,8 @@ class TaskManager:
     def save_plan_steps(self, stage_progress=None):
         """保存任务状态到 _save_path，可选同步 stage_progress"""
         if not self._save_path:
-            raise ValueError("_save_path 为空，无法保存")
+            # Chat 模式无持久化路径，仅更新内存中的 stage_progress
+            return
         if stage_progress:
             self.update_plan_steps(stage_progress)
         self.save(self._save_path)

@@ -64,7 +64,7 @@ class AgixUI:
         self.connection_panel = ConnectionSettingsPanel(page, agent.config)
         self.about_panel = AboutPanel(page)
         self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel, self.connection_panel, self.about_panel)
-        self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir,
+        self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir, agent.config.paths.token_file,
                                             extra_controls=[self.task_switch],
                                             on_chat_select=lambda p, s="": self._on_sidebar_select(p, s))
         self.status_sidebar._default_work_dir = agent.config.execution.work_dir

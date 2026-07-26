@@ -354,20 +354,20 @@ class TaskPanel:
         self._ask_action_btn.update()
 
     def _on_page_keyboard(self, e: ft.KeyboardEvent):
-        print(f"[DEBUG] _on_page_keyboard: key={e.key!r}, ctrl={e.ctrl}, shift={e.shift}, focused={self._input_focused}")
+        # print(f"[DEBUG] _on_page_keyboard: key={e.key!r}, ctrl={e.ctrl}, shift={e.shift}, focused={self._input_focused}")
         if not self._input_focused:
             return
         if e.key == "Enter" and not e.ctrl and not e.shift:
-            print("[DEBUG] Enter → calling _send()")
+            # print("[DEBUG] Enter → calling _send()")
             self._send()
         elif e.key == "Enter" and e.ctrl:
-            print("[DEBUG] Ctrl+Enter → inserting newline")
+            # print("[DEBUG] Ctrl+Enter → inserting newline")
             self.ask_input.value += "\n"
             self.ask_input.update()
 
     def _send(self):
         t = self.ask_input.value.strip()
-        print(f"[DEBUG] _send: value={self.ask_input.value!r}, stripped={t!r}")
+        # print(f"[DEBUG] _send: value={self.ask_input.value!r}, stripped={t!r}")
         if not t:
             return
         self._paused = False

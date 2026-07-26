@@ -33,9 +33,10 @@ class StatusSidebar:
 
     }
 
-    def __init__(self, page: ft.Page, task_dir: str, visible: bool = True, extra_controls: list = None, on_chat_select=None):
+    def __init__(self, page: ft.Page, task_dir: str, token_file: str = "", visible: bool = True, extra_controls: list = None, on_chat_select=None):
         self.page = page
         self.task_dir = task_dir
+        self.token_file = token_file
         self.task_config_file_path = os.path.join(self.task_dir, "task_config.json")
         self._visible = visible
         self._extra_controls = extra_controls or []
@@ -137,13 +138,29 @@ class StatusSidebar:
                 ft.IconButton(
                     icon=ft.Icons.EXIT_TO_APP, icon_size=18,
                     icon_color=ft.Colors.GREY_400,
-                    tooltip="退出",
+                    tooltip="退出", on_click=self._on_exit,
                 ),
             ], expand=True),
             padding=ft.Padding(12, 8, 12, 8),
             expand=True,
             bgcolor=ft.Colors.WHITE,
         )
+
+    def _on_exit(self, e):
+        def do_exit(close_event):
+            try:
+                if self.token_file and os.path.exists(self.token_file):
+                    os.remove(self.token_file)
+            except Exception:
+                pass
+            self.page.run_task(self.page.window.destroy)
+        dialog = ft.AlertDialog(
+            title=ft.Text("确认退出"),
+            content=ft.Text("确定要退出吗？"),
+            actions=[ft.TextButton("取消", on_click=lambda e: self.page.pop_dialog()),
+                     ft.TextButton("退出", on_click=lambda e: [self.page.pop_dialog(), do_exit(e)])],
+        )
+        self.page.show_dialog(dialog)
 
     # ── 数据加载 ──
 
@@ -194,7 +211,7 @@ class StatusSidebar:
                 content=ft.Row([
                     ft.Text(name, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
-                    ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16),
+                    ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16, menu_position=ft.PopupMenuPosition.UNDER),
                 ], height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 bgcolor=ft.Colors.WHITE, border_radius=6,
@@ -273,7 +290,8 @@ class StatusSidebar:
         card = ft.Container(
             content=ft.Row([
                 ft.Column(col_children, expand=True, spacing=0),
-                ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16),
+                ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, 
+                                   items=menu_items, icon_size=16, menu_position=ft.PopupMenuPosition.UNDER),
             ],height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=ft.Colors.WHITE, border_radius=6,
             padding=ft.Padding(8, 6, 8, 6),

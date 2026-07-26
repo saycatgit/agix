@@ -128,15 +128,17 @@ class ChatPanel:
     def _build(self):
         self._cl = ft.ListView(expand=True, spacing=8, padding=15, auto_scroll=True)
         self._ca = ft.Text("", size=12, color=self.ASK_COLOR, visible=False)
+        self._mic_btn = ft.IconButton(icon=ft.Icons.MIC, icon_size=28, tooltip="语音输入", on_click=lambda e: self._voice_input())
         self._ci = ft.TextField(
             hint_text=self.INPUT_HINT, border=ft.InputBorder.OUTLINE,
             border_color=self.INPUT_BORDER_COLOR,
             focused_border_color=self.INPUT_FOCUSED_BORDER_COLOR,
             border_radius=self.INPUT_BORDER_RADIUS,
+            suffix_icon=self._mic_btn,
             multiline=True,
             min_lines=2,  expand=True, text_size=14,
-            on_focus=lambda e: setattr(self, '_input_focused', True),
-            on_blur=lambda e: setattr(self, '_input_focused', False),
+            on_focus=lambda e: (setattr(self, '_input_focused', True), self._toggle_action_btn()),
+            on_blur=lambda e: (setattr(self, '_input_focused', False), self._toggle_action_btn()),
             on_change=lambda e: self._toggle_action_btn(),
         )
         self._ci.on_submit = lambda e: self._send()
@@ -185,7 +187,7 @@ class ChatPanel:
 
         self._cp = ft.Column([
             ft.Container(content=self._cl, expand=True),
-            ft.Divider(height=1),
+            # ft.Divider(height=1),
             self._inline_dialog,
             ft.Row([self._ca], alignment=ft.MainAxisAlignment.START),
             ft.Container(content=ft.Row([
@@ -201,17 +203,25 @@ class ChatPanel:
             self._action_btn.icon = ft.Icons.CANCEL
             self._action_btn.tooltip = self.END_TOOLTIP
             self._action_btn.on_click = lambda e: self._stop()
+            self._ci.suffix_icon = None
             self._action_btn.update()
+            self._ci.update()
             return
         if self._ci.value.strip():
             self._action_btn.icon = ft.Icons.SEND
             self._action_btn.tooltip = self.SEND_TOOLTIP
             self._action_btn.on_click = lambda e: self._send()
+            self._ci.suffix_icon = None
         else:
             self._action_btn.icon = ft.Icons.STOP
             self._action_btn.tooltip = self.STOP_TOOLTIP
             self._action_btn.on_click = lambda e: self._stop()
+            if self._input_focused:
+                self._ci.suffix_icon = self._mic_btn
+            else:
+                self._ci.suffix_icon = None
         self._action_btn.update()
+        self._ci.update()
 
     # ── 发送 / 停止 ──
 
@@ -259,6 +269,11 @@ class ChatPanel:
             self.eqm.send_control("end", mode="chat")
             self._paused = False
             self._toggle_action_btn()
+
+    def _voice_input(self):
+        snack = ft.SnackBar(ft.Text("语音输入功能开发中..."), open=True)
+        self.page.overlay.append(snack)
+        self.page.update()
 
     # ── 模型切换 ──
 
