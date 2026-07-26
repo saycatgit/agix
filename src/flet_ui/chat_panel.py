@@ -278,9 +278,11 @@ class ChatPanel:
 
     # ── 工作目录 ──
 
-    def update_work_dir(self):
+    def update_work_dir(self, path: str = ""):
         """更新显示的工作目录"""
-        self._work_dir_text.value = self.WORK_DIR_PREFIX + self.agent.config.execution.work_dir
+        if not path:
+            path = self.agent.config.execution.work_dir
+        self._work_dir_text.value = self.WORK_DIR_PREFIX + path
         self._work_dir_text.update()
 
     def _open_work_dir(self, e):

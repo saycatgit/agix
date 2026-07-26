@@ -11,8 +11,9 @@ from flet_ui.unified_settings_panel import UnifiedSettingsPanel
 from flet_ui.connection_settings_panel import ConnectionSettingsPanel
 from flet_ui.about_panel import AboutPanel
 from event_queue_manager import EventQueueManager
-from meta import MsgType, MsgField, MsgStyle
+from meta import MsgType, MsgField, MsgStyle, TaskField
 from llm_client import PROVIDERS
+from task_manager import TaskManager
 MsgStyle.STATUS = "status"; MsgStyle.ACTION = "action"; MsgStyle.THINKING = "thinking"; MsgStyle.DEBUG = "debug"
 
 _STYLE_VISUALS = {
@@ -68,6 +69,17 @@ class AgixUI:
                                             on_chat_select=lambda p, s="": self._on_sidebar_select(p, s))
         self.status_sidebar._default_work_dir = agent.config.execution.work_dir
 
+        # 创建 Chat 模式的 task_manager 并初始化 Chater
+        self._chat_task_manager = TaskManager()
+        subtask = {
+            TaskField.SUB_TASK_NAME: "通用对话",
+            TaskField.SUB_TASK_DETAIL: "Chat 模式通用对话",
+            TaskField.TASK_TYPE: "其他",
+        }
+        self._chat_task_manager.set_subtask(subtask)
+        self._chat_task_manager.set_subtask_project(agent.config.execution.work_dir)
+        self.agent.chater._chat_init(self._chat_task_manager)
+
         self._setup_window()
         self._build_title_bar()
         self._assemble_page()
@@ -85,16 +97,12 @@ class AgixUI:
     # ── 窗口控制 ──
 
     def _on_sidebar_select(self, path: str, state_file: str = ""):
-        """侧边栏选中项目目录，切换 work_dir 并重新初始化 chat 记忆。"""
-        if path and path != self.agent.config.execution.work_dir:
-            self.agent.config.execution.work_dir = path
-            self.eqm.send_display(f"切换到路径：{path}",mode="chat",style=MsgStyle.WARN)
-            self.chat_panel.update_work_dir()
-        if state_file:
-            self.agent.chater._chat_init(state_file)
-        elif path:
-            # 空白区点击取消选中：重置回默认路径，初始化新对话
-            self.agent.chater._chat_init("")
+        """侧边栏选中项目目录，统一用 _chat_task_manager 切换路径。"""
+        if path and path != self._chat_task_manager.subtask.project_path:
+            self._chat_task_manager.set_subtask_project(path)
+            self.eqm.send_debug(f"切换到路径：{path}")
+            self.chat_panel.update_work_dir(path)
+            self.agent.chater._chat_init(self._chat_task_manager)
 
     def _setup_window(self):
         p = self.page

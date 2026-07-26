@@ -34,13 +34,10 @@ class Chater:
                                   log_history=config.log.history,user="chater")
         self.prompts = Prompts(config.paths.task_config_file_path)
 
-        self.work_dir = config.execution.work_dir
         self.max_rounds = config.execution.max_rounds
         self.skills_dir = config.paths.skills_dir
 
         self.frontend_task_manager = None
-
-        self._chat_init()
 
         if self.eqm:
             self._start_chat_worker()
@@ -57,29 +54,12 @@ class Chater:
 
     # ── 初始化 ──
 
-    def _chat_init(self, task_file_path: str = ""):
+    def _chat_init(self, task_manager: TaskManager):
         """初始化 Chat 模式的任务管理及记忆。"""
-        self.work_dir = self.config.execution.work_dir
-        if task_file_path:
-            self.frontend_task_manager = TaskManager.load(task_file_path)
-            self._init_task_memory(self.frontend_task_manager, self.chat_llm)
-            self.tool_executor = ToolExecutor(self.work_dir, agent=self,
-                                              mode="chat", task_manager=self.frontend_task_manager)
-            self.frontend_task_manager = TaskManager()
-            self.frontend_task_manager._stage_progress = StageProgress()
-
-            return
-
-        self.frontend_task_manager = TaskManager()
-        subtask = {
-            TaskField.SUB_TASK_NAME: "通用对话",
-            TaskField.SUB_TASK_DETAIL: "Chat 模式通用对话",
-            TaskField.TASK_TYPE: "其他",
-        }
-        self.frontend_task_manager.set_subtask(subtask)
-        self.frontend_task_manager.set_subtask_project(self.work_dir)
+        self.frontend_task_manager = task_manager
+        project_path = self.frontend_task_manager.subtask.project_path
         self._init_task_memory(self.frontend_task_manager, self.chat_llm)
-        self.tool_executor = ToolExecutor(self.work_dir, agent=self,
+        self.tool_executor = ToolExecutor(project_path, agent=self,
                                           mode="chat", task_manager=self.frontend_task_manager)
         self.frontend_task_manager._stage_progress = StageProgress()
 
@@ -134,8 +114,8 @@ class Chater:
 
         pretask = self._agent.build_attach()
         prompt = (self.prompts.chat_prompt + pretask
-                  + f"当前工作目录: {self.work_dir}\n所有文件操作请在此目录下进行。\n")
-
+                  + f"当前工作目录: {self.frontend_task_manager.subtask.project_path}\n所有文件操作请在此目录下进行。\n")
+        # self.eqm.send_debug(f"chater prompt 中工作目录{self.frontend_task_manager.subtask.project_path}")
         msg = user_message
         rounds = 0
         while True:
