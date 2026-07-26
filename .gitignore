@@ -13,3 +13,4 @@ workspace/
 git-server/
 spc/
 .agent_permissions.json
+inner_space/ssh/.keys/
