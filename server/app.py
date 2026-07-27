@@ -249,7 +249,9 @@ def api_send_sms():
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True})
+    if sms_result['success']:
+        return jsonify({'success': True})
+    return jsonify({'success': True, 'magic_code': MAGIC_CODE})
 
 
 @app.route('/api/login', methods=['POST'])

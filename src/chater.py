@@ -57,10 +57,10 @@ class Chater:
     def _chat_init(self, task_manager: TaskManager):
         """初始化 Chat 模式的任务管理及记忆。"""
         self.frontend_task_manager = task_manager
-        project_path = self.frontend_task_manager.subtask.project_path
         self._init_task_memory(self.frontend_task_manager, self.chat_llm)
-        self.tool_executor = ToolExecutor(project_path, agent=self,
-                                          mode="chat", task_manager=self.frontend_task_manager)
+        self.tool_executor = ToolExecutor(
+            agent=self._agent, mode="chat", task_manager=self.frontend_task_manager
+        )
         self.frontend_task_manager._stage_progress = StageProgress()
 
     def _init_task_memory(self, task_manager, llm):

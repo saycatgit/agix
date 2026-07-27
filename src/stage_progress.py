@@ -66,15 +66,16 @@ class StageProgress:
     def format_status(self) -> str:
         """以人类可读格式返回所有阶段的进度状态。"""
         lines = []
-        for name, steps in self._stages.items():
+        for i, (name, steps) in enumerate(self._stages.items()):
+            if i > 0:
+                lines.append("")
             lines.append(f"## {name}")
             if not steps:
-                lines.append("  (待规划)")
+                lines.append("(待规划)")
                 continue
-            for i, s in enumerate(steps):
+            for s in steps:
                 icon = STATUS_ICONS.get(s.get("status", "pending"), "□")
-                first = "  └" if i == 0 else "   "
-                lines.append(f"{first} {icon} {s['step']}")
+                lines.append(f"- {icon} {s['step']}")
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, list[dict]]:

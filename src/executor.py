@@ -231,10 +231,7 @@ class Executor:
         sub = task_manager.subtask
         max_rounds = self.agent.config.execution.max_rounds
 
-        executor = ToolExecutor(
-            sub.project_path,
-            agent=self.agent, mode="task", task_manager=task_manager,
-        )
+        executor = ToolExecutor(agent=self.agent, mode="task", task_manager=task_manager)
 
         self._log(f"工作目录proj: {sub.project_path}")
 
