@@ -1,7 +1,23 @@
 """聊天面板 UI 组件"""
 
-import os, subprocess, asyncio
+import os, re, subprocess, asyncio
 import flet as ft
+
+
+def _clean_url(url: str) -> str:
+    """清理 URL 尾部标点符号（半角/全角），返回干净的 URL。"""
+    trailing = '.,;:!?)]}"\'' + '\u3002\uff0c\uff1b\uff1a\uff01\uff1f\u3001\uff09\u3015\u3017\u300d\u300f'
+    while url and url[-1] in trailing:
+        url = url[:-1]
+    return url
+
+
+# URL 正则：匹配裸 https?:// 开头的 URL
+# - (?<![<(]) 防止匹配 markdown 链接语法 [text](url) 和已被包裹的 <url>
+# - 排除空白、CJK 字符、全角标点、尖括号、方括号等，确保 CJK 文本中 URL 正确截断
+_URL_PATTERN = re.compile(
+    r'(?<![<(])https?://[^\s\u2E80-\u9FFF\uff00-\uffef\u3000-\u303f<>\[\]{}|]+'
+)
 
 
 class ChatPanel:
@@ -66,7 +82,7 @@ class ChatPanel:
         return self._cp
 
     def add_message(self, msg_dict: dict):
-        is_ask = msg_dict.get(self._MsgType.ASK, "") == self._MsgType.ASK
+        is_ask = msg_dict.get("message_type", "") == self._MsgType.ASK
         style = msg_dict.get("style", "")
         text = msg_dict.get("content", "")
         self._cl.controls.append(self._msg(text, is_user=False, is_ask=is_ask, style=style))
@@ -332,9 +348,17 @@ class ChatPanel:
         v = self._style_visuals[style_type]
         avatar = self._avatar(style_type)
         italic = v.get("italic", False)
-        size = v.get("size", 14)
+        # CJK 相邻 URL 修复：用尖括号包裹裸 URL，确保 GITHUB_WEB autolink 可识别
+        text = _URL_PATTERN.sub(lambda m: f'<{_clean_url(m.group(0))}>', text)
+        md_text = f"*{text}*" if italic else text
         bubble = ft.Container(
-            content=ft.Text(text, size=size, selectable=True, no_wrap=False, italic=italic),
+            content=ft.Markdown(
+                md_text,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                auto_follow_links=True,
+                on_tap_link=lambda e: self.page.launch_url(e.data),
+                selectable=True,
+            ),
             bgcolor=v["bg"], border_radius=10,
             padding=ft.Padding(left=14, right=14, top=10, bottom=10),
         )

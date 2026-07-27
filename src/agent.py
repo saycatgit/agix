@@ -75,9 +75,12 @@ class Agent:
             if os.path.isfile(md):
                 try:
                     with open(md, "r", encoding="utf-8") as f:
-                        first = f.readline().strip().lstrip("#").strip()
-                        if first:
-                            desc = first
+                        f.readline()  # 跳过标题行 "# name"
+                        for line in f:
+                            stripped = line.strip()
+                            if stripped:
+                                desc = stripped
+                                break
                 except Exception:
                     pass
             lines.append(f"- **{name}**: {desc or name}")

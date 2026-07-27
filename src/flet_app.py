@@ -32,11 +32,11 @@ _STYLE_VISUALS = {
 _AVATAR_DATA = {
     MsgStyle.USER:      ("👤", None),
     MsgStyle.ASSISTANT: ("👾", None),
-    MsgStyle.ASK:       ("🔍",  None),
+    MsgStyle.ASK:       ("❓",  None),
     MsgStyle.ERROR:     ("⚠️",  None),
     MsgStyle.WARN:      ("⚡", None),
     MsgStyle.STATUS:    ("📊", None),
-    MsgStyle.ACTION:    ("🔧",  None),
+    MsgStyle.ACTION:    ("⟶",  None),
     MsgStyle.THINKING:  ("🧠", None),
     MsgStyle.DEBUG:     ("🐛", None),
 }

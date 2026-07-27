@@ -100,7 +100,7 @@ class EventQueueManager:
         """工作线程调用: 向 UI 发提问并阻塞等待用户回答。"""
         Utils.play_notification()
         msg_id = str(uuid.uuid4())
-        msg = self.make_msg(question, MsgType.ASK, msg_id)
+        msg = self.make_msg(question, MsgType.ASK, msg_id, style=MsgStyle.ASK)
         return self._wait_for_response(msg, msg_id, mode, timeout)
 
     def ask_for_password(self, question: str = "请输入密码", *, mode: str = "chat",
