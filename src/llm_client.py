@@ -504,6 +504,7 @@ class LLMClient:
             f"如果有新的增量或者变化信息请和上述快照整合，并以文本方式输出，除了输出总结快照不要有任何其他信息。"        
         })
 
+        msgs = self._clean_orphan_tools(msgs)
         try:
             resp = self.client.chat.completions.create(
                 model=self.model, messages=msgs, user=self.user,
