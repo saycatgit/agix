@@ -5,7 +5,6 @@ from planner import Planner
 
 import os , re, subprocess, json
 
-
 def get_tools_excluding(*names: str) -> list:
     """返回排除指定工具后的 TOOLS 列表。"""
     return [t for t in TOOLS if t["function"]["name"] not in names]
@@ -210,8 +209,11 @@ TOOLS = [
 class ToolExecutor:
     """工具执行器：将 tool_call 转换为实际操作"""
 
-    def __init__(self, work_dir: str, agent=None, mode: str = "chat", task_manager=None):
-        self.work_dir = os.path.abspath(work_dir)
+    def __init__(self, agent=None, mode: str = "chat", task_manager=None):
+        if task_manager and task_manager.subtask:
+            self.work_dir = os.path.abspath(task_manager.subtask.project_path)
+        else:
+            self.work_dir = os.path.abspath(".")
         self.mode = mode          # "chat" | "task"
         self.agent = agent
         self.eqm = agent.eqm if agent else None
@@ -366,6 +368,25 @@ class ToolExecutor:
             if sudo_password is None:
                 return "用户取消 sudo 密码输入，命令未执行"
             command = re.sub(r'(^|\s)sudo\b', r'\1sudo -S', command)
+
+        # 危险命令检查 (auth.py AuthHandler)
+        auth_handler = getattr(self.agent, "auth", None) if self.agent else None
+        if auth_handler:
+            is_danger, matched_descs = auth_handler.check_dangerous(command)
+        else:
+            is_danger, matched_descs = False, []
+        if is_danger:
+            eqm = getattr(self, "eqm", None)
+            agent = getattr(self, "agent", None)
+            if agent and not agent.config.execution.interactive:
+                return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}"
+            if eqm is not None:
+                answer = eqm.ask_for_confirmation(
+                    f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否继续执行？",
+                    mode=getattr(self, "mode", "chat"),
+                )
+                if answer.strip() not in ("是", "yes", "y", "1"):
+                    return "用户取消执行危险命令"
 
         try:
             r = subprocess.run(
