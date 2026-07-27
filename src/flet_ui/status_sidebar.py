@@ -211,7 +211,7 @@ class StatusSidebar:
                 content=ft.Row([
                     ft.Text(name, size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             color=ft.Colors.BLACK87 if selected else ft.Colors.GREY_700),
-                    ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, items=menu_items, icon_size=16, menu_position=ft.PopupMenuPosition.UNDER),
+                    ft.PopupMenuButton(icon=ft.icons.Icons.MORE_VERT, items=menu_items, icon_size=16, menu_position=ft.PopupMenuPosition.UNDER),
                 ], height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 bgcolor=ft.Colors.WHITE, border_radius=6,
@@ -290,7 +290,7 @@ class StatusSidebar:
         card = ft.Container(
             content=ft.Row([
                 ft.Column(col_children, expand=True, spacing=0),
-                ft.PopupMenuButton(icon=ft.icons.Icons.EDIT, 
+                ft.PopupMenuButton(icon=ft.icons.Icons.MORE_VERT, 
                                    items=menu_items, icon_size=16, menu_position=ft.PopupMenuPosition.UNDER),
             ],height=32, spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=ft.Colors.WHITE, border_radius=6,

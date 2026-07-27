@@ -19,7 +19,6 @@ _URL_PATTERN = re.compile(
     r'(?<![<(])https?://[^\s\u2E80-\u9FFF\uff00-\uffef\u3000-\u303f<>\[\]{}|]+'
 )
 
-
 class ChatPanel:
     """聊天面板 —— 消息列表、输入框、内联对话框、模型切换"""
 
@@ -74,6 +73,9 @@ class ChatPanel:
 
         self._input_focused = False
         self._paused = False
+
+    async def _launch_url(self, url: str):
+        await self.page.launch_url(url)
 
     # ── 对外接口 ──
 
@@ -356,7 +358,7 @@ class ChatPanel:
                 md_text,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 auto_follow_links=True,
-                on_tap_link=lambda e: self.page.launch_url(e.data),
+                on_tap_link=lambda e: self.page.run_task(self._launch_url, e.data),
                 selectable=True,
             ),
             bgcolor=v["bg"], border_radius=10,
