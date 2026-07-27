@@ -289,6 +289,7 @@ class ChatPanel:
     def _stop(self):
         if not self._paused:
             self.eqm.send_control("stop", mode="chat")
+            self._cl.controls.append(self._msg("正在暂停..."))
             self._paused = True
             self._toggle_action_btn()
         else:
