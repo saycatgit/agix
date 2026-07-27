@@ -379,14 +379,14 @@ class ToolExecutor:
             eqm = getattr(self, "eqm", None)
             agent = getattr(self, "agent", None)
             if agent and not agent.config.execution.interactive:
-                return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}"
+                return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
             if eqm is not None:
                 answer = eqm.ask_for_confirmation(
                     f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否继续执行？",
                     mode=getattr(self, "mode", "chat"),
                 )
                 if answer.strip() not in ("是", "yes", "y", "1"):
-                    return "用户取消执行危险命令"
+                    return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
 
         try:
             r = subprocess.run(

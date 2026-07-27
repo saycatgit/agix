@@ -133,11 +133,16 @@ class ChatPanel:
             self._inline_dialog.visible = False
             self.page.update()
 
-        self._inline_dialog.content = ft.Row([
-            ft.Text(question, size=14),
-            ft.TextButton("是", on_click=_yes),
-            ft.TextButton("否", on_click=_no),
-        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self._inline_dialog.content = ft.Column([
+            ft.Row([
+                ft.Text("⚠️", size=16),
+                ft.Text(question, size=14, expand=True),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([
+                ft.OutlinedButton("否", on_click=_no, autofocus=True),
+                ft.ElevatedButton("是", on_click=_yes),
+            ], spacing=8, alignment=ft.MainAxisAlignment.END),
+        ], spacing=12)
         self._inline_dialog.visible = True
         self.page.update()
 
