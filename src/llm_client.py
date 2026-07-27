@@ -499,7 +499,7 @@ class LLMClient:
         msgs = [{"role": "system", "content": history_context_summary_prompt}]
         msgs.extend(to_summarize)
         msgs.append({"role": "user", "content": \
-            f"请暂停之前任务，有个临时任务需要你对之前的会话内容根据临时系统提示词要求进行整理压缩，"\
+            f"请暂停当前任务，有个临时任务需要你对之前的会话内容根据临时系统提示词要求进行整理压缩，"\
             f"如下为之前的历史上下文总结快照信息：\n{self.history_compress_summary}\n"\
             f"如果有新的增量或者变化信息请和上述快照整合，并以文本方式输出，除了输出总结快照不要有任何其他信息。"        
         })

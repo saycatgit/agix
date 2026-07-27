@@ -308,6 +308,7 @@ class TaskPanel:
         if not self._paused:
             self.eqm.send_control("stop", mode="task")
             self._paused = True
+            self.eqm.send_display("正在暂停...", mode="task")
             self._toggle_ask_action_btn()
         else:
             self.eqm.send_control("end", mode="task")

@@ -88,7 +88,8 @@ class ChatPanel:
         is_ask = msg_dict.get("message_type", "") == self._MsgType.ASK
         style = msg_dict.get("style", "")
         text = msg_dict.get("content", "")
-        self._cl.controls.append(self._msg(text, is_user=False, is_ask=is_ask, style=style))
+        is_user = (style == self._MsgStyle.USER)
+        self._cl.controls.append(self._msg(text, is_user=is_user, is_ask=is_ask, style=style))
         while len(self._cl.controls) > 1000:
             self._cl.controls.pop(0)
 
@@ -147,7 +148,7 @@ class ChatPanel:
         self.page.update()
 
     def add_greeting(self):
-        self._cl.controls.append(self._msg(self.GREETING_TEXT))
+        self.eqm.send_display(self.GREETING_TEXT, mode="chat")
 
     # ── 构建 ──
 
@@ -257,10 +258,10 @@ class ChatPanel:
             return
         self._paused = False
         if self.eqm.is_asking("chat"):
-            self._cl.controls.append(self._r(self._msg(t, is_user=True)))
+            self.eqm.send_display(t, mode="chat", style=self._MsgStyle.USER)
             self.eqm.respond_to_ask(t, msg_id=self.eqm.get_pending_ask_id("chat"), mode="chat")
         else:
-            self._cl.controls.append(self._r(self._msg(t, is_user=True)))
+            self.eqm.send_display(t, mode="chat", style=self._MsgStyle.USER)
             self.eqm.send_user_input(t, mode="chat")
         self._ci.value = ""
         self._ci.update()
@@ -289,7 +290,7 @@ class ChatPanel:
     def _stop(self):
         if not self._paused:
             self.eqm.send_control("stop", mode="chat")
-            self._cl.controls.append(self._msg("正在暂停..."))
+            self.eqm.send_display("正在暂停...", mode="chat")
             self._paused = True
             self._toggle_action_btn()
         else:
@@ -336,9 +337,6 @@ class ChatPanel:
             subprocess.Popen(["xdg-open", wd])
 
     # ── 消息渲染辅助 ──
-
-    def _r(self, w):
-        return ft.Row([w], alignment=ft.MainAxisAlignment.END)
 
     def _avatar(self, style_type: str) -> ft.Container:
         char, color = self._avatar_data.get(style_type, ("?", ft.Colors.GREY))

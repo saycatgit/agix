@@ -69,6 +69,25 @@
           "phases": []
         }
       ]
+    },
+    {
+      "name": "数据分析",
+      "description": "",
+      "subtypes": [
+        {
+          "name": "数据分析",
+          "description": ""
+        }
+      ],
+      "subtask_config": [
+        {
+          "match_subtypes": [
+            "..."
+          ],
+          "prompt": [],
+          "phases": []
+        }
+      ]
     }
   ]
 }
