@@ -167,16 +167,25 @@ class StatusSidebar:
     def _load_all(self) -> tuple:
         """返回 (当前任务列表, 计划任务列表, 已跳过任务列表)"""
         all_tasks = TaskManager.list_history_tasks(self.task_dir)
+        valid_tasks = []
+        for t in all_tasks:
+            pp = t.get("project_path", "")
+            if pp and not os.path.isdir(pp):
+                sf = t.get("file_full_path", "")
+                if sf and os.path.isfile(sf):
+                    os.remove(sf)
+                continue
+            valid_tasks.append(t)
         terminal = {"completed", "failed"}
         skip_status = SubTaskStatus.SKIPPED.value
 
-        tasks = [t for t in all_tasks
+        tasks = [t for t in valid_tasks
                  if t["status"] in terminal and not t.get("is_periodic", False)
                  and t["status"] != skip_status]
-        pending = [t for t in all_tasks
+        pending = [t for t in valid_tasks
                    if t["status"] != skip_status and (
                        t.get("is_periodic", False) or t["status"] not in terminal)]
-        skipped = [t for t in all_tasks if t["status"] == skip_status]
+        skipped = [t for t in valid_tasks if t["status"] == skip_status]
         return tasks, pending, skipped
 
     # ── 卡片 ──

@@ -71,6 +71,7 @@ class ChatPanel:
         self._providers = providers
         self._build()
 
+        self._current_work_dir = self.agent.config.execution.work_dir
         self._input_focused = False
         self._paused = False
 
@@ -88,6 +89,8 @@ class ChatPanel:
         style = msg_dict.get("style", "")
         text = msg_dict.get("content", "")
         self._cl.controls.append(self._msg(text, is_user=False, is_ask=is_ask, style=style))
+        while len(self._cl.controls) > 1000:
+            self._cl.controls.pop(0)
 
     def set_asking(self, visible: bool):
         self._ca.visible = visible
@@ -315,11 +318,12 @@ class ChatPanel:
         """更新显示的工作目录"""
         if not path:
             path = self.agent.config.execution.work_dir
+        self._current_work_dir = path
         self._work_dir_text.value = self.WORK_DIR_PREFIX + path
         self._work_dir_text.update()
 
     def _open_work_dir(self, e):
-        wd = self.agent.config.execution.work_dir
+        wd = self._current_work_dir
         if self.agent.config.system == "windows":
             os.startfile(wd)
         else:
