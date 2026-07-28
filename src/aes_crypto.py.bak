@@ -4,6 +4,7 @@
 存储格式: enc:aes:<base64(nonce + ciphertext + tag)>
 """
 
+import platform
 import os,datetime
 import hashlib
 import base64
@@ -15,32 +16,19 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # ── 磁盘序列号获取 ─────────────────────────────────────────
 
 def _get_disk_serial() -> str:
-    """获取机器唯一标识，作为加密种子。
+    """获取磁盘序列号，作为加密种子。
 
-    优先级:
-      Linux:   lsblk → /sys/block/*/serial → /etc/machine-id → hostname
-      Windows: Get-PhysicalDisk → wmic → hostname
-      macOS:   system_profiler SPHardwareDataType → hostname
+    各平台策略：
+      Linux:   lsblk → /sys/block/*/device/serial → /etc/machine-id → hostname
+      Windows: Get-PhysicalDisk → wmic diskdrive → machine-sid → hostname
+      macOS:   system_profiler → ioreg → machine-id → hostname
     """
-    import platform as _platform
-    system = _platform.system()
+    system = platform.system()
 
     if system == 'Linux':
-        return _get_disk_serial_linux()
-    elif system == 'Windows':
-        return _get_disk_serial_windows()
-    elif system == 'Darwin':
-        return _get_disk_serial_macos()
-    else:
-        import socket
-        return socket.gethostname()
-
-
-def _get_disk_serial_linux() -> str:
-    """Linux 磁盘序列号获取。"""
-    # 1. lsblk
-    try:
-        result = subprocess.run(
+        # 1. lsblk（最可靠）
+        try:
+            result = subprocess.run(
             ['lsblk', '-o', 'SERIAL', '-n', '-d'],
             capture_output=True, text=True, timeout=5
         )
@@ -59,84 +47,80 @@ def _get_disk_serial_linux() -> str:
                 if serial:
                     return serial
         except Exception:
+                continue
+
+        # 3. /etc/machine-id（容器/VM 通用）
+        try:
+            with open('/etc/machine-id') as f:
+                return f.read().strip()
+        except Exception:
+            pass
+
+    elif system == 'Windows':
+        # 1. PowerShell Get-PhysicalDisk
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 'Get-PhysicalDisk | Select-Object -ExpandProperty SerialNumber'],
+                capture_output=True, text=True, timeout=10
+            )
+            serial = result.stdout.strip()
+            if serial:
+                return serial
+        except Exception:
+            pass
+
+        # 2. wmic diskdrive
+        try:
+            result = subprocess.run(
+                ['wmic', 'diskdrive', 'get', 'serialnumber'],
+                capture_output=True, text=True, timeout=10
+            )
+            lines = [l.strip() for l in result.stdout.split('\n') if l.strip()
+                     and l.strip().lower() != 'serialnumber']
+            if lines:
+                return lines[0]
+        except Exception:
+            pass
+
+        # 3. 机器 SID（稳定系统标识）
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                 r'SECURITY\SAM\SAM\Domains\Account')
+            return winreg.QueryInfoKey(key)[1]
+        except Exception:
+            pass
+
+    elif system == 'Darwin':
+        # 1. system_profiler（NVMe/SPStorageDataType）
+        try:
+            result = subprocess.run(
+                ['system_profiler', 'SPNVMeDataType'],
+                capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.split('\n'):
+                if 'TRIM Support' in line:
+                    continue
+            # 尝试 SPHardwareDataType 获取硬件 UUID
+            result2 = subprocess.run(
+                ['system_profiler', 'SPHardwareDataType'],
+                capture_output=True, text=True, timeout=10
+            )
+            for line in result2.stdout.split('\n'):
+                if 'Hardware UUID' in line:
+                    return line.split(':')[-1].strip()
+        except Exception:
             continue
 
-    # 3. /etc/machine-id
+    # 3. /etc/machine-id（容器/VM 通用）
     try:
         with open('/etc/machine-id') as f:
             return f.read().strip()
     except Exception:
         pass
 
-    # 兜底
-    import socket
-    return socket.gethostname()
-
-
-def _get_disk_serial_windows() -> str:
-    """Windows 磁盘序列号获取。"""
-    # 1. PowerShell Get-PhysicalDisk
-    try:
-        result = subprocess.run(
-            ['powershell', '-Command',
-             'Get-PhysicalDisk | Select-Object -ExpandProperty SerialNumber'],
-            capture_output=True, text=True, timeout=10
-        )
-        serial = result.stdout.strip()
-        if serial:
-            return serial
-    except Exception:
-        pass
-
-    # 2. wmic diskdrive
-    try:
-        result = subprocess.run(
-            ['wmic', 'diskdrive', 'get', 'serialnumber'],
-            capture_output=True, text=True, timeout=10
-        )
-        lines = [l.strip() for l in result.stdout.split('\n') if l.strip()
-                 and l.strip().lower() != 'serialnumber']
-        if lines:
-            return lines[0]
-    except Exception:
-        pass
-
-    # 兜底
-    import socket
-    return socket.gethostname()
-
-
-def _get_disk_serial_macos() -> str:
-    """macOS 硬件标识获取。"""
-    # 1. system_profiler SPHardwareDataType（获取 Hardware UUID）
-    try:
-        result = subprocess.run(
-            ['system_profiler', 'SPHardwareDataType'],
-            capture_output=True, text=True, timeout=10
-        )
-        for line in result.stdout.split('\n'):
-            if 'Hardware UUID' in line:
-                uuid_val = line.split(':')[-1].strip()
-                if uuid_val:
-                    return uuid_val
-    except Exception:
-        pass
-
-    # 2. ioreg（获取 IOPlatformUUID）
-    try:
-        result = subprocess.run(
-            ['ioreg', '-d2', '-c', 'IOPlatformExpertDevice'],
-            capture_output=True, text=True, timeout=10
-        )
-        for line in result.stdout.split('\n'):
-            if 'IOPlatformUUID' in line:
-                uuid_val = line.split('"')[-2] if '"' in line else ''
-                if uuid_val:
-                    return uuid_val
-    except Exception:
-        pass
-
-    # 兜底
+    # 4. 最终兜底
     import socket
     return socket.gethostname()
 

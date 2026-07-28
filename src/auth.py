@@ -27,6 +27,23 @@ ACTION_PATTERNS = [
     (r'\bnpm\b', 'npm'),
     (r'\biptables\b', 'iptables'),
     (r'\bwget\s+.*\|\s*(sh|bash)', 'wget | sh'),
+    # Windows 危险命令
+    (r'\bdel\s+/[fF]\b', 'del /f'),
+    (r'\bformat\s+[a-zA-Z]:', 'format'),
+    (r'\breg\s+(delete|add)\b', 'reg'),
+    (r'\bdiskpart\b', 'diskpart'),
+    (r'\bnet\s+(user|localgroup)\b', 'net user/group'),
+    (r'\bshutdown\s+/[srf]', 'shutdown'),
+    (r'\btakeown\b', 'takeown'),
+    (r'\bicacls\b', 'icacls'),
+    (r'\bbcdedit\b', 'bcdedit'),
+    (r'\bwmic\b', 'wmic'),
+    # macOS 危险命令
+    (r'\bdiskutil\b', 'diskutil'),
+    (r'\blaunchctl\s+(unload|remove)', 'launchctl'),
+    (r'\bsoftwareupdate\b', 'softwareupdate'),
+    (r'\bcsrutil\b', 'csrutil'),
+    (r'\bnvram\b', 'nvram'),
     (r'\bcurl\s+.*\|\s*(sh|bash)', 'curl | sh'),
     (r'\bssh\b', 'ssh'),
     (r'\bscp\b', 'scp'),
@@ -45,6 +62,11 @@ SENSITIVE_ACTIONS = {
     'pip', 'npm', 'iptables', 'wget | sh', 'curl | sh', 'ssh',
     'scp', 'mount', 'nc -l', 'cat /etc/*',
     'git reset --hard', 'git push --force', '> /dev/sdX',
+    # Windows
+    'del /f', 'format', 'reg', 'diskpart', 'net user/group',
+    'shutdown', 'takeown', 'icacls', 'bcdedit', 'wmic',
+    # macOS
+    'diskutil', 'launchctl', 'softwareupdate', 'csrutil', 'nvram',
 }
 
 # ── 动作中文描述（供 check_dangerous 返回） ──
@@ -61,6 +83,16 @@ ACTION_DESCRIPTIONS = {
     'cat /etc/*': '读取系统敏感文件',
     'git reset --hard': 'Git硬重置', 'git push --force': 'Git强制推送',
     '> /dev/sdX': '覆盖磁盘设备',
+    # Windows
+    'del /f': '强制删除文件', 'format': '格式化磁盘',
+    'reg': '注册表操作', 'diskpart': '磁盘分区工具',
+    'net user/group': '用户/组管理', 'shutdown': '关机/重启',
+    'takeown': '获取文件所有权', 'icacls': '修改ACL权限',
+    'bcdedit': '启动配置编辑', 'wmic': 'WMI管理操作',
+    # macOS
+    'diskutil': '磁盘工具操作', 'launchctl': '系统服务管理',
+    'softwareupdate': '系统更新', 'csrutil': 'SIP完整性保护配置',
+    'nvram': 'NVRAM固件变量',
 }
 
 

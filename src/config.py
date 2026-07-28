@@ -68,7 +68,10 @@ MAX_HISTORY_CONTENT = 32768 #262144  # 写入 history 的单个 tool result 最�
 
 
 # 标准用户配置目录
-USER_HOME = Path.home() / ".agix"
+if os.name == 'nt':
+    USER_HOME = Path(os.environ.get('APPDATA', str(Path.home()))) / "agix"
+else:
+    USER_HOME = Path.home() / ".agix"
 USER_HOME.mkdir(parents=True, exist_ok=True)
 
 
@@ -176,12 +179,10 @@ class AppConfig:
         if not user_config.exists():
             import shutil
             (USER_HOME / "inner_space").mkdir(parents=True, exist_ok=True)
-            current_root = AppConfig._get_root_path()
+            current_root = AppConfig._get_root_path().resolve()
             try:
-                shutil.copy2(current_root / "config.json", USER_HOME / "inner_space" / "config.json")
                 for dirname in ("workspace", "inner_space"):
-                    src = current_root / dirname
-                    dst = USER_HOME / dirname
+                    src, dst = current_root / dirname, USER_HOME / dirname
                     if src.exists() and not dst.exists():
                         shutil.copytree(src, dst)
             except FileNotFoundError as e:

@@ -364,6 +364,8 @@ class ToolExecutor:
         needs_sudo = bool(re.search(r'\bsudo\b', command))
         sudo_password = None
         if needs_sudo:
+            if os.name == 'nt':
+                return "Windows 不支持 sudo 提权。如需管理员权限，请以管理员身份运行终端（右键 → 以管理员身份运行）。"
             sudo_password = self._resolve_sudo_password(command,note=args.get("note"))
             if sudo_password is None:
                 return "用户取消 sudo 密码输入，命令未执行"
@@ -809,7 +811,8 @@ class ToolExecutor:
 
         # 打印更新后的进度
         if self.logger:
-            self.logger.log(f"\n{"="*80}\n{progress.format_status()}\n{"="*80}")
+            sep = "=" * 80
+            self.logger.log(f"\n{sep}\n{progress.format_status()}\n{sep}")
         if self.agent and self.agent.eqm:
             self.agent.eqm.send_display(progress.format_status(), mode=self.mode, style=MsgStyle.STATUS)
 

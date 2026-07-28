@@ -1,23 +1,8 @@
 """聊天面板 UI 组件"""
 
-import os, re, subprocess, asyncio
+import os, subprocess, asyncio
 import flet as ft
 
-
-def _clean_url(url: str) -> str:
-    """清理 URL 尾部标点符号（半角/全角），返回干净的 URL。"""
-    trailing = '.,;:!?)]}"\'' + '\u3002\uff0c\uff1b\uff1a\uff01\uff1f\u3001\uff09\u3015\u3017\u300d\u300f'
-    while url and url[-1] in trailing:
-        url = url[:-1]
-    return url
-
-
-# URL 正则：匹配裸 https?:// 开头的 URL
-# - (?<![<(]) 防止匹配 markdown 链接语法 [text](url) 和已被包裹的 <url>
-# - 排除空白、CJK 字符、全角标点、尖括号、方括号等，确保 CJK 文本中 URL 正确截断
-_URL_PATTERN = re.compile(
-    r'(?<![<(])https?://[^\s\u2E80-\u9FFF\uff00-\uffef\u3000-\u303f<>\[\]{}|]+'
-)
 
 class ChatPanel:
     """聊天面板 —— 消息列表、输入框、内联对话框、模型切换"""
@@ -71,12 +56,8 @@ class ChatPanel:
         self._providers = providers
         self._build()
 
-        self._current_work_dir = self.agent.config.execution.work_dir
         self._input_focused = False
         self._paused = False
-
-    async def _launch_url(self, url: str):
-        await self.page.launch_url(url)
 
     # ── 对外接口 ──
 
@@ -88,10 +69,7 @@ class ChatPanel:
         is_ask = msg_dict.get("message_type", "") == self._MsgType.ASK
         style = msg_dict.get("style", "")
         text = msg_dict.get("content", "")
-        is_user = (style == self._MsgStyle.USER)
-        self._cl.controls.append(self._msg(text, is_user=is_user, is_ask=is_ask, style=style))
-        while len(self._cl.controls) > 1000:
-            self._cl.controls.pop(0)
+        self._cl.controls.append(self._msg(text, is_user=False, is_ask=is_ask, style=style))
 
     def set_asking(self, visible: bool):
         self._ca.visible = visible
@@ -134,32 +112,29 @@ class ChatPanel:
             self._inline_dialog.visible = False
             self.page.update()
 
-        self._inline_dialog.content = ft.Column([
-            ft.Row([
-                ft.Text("⚠️", size=16),
-                ft.Text(question, size=14, expand=True),
-            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Row([
-                ft.OutlinedButton("否", on_click=_no, autofocus=True),
-                ft.ElevatedButton("是", on_click=_yes),
-            ], spacing=8, alignment=ft.MainAxisAlignment.END),
-        ], spacing=12)
+        self._inline_dialog.content = ft.Row([
+            ft.Text(question, size=14),
+            ft.TextButton("是", on_click=_yes),
+            ft.TextButton("否", on_click=_no),
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         self._inline_dialog.visible = True
         self.page.update()
 
     def add_greeting(self):
-        self.eqm.send_display(self.GREETING_TEXT, mode="chat")
+        self._cl.controls.append(self._msg(self.GREETING_TEXT))
 
     # ── 构建 ──
 
     def _build(self):
         self._cl = ft.ListView(expand=True, spacing=8, padding=15, auto_scroll=True)
         self._ca = ft.Text("", size=12, color=self.ASK_COLOR, visible=False)
+        self._mic_btn = ft.IconButton(icon=ft.Icons.MIC, icon_size=28, tooltip="语音输入", on_click=lambda e: self._voice_input())
         self._ci = ft.TextField(
             hint_text=self.INPUT_HINT, border=ft.InputBorder.OUTLINE,
             border_color=self.INPUT_BORDER_COLOR,
             focused_border_color=self.INPUT_FOCUSED_BORDER_COLOR,
             border_radius=self.INPUT_BORDER_RADIUS,
+            suffix_icon=self._mic_btn,
             multiline=True,
             min_lines=2,  expand=True, text_size=14,
             on_focus=lambda e: (setattr(self, '_input_focused', True), self._toggle_action_btn()),
@@ -228,16 +203,23 @@ class ChatPanel:
             self._action_btn.icon = ft.Icons.CANCEL
             self._action_btn.tooltip = self.END_TOOLTIP
             self._action_btn.on_click = lambda e: self._stop()
+            self._ci.suffix_icon = None
             self._action_btn.update()
+            self._ci.update()
             return
         if self._ci.value.strip():
             self._action_btn.icon = ft.Icons.SEND
             self._action_btn.tooltip = self.SEND_TOOLTIP
             self._action_btn.on_click = lambda e: self._send()
+            self._ci.suffix_icon = None
         else:
             self._action_btn.icon = ft.Icons.STOP
             self._action_btn.tooltip = self.STOP_TOOLTIP
             self._action_btn.on_click = lambda e: self._stop()
+            if self._input_focused:
+                self._ci.suffix_icon = self._mic_btn
+            else:
+                self._ci.suffix_icon = None
         self._action_btn.update()
         self._ci.update()
 
@@ -249,10 +231,10 @@ class ChatPanel:
             return
         self._paused = False
         if self.eqm.is_asking("chat"):
-            self.eqm.send_display(t, mode="chat", style=self._MsgStyle.USER)
+            self._cl.controls.append(self._r(self._msg(t, is_user=True)))
             self.eqm.respond_to_ask(t, msg_id=self.eqm.get_pending_ask_id("chat"), mode="chat")
         else:
-            self.eqm.send_display(t, mode="chat", style=self._MsgStyle.USER)
+            self._cl.controls.append(self._r(self._msg(t, is_user=True)))
             self.eqm.send_user_input(t, mode="chat")
         self._ci.value = ""
         self._ci.update()
@@ -281,13 +263,17 @@ class ChatPanel:
     def _stop(self):
         if not self._paused:
             self.eqm.send_control("stop", mode="chat")
-            self.eqm.send_display("正在暂停...", mode="chat")
             self._paused = True
             self._toggle_action_btn()
         else:
             self.eqm.send_control("end", mode="chat")
             self._paused = False
             self._toggle_action_btn()
+
+    def _voice_input(self):
+        snack = ft.SnackBar(ft.Text("语音输入功能开发中..."), open=True)
+        self.page.overlay.append(snack)
+        self.page.update()
 
     # ── 模型切换 ──
 
@@ -311,18 +297,20 @@ class ChatPanel:
         """更新显示的工作目录"""
         if not path:
             path = self.agent.config.execution.work_dir
-        self._current_work_dir = path
         self._work_dir_text.value = self.WORK_DIR_PREFIX + path
         self._work_dir_text.update()
 
     def _open_work_dir(self, e):
-        wd = self._current_work_dir
+        wd = self.agent.config.execution.work_dir
         if self.agent.config.system == "windows":
             os.startfile(wd)
         else:
             subprocess.Popen(["xdg-open", wd])
 
     # ── 消息渲染辅助 ──
+
+    def _r(self, w):
+        return ft.Row([w], alignment=ft.MainAxisAlignment.END)
 
     def _avatar(self, style_type: str) -> ft.Container:
         char, color = self._avatar_data.get(style_type, ("?", ft.Colors.GREY))
@@ -344,17 +332,9 @@ class ChatPanel:
         v = self._style_visuals[style_type]
         avatar = self._avatar(style_type)
         italic = v.get("italic", False)
-        # CJK 相邻 URL 修复：用尖括号包裹裸 URL，确保 GITHUB_WEB autolink 可识别
-        text = _URL_PATTERN.sub(lambda m: f'<{_clean_url(m.group(0))}>', text)
-        md_text = f"*{text}*" if italic else text
+        size = v.get("size", 14)
         bubble = ft.Container(
-            content=ft.Markdown(
-                md_text,
-                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                auto_follow_links=True,
-                on_tap_link=lambda e: self.page.run_task(self._launch_url, e.data),
-                selectable=True,
-            ),
+            content=ft.Text(text, size=size, selectable=True, no_wrap=False, italic=italic),
             bgcolor=v["bg"], border_radius=10,
             padding=ft.Padding(left=14, right=14, top=10, bottom=10),
         )

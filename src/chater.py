@@ -98,8 +98,7 @@ class Chater:
                         self.frontend_task_manager.save()
                         self.run(content)
                     except Exception as ex:
-                        self.eqm.send_display(f"Error: {ex}", mode="chat",
-                                              style=MsgStyle.ERROR)
+                        self.eqm.send_error(f"Error: {ex}", mode="chat")
 
         t = threading.Thread(target=_chat_worker, daemon=True)
         t.start()
@@ -193,6 +192,11 @@ class Chater:
 
                 msg = f"本轮完成 {len(result['calls'])} 个工具调用"
                 continue
+            elif result["type"] == "error":
+                error_msg = result.get("message", "LLM API 未知错误")
+                if self.eqm:
+                    self.eqm.send_error(error_msg, mode="chat")
+                return {"judge": "false", "content": error_msg}
             else:
                 content_text = result.get("content", "")
                 if content_text and self.eqm:

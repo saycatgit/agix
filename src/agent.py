@@ -56,7 +56,8 @@ class Agent:
         if ssh_text:
             parts.append(ssh_text)
 
-        self.logger.log(f"build attach:\n{"\n".join(parts)}")
+        joined = "\n".join(parts)
+        self.logger.log(f"build attach:\n{joined}")
         return "\n\n".join(parts)
 
     def _scan_skills_dir(self) -> str:

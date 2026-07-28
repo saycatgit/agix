@@ -687,18 +687,21 @@ class LLMClient:
 
         try:
             encoding = locale.getpreferredencoding()
-            lang = os.environ.get("LANG", "not set")
+            lang = os.environ.get("LANG") or (locale.getdefaultlocale()[0] or "not set")
         except Exception:
             encoding = "unknown"
             lang = "not set"
+
+        shell = os.environ.get('SHELL') or os.environ.get('COMSPEC', 'unknown')
+        user = os.environ.get('USER') or os.environ.get('USERNAME', 'unknown')
 
         parts = [
             f"操作系统: {platform.platform()}",
             f"内核版本: {platform.release()}",
             f"架构: {platform.machine()}",
             f"Python 版本: {platform.python_version()}",
-            f"Shell: {os.environ.get('SHELL', 'unknown')}",
-            f"当前用户: {os.environ.get('USER', 'unknown')}",
+            f"Shell: {shell}",
+            f"当前用户: {user}",
             f"主机名: {platform.node()}",
             f"语言环境: LANG={lang}",
             f"编码: {encoding}"
