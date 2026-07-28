@@ -100,6 +100,7 @@ CYTHON_HIDDEN_IMPORTS = [
     "requests",
     "openai",
     "cryptography",
+    "cryptography.hazmat.primitives.ciphers.aead",
     # 其他自动检测的第三方依赖由 _collect_deps() 补充
 ] + INTERNAL_MODULES + FLET_UI_MODULES
 
@@ -196,6 +197,28 @@ def cython_compile() -> Path:
     return compiled_src
 
 
+def _collect_add_data_files(dir_path: Path, dest_prefix: str, separator: str) -> list:
+    """遍历目录下所有文件，为每个文件生成 --add-data 参数，保证无一遗漏。
+
+    排除 __pycache__、*.pyc、*.bk 等无关文件。
+    返回: ['/abs/path/file:dest_dir', ...]
+    """
+    if not dir_path.exists():
+        return []
+    items = []
+    for f in dir_path.rglob('*'):
+        if not f.is_file():
+            continue
+        if '__pycache__' in f.parts:
+            continue
+        if f.suffix in ('.pyc', '.bk'):
+            continue
+        rel = f.relative_to(dir_path)
+        dest = f"{dest_prefix}/{rel.parent}"
+        items.append(f"{f}{separator}{dest}")
+    return items
+
+
 def build(clean: bool = False, use_cython: bool = False) -> None:
     pyinstaller = find_pyinstaller()
     separator = ";" if os.name == "nt" else ":"
@@ -209,7 +232,6 @@ def build(clean: bool = False, use_cython: bool = False) -> None:
 
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 确定源码目录
     if use_cython:
         src_for_build = cython_compile()
         entry_script = src_for_build / f"{ENTRY_MODULE}.py"
@@ -217,21 +239,23 @@ def build(clean: bool = False, use_cython: bool = False) -> None:
         src_for_build = SRC_DIR
         entry_script = SRC_DIR / f"{ENTRY_MODULE}.py"
 
-    # --add-data 路径（始终使用项目根下的原始目录）
-    add_data_inner = f"{INNER_SPACE}{separator}inner_space"
-    add_data_workspace = f"{WORKSPACE}{separator}workspace"
+    # --add-data: 文件级别逐个添加，避免 PyInstaller 目录递归遗漏
+    add_data_items = _collect_add_data_files(INNER_SPACE, "inner_space", separator)
+    add_data_items += _collect_add_data_files(WORKSPACE, "workspace", separator)
+    print(f"📋 资源文件: {len(add_data_items)} 个")
 
     cmd = [
         str(pyinstaller),
         "--onefile",
         "--name", "agix",
-        "--add-data", add_data_inner,
-        "--add-data", add_data_workspace,
         "--workpath", str(BUILD_DIR),
         "--specpath", str(BUILD_DIR),
         "--distpath", str(RELEASE_DIR),
         "--noconfirm",
     ]
+
+    for item in add_data_items:
+        cmd.extend(["--add-data", item])
 
     if clean:
         cmd.append("--clean")

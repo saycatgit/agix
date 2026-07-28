@@ -194,6 +194,9 @@ class AgixUI:
                     elif t == MsgType.ASK_FOR_CONFIRMATION:
                         self.chat_panel.show_confirm_dialog(content, msg_id, "chat")
                         continue
+                    elif t == MsgType.ASK_FOR_AUTH_CONFIRMATION:
+                        self.chat_panel.show_auth_confirm_dialog(content, msg_id, "chat")
+                        continue
                     self.chat_panel.add_message(m)
                 task_msgs = self.eqm.drain_display("task")
                 for m in task_msgs:
@@ -204,6 +207,9 @@ class AgixUI:
                         continue
                     elif t == MsgType.ASK_FOR_CONFIRMATION:
                         self.chat_panel.show_confirm_dialog(content, msg_id, "task")
+                        continue
+                    elif t == MsgType.ASK_FOR_AUTH_CONFIRMATION:
+                        self.chat_panel.show_auth_confirm_dialog(content, msg_id, "task")
                         continue
                     if t == MsgType.TASK_NAME:
                         self.task_panel.set_task_name(content)

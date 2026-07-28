@@ -16,6 +16,7 @@ class MsgType(str, Enum):
     ASK = "ask"
     ASK_FOR_CONFIRMATION = "ask_for_confirmation"
     ASK_FOR_PASSWORD = "ask_for_password"
+    ASK_FOR_AUTH_CONFIRMATION = "ask_for_auth_confirmation"
     RESPONSE = "response"
     STATUS = "status"
     TASK_NAME = "task_name"

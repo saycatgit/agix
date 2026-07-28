@@ -46,9 +46,9 @@ class EventQueueManager:
     # ---------- 消息构造 ----------
 
     @staticmethod
-    def make_msg(content: str, msg_type: str, msg_id: str = "",
+    def make_msg(content: str, msg_type, msg_id: str = "",
                  style: MsgStyle | None = None) -> dict:
-        msg = {MsgField.CONTENT: content, MsgField.TYPE: msg_type}
+        msg = {MsgField.CONTENT: content, MsgField.TYPE: str(msg_type)}
         if style is not None:
             msg[MsgField.STYLE] = str(style)
         msg[MsgField.ID] = msg_id or str(uuid.uuid4())
@@ -123,6 +123,13 @@ class EventQueueManager:
         """弹出确认按钮（是/否），阻塞等待用户选择。默认返回\"否\"。"""
         msg_id = str(uuid.uuid4())
         msg = self.make_msg(question, MsgType.ASK_FOR_CONFIRMATION, msg_id)
+        return self._wait_for_response(msg, msg_id, mode, timeout)
+
+    def ask_for_auth_confirmation(self, question: str, *, mode: str = "chat",
+                                  timeout: float = None) -> str:
+        """弹出敏感命令确认弹窗（允许/本次会话允许/拒绝/本次会话拒绝）。默认返回\"deny\"。"""
+        msg_id = str(uuid.uuid4())
+        msg = self.make_msg(question, MsgType.ASK_FOR_AUTH_CONFIRMATION, msg_id)
         return self._wait_for_response(msg, msg_id, mode, timeout)
 
     def _wait_for_response(self, msg: dict, msg_id: str, mode: str,

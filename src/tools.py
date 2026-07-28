@@ -378,16 +378,30 @@ class ToolExecutor:
         else:
             is_danger, matched_descs = False, []
         if is_danger:
-            eqm = getattr(self, "eqm", None)
-            agent = getattr(self, "agent", None)
-            if agent and not agent.config.execution.interactive:
-                return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
-            if eqm is not None:
-                answer = eqm.ask_for_confirmation(
-                    f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否继续执行？",
-                    mode=getattr(self, "mode", "chat"),
-                )
-                if answer.strip() not in ("是", "yes", "y", "1"):
+            action = auth_handler.extract_action(command)
+            session_result = auth_handler.check_session(command)
+            if session_result == "allow":
+                pass  # 会话级别放行，直接执行
+            elif session_result == "deny":
+                return f"⚠️ 危险命令已拦截（本次会话禁止）: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
+            else:
+                eqm = getattr(self, "eqm", None)
+                agent = getattr(self, "agent", None)
+                if agent and not agent.config.execution.interactive:
+                    return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                if eqm is not None:
+                    answer = eqm.ask_for_auth_confirmation(
+                        f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否执行？",
+                        mode=getattr(self, "mode", "chat"),
+                    )
+                    if answer == "allow_session":
+                        auth_handler.add_session_allow(action)
+                    elif answer == "deny_session":
+                        auth_handler.add_session_deny(action)
+                    elif answer != "allow":
+                        return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                else:
+                    # 无 eqm 时直接拒绝
                     return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
 
         try:

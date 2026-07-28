@@ -147,6 +147,47 @@ class ChatPanel:
         self._inline_dialog.visible = True
         self.page.update()
 
+    def show_auth_confirm_dialog(self, question: str, msg_id: str, mode: str):
+        """4按钮敏感命令确认弹窗：允许 / 本次会话允许 / 拒绝 / 本次会话拒绝"""
+
+        def _allow(e):
+            self.eqm.respond_to_ask("allow", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+
+        def _allow_session(e):
+            self.eqm.respond_to_ask("allow_session", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+
+        def _deny(e):
+            self.eqm.respond_to_ask("deny", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+
+        def _deny_session(e):
+            self.eqm.respond_to_ask("deny_session", msg_id=msg_id, mode=mode)
+            self._inline_dialog.visible = False
+            self.page.update()
+
+        self._inline_dialog.content = ft.Column([
+            ft.Row([
+                ft.Text("⚠️", size=16),
+                ft.Text(question, size=14, expand=True),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([
+                ft.OutlinedButton("拒绝", on_click=_deny),
+                ft.OutlinedButton("本次会话拒绝", on_click=_deny_session),
+            ], spacing=6),
+            ft.Row([
+                ft.ElevatedButton("允许", on_click=_allow),
+                ft.FilledTonalButton("本次会话允许", on_click=_allow_session),
+            ], spacing=6, alignment=ft.MainAxisAlignment.END),
+        ], spacing=10)
+        self._inline_dialog.visible = True
+        self.page.update()
+
+
     def add_greeting(self):
         self.eqm.send_display(self.GREETING_TEXT, mode="chat")
 

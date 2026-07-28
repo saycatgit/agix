@@ -111,6 +111,9 @@ class AuthHandler:
     def __init__(self, interactive: bool = True, sensitive_command_check: bool = True):
         self.interactive = interactive
         self.sensitive_command_check = sensitive_command_check
+        # 会话级别允许/拒绝列表（内存维护，不落盘，程序重启后失效）
+        self.session_allow_list: List[str] = []
+        self.session_deny_list: List[str] = []
 
     def check_dangerous(self, command: str):
         """黑名单危险命令检查。
@@ -125,6 +128,35 @@ class AuthHandler:
             desc = ACTION_DESCRIPTIONS.get(action, action)
             return True, [desc]
         return False, []
+
+    def check_session(self, command: str) -> str | None:
+        """检查命令是否命中会话级别允许/拒绝列表。
+
+        返回:
+            "allow" — 命中允许列表，直接放行
+            "deny"  — 命中拒绝列表，直接拦截
+            None    — 未命中任何列表，需要弹窗确认
+
+        匹配方式: 子串匹配（command 包含列表项即命中）。
+        拒绝列表优先于允许列表（同时命中时拒绝）。
+        """
+        if not self.session_allow_list and not self.session_deny_list:
+            return None
+        for denied in self.session_deny_list:
+            if denied in command:
+                return "deny"
+        for allowed in self.session_allow_list:
+            if allowed in command:
+                return "allow"
+        return None
+
+    def add_session_allow(self, command: str):
+        """将命令加入会话允许列表"""
+        self.session_allow_list.append(command)
+
+    def add_session_deny(self, command: str):
+        """将命令加入会话拒绝列表"""
+        self.session_deny_list.append(command)
 
     @staticmethod
     def extract_action(command: str) -> str:
