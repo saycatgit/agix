@@ -81,7 +81,7 @@ USER_HOME.mkdir(parents=True, exist_ok=True)
 class PathConfig:
     """所有文件系统路径，基于 EFFECTIVE_ROOT 自动构建。"""
     root: str = ""
-    work_dir: str = ""
+    current_work_dir: str = ""  # 运行时工作目录，随任务切换可变，初始值 = config_work_dir
     inner_space_dir: str = ""
     skills_dir: str = ""
     spc_dir: str = ""
@@ -98,7 +98,7 @@ class PathConfig:
     def __post_init__(self):
         import os as _os
         r = self.root
-        self.work_dir = r
+        self.current_work_dir = r
         isd = _os.path.join(r, "inner_space")
         self.inner_space_dir = isd
         self.spc_dir = _os.path.join(isd, "spc")
@@ -139,7 +139,7 @@ class ExecutionConfig:
     memory_enabled: bool = True  # chat 模式持久记忆
     interactive: bool = True
     thinking: bool = True
-    work_dir: str = ""  # 工作目录，空则默认 os.getcwd()
+    config_work_dir: str = ""  # 持久化默认工作目录，空则运行时 os.getcwd() 兜底
 
 
 @dataclass
@@ -178,7 +178,7 @@ class AppConfig:
         user_config = USER_HOME / "inner_space" / "config.json"
         if not user_config.exists():
             import shutil
-            (USER_HOME / "inner_space").mkdir(parents=True, exist_ok=True)
+            USER_HOME.mkdir(parents=True, exist_ok=True)
             current_root = AppConfig._get_root_path().resolve()
             try:
                 for dirname in ("workspace", "inner_space"):
@@ -212,8 +212,9 @@ class AppConfig:
         effective_root = str(AppConfig._init_user_home())
         self.paths = PathConfig(root=effective_root)
         self._init_dirs()
-        if not self.execution.work_dir:
-            self.execution.work_dir = os.getcwd()
+        if not self.execution.config_work_dir:
+            self.execution.config_work_dir = os.getcwd()
+        self.paths.current_work_dir = self.execution.config_work_dir
         self._init_api_key()
         if not self.llm_list:
             self.llm_list = [asdict(self.llm)]
@@ -272,6 +273,10 @@ class AppConfig:
         if p.exists():
             user = json.loads(open(p, encoding="utf-8").read())
             cfg._merge(user)
+            # _merge 后同步 current_work_dir
+            if not cfg.execution.config_work_dir:
+                cfg.execution.config_work_dir = os.getcwd()
+            cfg.paths.current_work_dir = cfg.execution.config_work_dir
             if "llm_list" in user and user["llm_list"]:
                 cfg.llm_list = user["llm_list"]
             else:

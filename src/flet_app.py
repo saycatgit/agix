@@ -66,8 +66,8 @@ class AgixUI:
         self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel, self.connection_panel, self.about_panel)
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir, agent.config.paths.token_file,
                                             extra_controls=[self.task_switch],
-                                            on_chat_select=lambda p, s="": self._on_sidebar_select(p, s))
-        self.status_sidebar._default_work_dir = agent.config.execution.work_dir
+                                            on_chat_select=lambda p, s="": self._on_sidebar_select(p, s),
+                                            config=agent.config)
 
         # 创建 Chat 模式的 task_manager 并初始化 Chater
         self._chat_task_manager = TaskManager()
@@ -77,7 +77,7 @@ class AgixUI:
             TaskField.TASK_TYPE: "其他",
         }
         self._chat_task_manager.set_subtask(subtask)
-        self._chat_task_manager.set_subtask_project(agent.config.execution.work_dir)
+        self._chat_task_manager.set_subtask_project(agent.config.execution.config_work_dir)
         self.agent.chater._chat_init(self._chat_task_manager)
 
         self._setup_window()

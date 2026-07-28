@@ -211,9 +211,9 @@ class ToolExecutor:
 
     def __init__(self, agent=None, mode: str = "chat", task_manager=None):
         if task_manager and task_manager.subtask:
-            self.work_dir = os.path.abspath(task_manager.subtask.project_path)
+            agent.config.paths.current_work_dir = os.path.abspath(task_manager.subtask.project_path)
         else:
-            self.work_dir = os.path.abspath(".")
+            agent.config.paths.current_work_dir = os.path.abspath(".")
         self.mode = mode          # "chat" | "task"
         self.agent = agent
         self.eqm = agent.eqm if agent else None
@@ -314,7 +314,7 @@ class ToolExecutor:
         if os.path.isabs(args["path"]):
             path = args["path"]
         else:
-            path = os.path.join(self.work_dir, args["path"])
+            path = os.path.join(self.agent.config.paths.current_work_dir, args["path"])
 
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         append_mode = args.get("append", False)
@@ -337,7 +337,7 @@ class ToolExecutor:
         if os.path.isabs(args["path"]):
             path = args["path"]
         else:
-            path = os.path.join(self.work_dir, args["path"])
+            path = os.path.join(self.agent.config.paths.current_work_dir, args["path"])
 
         if not os.path.exists(path):
             return f"文件不存在: {path}"
@@ -357,7 +357,7 @@ class ToolExecutor:
 
     def _tool_run_shell(self, args: dict) -> str:
         command = args["command"]
-        cwd = args.get("workdir", self.work_dir)
+        cwd = args.get("workdir", self.agent.config.paths.current_work_dir)
         timeout = args.get("timeout", 30)
 
         # 检测 sudo 命令，智能获取密码
@@ -641,7 +641,7 @@ class ToolExecutor:
         """解析文件路径（相对于 work_dir）。"""
         if os.path.isabs(file_path):
             return file_path
-        resolved = os.path.join(self.work_dir, file_path)
+        resolved = os.path.join(self.agent.config.paths.current_work_dir, file_path)
         if os.path.exists(resolved):
             return resolved
         abs_try = "/" + file_path
@@ -661,7 +661,7 @@ class ToolExecutor:
 
             applied_hunks = 0
             errors = []
-            rel_path = os.path.relpath(file_path, self.work_dir)
+            rel_path = os.path.relpath(file_path, self.agent.config.paths.current_work_dir)
 
             for hunk_idx, hunk in enumerate(hunks):
                 old_start = hunk["old_start"]

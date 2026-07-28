@@ -121,7 +121,7 @@ class Planner:
     def _resolve_project_path(self, item: dict, task_manager: TaskManager):
         """根据 dir_from 决定 project_path，迁移自 executor"""
         dir_from = item.get("dir_from", "")
-        work_dir = self.config.execution.work_dir
+        work_dir = self.config.execution.config_work_dir
 
         if dir_from == "reuse":
             related = item.get("related_task_file_name", "")

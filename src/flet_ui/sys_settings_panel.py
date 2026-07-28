@@ -58,7 +58,7 @@ class SystemSettingsPanel:
         self._sys_timeout = ft.TextField(label="超时(秒)", value=str(cfg.execution.timeout), width=80, **tf)
         self._sys_mem_en = ft.Switch(label="启用记忆", height=30, value=cfg.execution.memory_enabled)
         self._sys_rounds = ft.TextField(label="调用上限", value=str(cfg.execution.max_rounds), width=100, **tf)
-        self._sys_work_dir = ft.TextField(value=cfg.execution.work_dir, read_only=True, **tf)
+        self._sys_work_dir = ft.TextField(value=cfg.execution.config_work_dir, read_only=True, **tf)
         self._sys_enable_history = ft.Switch(label="历史任务关联", height=30,
             value=cfg.execution.enable_history_task_association)
         self._sys_thinking = ft.Switch(label="思考模式", height=30, value=cfg.execution.thinking)
@@ -144,7 +144,7 @@ class SystemSettingsPanel:
             cfg.execution.timeout = int(self._sys_timeout.value)
             cfg.execution.max_rounds = int(self._sys_rounds.value)
             cfg.execution.memory_enabled = self._sys_mem_en.value
-            cfg.execution.work_dir = self._sys_work_dir.value.strip()
+            cfg.execution.config_work_dir = self._sys_work_dir.value.strip()
             cfg.execution.enable_history_task_association = self._sys_enable_history.value
             cfg.log.enabled = self._sys_log_enabled.value
             cfg.log.history = self._sys_log_history.value

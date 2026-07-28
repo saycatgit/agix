@@ -71,7 +71,6 @@ class ChatPanel:
         self._providers = providers
         self._build()
 
-        self._current_work_dir = self.agent.config.execution.work_dir
         self._input_focused = False
         self._paused = False
 
@@ -212,7 +211,7 @@ class ChatPanel:
 
         self._model_label = ft.Text(self._get_active_label(), size=13, color=self.MODEL_LABEL_COLOR)
         self._work_dir_text = ft.Text(
-            self.WORK_DIR_PREFIX + self.agent.config.execution.work_dir,
+            self.WORK_DIR_PREFIX + self.agent.config.paths.current_work_dir,
             size=13, color=self.WORK_DIR_COLOR, overflow=ft.TextOverflow.ELLIPSIS,
         )
 
@@ -351,13 +350,12 @@ class ChatPanel:
     def update_work_dir(self, path: str = ""):
         """更新显示的工作目录"""
         if not path:
-            path = self.agent.config.execution.work_dir
-        self._current_work_dir = path
+            path = self.agent.config.paths.current_work_dir
         self._work_dir_text.value = self.WORK_DIR_PREFIX + path
         self._work_dir_text.update()
 
     def _open_work_dir(self, e):
-        wd = self._current_work_dir
+        wd = self.agent.config.paths.current_work_dir
         if self.agent.config.system == "windows":
             os.startfile(wd)
         else:

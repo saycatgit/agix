@@ -33,15 +33,15 @@ class StatusSidebar:
 
     }
 
-    def __init__(self, page: ft.Page, task_dir: str, token_file: str = "", visible: bool = True, extra_controls: list = None, on_chat_select=None):
+    def __init__(self, page: ft.Page, task_dir: str, token_file: str = "", visible: bool = True, extra_controls: list = None, on_chat_select=None, config=None):
         self.page = page
         self.task_dir = task_dir
         self.token_file = token_file
+        self._config = config
         self.task_config_file_path = os.path.join(self.task_dir, "task_config.json")
         self._visible = visible
         self._extra_controls = extra_controls or []
         self._on_chat_select = on_chat_select
-        self._default_work_dir = ""
         self._selected_task_file = ""
         self._ds = {}
         self._needs_refresh = False
@@ -95,8 +95,8 @@ class StatusSidebar:
             self._selected_task_file = ""
             self._needs_refresh = True
             self.refresh()
-            if self._default_work_dir and self._on_chat_select:
-                self._on_chat_select(self._default_work_dir, "")
+            if self._config.execution.config_work_dir and self._on_chat_select:
+                self._on_chat_select(self._config.execution.config_work_dir, "")
 
         content_col = ft.Column([
             ft.Container(content=self._build_title_bar(), expand=7),
@@ -323,8 +323,8 @@ class StatusSidebar:
             self._selected_task_file = ""
             self._needs_refresh = True
             self.refresh()
-            if self._default_work_dir and self._on_chat_select:
-                self._on_chat_select(self._default_work_dir, "")
+            if self._config.execution.config_work_dir and self._on_chat_select:
+                self._on_chat_select(self._config.execution.config_work_dir, "")
             return
         self._selected_task_file = key
         if path and self._on_chat_select:
@@ -434,7 +434,7 @@ class StatusSidebar:
             if not cat_names:
                 return
             _name = _detail = _time = _sub_cat = ""
-            _path = self._default_work_dir
+            _path = self._config.paths.current_work_dir
             _periodic = _interactive = False
             _period = "1d"
             _status = SubTaskStatus.SKIPPED.value
