@@ -14,3 +14,10 @@ git-server/
 spc/
 .agent_permissions.json
 inner_space/ssh/.keys/
+.cython_build/
+.pyinstaller_build/
+release/
+*.bak
+whisper/models/
+.memory/
+datetime_check.log
