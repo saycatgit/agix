@@ -166,15 +166,15 @@ class AgixUI:
         ))
 
         # ── 窗口图标 ──
-        logo = os.path.join(self.agent.config.paths.root, "logo.png")
+        logo = os.path.join(self.agent.config.paths.logo_dir, "logo.png")
         if not os.path.exists(logo):
-            logo = os.path.join(self.agent.config.paths.root, "logo.ico")
+            logo = os.path.join(self.agent.config.paths.logo_dir, "logo.ico")
         if not os.path.exists(logo):
             logo = os.path.join(os.path.expanduser("~"), ".agix", "logo.png")
         if os.path.exists(logo):
             self.page.window.icon = logo
         else:
-            print(f"[WARN] logo not found at {self.agent.config.paths.root}/logo.(png|ico) or ~/.agix/logo.png")
+            print(f"[WARN] logo not found at {self.agent.config.paths.logo_dir}/logo.(png|ico) or ~/.agix/logo.png")
 
         self.page.window.visible = True; self.page.update()
         self.chat_panel.add_greeting()

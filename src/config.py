@@ -94,6 +94,7 @@ class PathConfig:
     ssh_config_path: str = ""
     mcp_dir: str = ""
     mcp_config_path: str = ""
+    logo_dir: str = ""
 
     def __post_init__(self):
         import os as _os
@@ -112,6 +113,7 @@ class PathConfig:
         self.ssh_config_path = _os.path.join(self.ssh_dir, "ssh.json")
         self.mcp_dir = _os.path.join(isd, "mcp")
         self.mcp_config_path = _os.path.join(isd, "mcp", "mcp.json")
+        self.logo_dir = isd
 
 
 @dataclass
