@@ -33,7 +33,7 @@ jobs:
             artifact: agix_macos
           - name: Windows
             runner: windows-latest
-            artifact: agix_win.exe
+            artifact: agix_win
 
     steps:
       - name: Checkout
