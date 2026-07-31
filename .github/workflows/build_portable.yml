@@ -137,23 +137,3 @@ jobs:
           name: ${{ matrix.platform.artifact }}
           path: ${{ matrix.platform.artifact }}
           retention-days: 30
-
-      - name: 上传到阿里云
-        if: success()
-        shell: bash
-        run: |
-          # 安装 sshpass 并通过 rsync/scp 上传
-          # 需要预先配置 Secrets: ALIYUN_HOST, ALIYUN_USER, ALIYUN_SSH_KEY
-          if [ -n "${{ secrets.ALIYUN_HOST }}" ]; then
-            mkdir -p ~/.ssh
-            echo "${{ secrets.ALIYUN_SSH_KEY }}" > ~/.ssh/id_rsa
-            chmod 600 ~/.ssh/id_rsa
-            ssh-keyscan -H "${{ secrets.ALIYUN_HOST }}" >> ~/.ssh/known_hosts
-            scp "${{ matrix.platform.artifact }}" \
-                "${{ secrets.ALIYUN_USER }}@${{ secrets.ALIYUN_HOST }}:/usr/share/nginx/html/agix/${{ matrix.platform.artifact }}"
-            ssh "${{ secrets.ALIYUN_USER }}@${{ secrets.ALIYUN_HOST }}" \
-                "chmod 644 /usr/share/nginx/html/agix/${{ matrix.platform.artifact }}"
-            echo "✅ 已上传: https://www.agix.cc/agix/${{ matrix.platform.artifact }}"
-          else
-            echo "⏭ 跳过上传（未配置 ALIYUN_HOST secret）"
-          fi
