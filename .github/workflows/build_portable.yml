@@ -113,6 +113,7 @@ jobs:
         shell: bash
         run: |
           set -e
+          export PYTHONIOENCODING=utf-8
           # workflow_dispatch 可手动关闭；push tag 默认启用
           USE_CYTHON="${{ github.event.inputs.cython }}"
           USE_CYTHON="${USE_CYTHON:-true}"
