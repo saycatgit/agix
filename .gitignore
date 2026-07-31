@@ -29,3 +29,6 @@ agix/
 agix_win.exe
 agix_slim/
 agix_slim.tar.gz
+flet_env/
+workspace_temp/
+*.sqlite3
