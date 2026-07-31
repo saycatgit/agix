@@ -88,6 +88,29 @@
           "phases": []
         }
       ]
+    },
+    {
+      "name": "计划任务",
+      "description": "定时或者周期",
+      "subtypes": [
+        {
+          "name": "定时任务",
+          "description": "未来某个时间点执行"
+        },
+        {
+          "name": "周期任务",
+          "description": "周期执行"
+        }
+      ],
+      "subtask_config": [
+        {
+          "match_subtypes": [
+            "..."
+          ],
+          "prompt": [],
+          "phases": []
+        }
+      ]
     }
   ]
 }

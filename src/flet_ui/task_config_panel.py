@@ -252,10 +252,14 @@ class TaskConfigPanel:
             desc = cat.get("description", "")
             btn = ft.IconButton(icon=ft.Icons.CLOSE, icon_size=14, tooltip="删除",
                 on_click=lambda e, ii=idx: self._delete_category(ii))
-            name_col = ft.Column([ft.Text(name, size=13)], spacing=0)
+            name_col = ft.Column(
+                [ft.Text(name, size=13, overflow=ft.TextOverflow.ELLIPSIS, no_wrap=True)],
+                spacing=0, expand=True)
             if desc:
-                name_col.controls.append(ft.Text(desc, size=11, italic=True, color=ft.Colors.GREY_500))
+                name_col.controls.append(ft.Text(desc, size=11, italic=True,
+                    color=ft.Colors.GREY_500, overflow=ft.TextOverflow.ELLIPSIS, no_wrap=True))
             tile = ft.Container(
+                expand=True,
                 content=ft.Row([name_col, btn], spacing=2, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=ft.Padding(6, 4, 6, 4), border_radius=4,
                 bgcolor=self.SIDEBAR_BGCOLOR if idx == self._cat_idx else ft.Colors.TRANSPARENT,

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agix — 个人通用人工智能助理</title>
-<meta name="description" content="Agix — 个人通用 AI 助理，本地部署、隐私优先。">
+<title>Agix — 本地 AI 开发助手 · 多模型驱动</title>
+<meta name="description" content="Agix 是全能 AI 助手——说出你的想法，AI 自动规划、写代码、跑测试，全程协作直到结果落地。">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -19,6 +19,8 @@
     --warn-bg: #fffbeb;
     --warn-border: #fcd34d;
     --warn-text: #92400e;
+    --green: #059669;
+    --green-bg: #ecfdf5;
   }
   html { scroll-behavior: smooth; }
   body {
@@ -30,7 +32,6 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { opacity: .8; }
 
-  /* ===== subtle grid ===== */
   .bg-dots {
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background: radial-gradient(circle, #d1d5db 1px, transparent 1px);
@@ -38,9 +39,9 @@
     opacity: .5;
   }
 
-  .wrapper { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 0 24px; }
+  .wrapper { position: relative; z-index: 1; max-width: 920px; margin: 0 auto; padding: 0 24px; }
 
-  /* ===== nav ===== */
+  /* nav */
   .nav { display: flex; justify-content: space-between; align-items: center; padding: 28px 0; }
   .nav-logo { font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; color: var(--text); }
   .nav-logo em { font-style: normal; color: var(--accent); }
@@ -48,28 +49,34 @@
   .nav-links a { color: var(--text-dim); }
   .nav-links a:hover { color: var(--text); }
 
-  /* ===== hero ===== */
-  .hero { padding: 72px 0 48px; text-align: center; }
+  /* hero */
+  .hero { padding: 80px 0 52px; text-align: center; }
   .hero h1 { font-size: 3rem; font-weight: 800; letter-spacing: -.04em; line-height: 1.2; color: var(--text); }
   .hero h1 mark { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-  .hero .sub { font-size: 1.1rem; color: var(--text-dim); max-width: 500px; margin: 16px auto 0; }
-  .hero .en { font-size: .82rem; color: var(--text-muted); margin-top: 6px; }
+  .hero .sub { font-size: 1.05rem; color: var(--text-dim); max-width: 520px; margin: 14px auto 0; }
+  .hero .sub strong { color: var(--text); font-weight: 600; }
+  .hero .en { font-size: .8rem; color: var(--text-muted); margin-top: 6px; }
+  .hero .badge-row { margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .hero .badge {
+    font-size: .75rem; color: var(--text-dim); padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 20px; background: var(--card-bg);
+  }
 
-  /* ===== features ===== */
+  /* features */
   .features { padding: 48px 0; }
   .sec-title { text-align: center; font-size: 1.5rem; font-weight: 700; margin-bottom: 36px; }
   .sec-title::after { content: ''; display: block; width: 40px; height: 2px; background: var(--accent); margin: 10px auto 0; border-radius: 1px; }
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
   .card {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
     padding: 24px; transition: box-shadow .25s, border-color .25s;
   }
   .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.06); border-color: #cbd5e1; }
-  .card .icon { font-size: 1.3rem; margin-bottom: 10px; }
-  .card h3 { font-size: 1rem; margin-bottom: 6px; }
-  .card p { font-size: .85rem; color: var(--text-dim); }
+  .card .icon { font-size: 1.25rem; margin-bottom: 10px; }
+  .card h3 { font-size: .95rem; margin-bottom: 6px; }
+  .card p { font-size: .82rem; color: var(--text-dim); line-height: 1.65; }
 
-  /* ===== download ===== */
+  /* download */
   .download { padding: 48px 0; }
   .dl-box {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
@@ -94,7 +101,7 @@
   }
   .dl-warn strong { display: block; margin-bottom: 2px; }
 
-  /* ===== footer ===== */
+  /* footer */
   .footer { padding: 28px 0 20px; border-top: 1px solid var(--border); margin-top: 48px; text-align: center; }
   .footer p { font-size: .75rem; color: var(--text-muted); }
   .footer .icp { margin-top: 2px; }
@@ -104,6 +111,7 @@
     .hero h1 { font-size: 2rem; }
     .hero { padding: 48px 0 32px; }
     .dl-box { padding: 24px; }
+    .card-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -123,9 +131,22 @@
   </nav>
 
   <section class="hero">
-    <h1>你的全能型 <mark>AI 助理</mark></h1>
-    <p class="sub">本地部署，隐私优先。从任务规划到代码执行，全程陪伴，让想法落地。</p>
-    <p class="en">Personal AI assistant. Local-first, privacy-first. Plan, code, execute.</p>
+    <h1><mark>全能 AI 助手</mark></h1>
+    <p class="sub">
+      说出你的想法，剩下的交给 AI——自动规划、写代码、跑测试，<br>
+      全程协作，直到结果落地。
+    </p>
+    <p class="en">Local-first AI assistant — multi-model, tool-driven, task-native.</p>
+    <div class="badge-row">
+      <span class="badge">DeepSeek</span>
+      <span class="badge">OpenAI</span>
+      <span class="badge">Moonshot</span>
+      <span class="badge">通义千问</span>
+      <span class="badge">智谱 GLM</span>
+      <span class="badge">MiniMax</span>
+      <span class="badge">Groq</span>
+      <span class="badge">硅基流动</span>
+    </div>
   </section>
 
   <section class="features" id="features">
@@ -133,33 +154,48 @@
     <div class="card-grid">
       <div class="card">
         <div class="icon">🧠</div>
-        <h3>智能任务规划</h3>
-        <p>自动拆解复杂需求为可执行子任务，按依赖关系灵活调度。</p>
+        <h3>说需求，出结果</h3>
+        <p>"给这个项目加一套 REST API"、"把 CSV 里的异常数据清洗出来"——说人话提需求，智能规划自动拆解步骤、按依赖顺序执行，你只管验收。</p>
       </div>
       <div class="card">
-        <div class="icon">💻</div>
-        <h3>本地代码执行</h3>
-        <p>直接在本地环境运行代码，文件操作、Shell 命令、API 调用尽在掌控。</p>
-      </div>
-      <div class="card">
-        <div class="icon">🔒</div>
-        <h3>隐私优先</h3>
-        <p>所有数据留在本地，代码、文件、对话记录不上传任何第三方。</p>
-      </div>
-      <div class="card">
-        <div class="icon">⏰</div>
-        <h3>周期任务调度</h3>
-        <p>支持一次性与周期任务，按设定时间自动执行，无需值守。</p>
+        <div class="icon">💬</div>
+        <h3>对话 + 任务，双模式切换</h3>
+        <p>对话模式自由探索思路，任务模式自动拆解执行。执行中随时介入——"换异步重写"、"别用 pandas"——中途调整不推翻重来。</p>
       </div>
       <div class="card">
         <div class="icon">🔧</div>
-        <h3>工具链集成</h3>
-        <p>内置文件读写、搜索、Shell 等工具，LLM 可直接调用完成工程任务。</p>
+        <h3>开发闭环一条龙</h3>
+        <p>读代码分析逻辑 → 精确补丁修改 → Shell 跑测试验证。9 大内置工具覆盖日常开发全流程，不用在编辑器和终端之间来回切。</p>
+      </div>
+      <div class="card">
+        <div class="icon">⏰</div>
+        <h3>定时任务，设好就忘</h3>
+        <p>"每天早上 9 点拉数据出日报"、"每 30 分钟检查服务健康状态"——一次设定，后台自动跑，挂了会通知你。</p>
       </div>
       <div class="card">
         <div class="icon">🌐</div>
-        <h3>开放架构</h3>
-        <p>模块化设计，可扩展自定义工具与 Skill，适配不同场景。</p>
+        <h3>外部工具随心接</h3>
+        <p>兼容 MCP 标准协议，高德地图查路径、SearXNG 搜技术资料、对接公司内部 API——所有外部能力都能接入你的工作流。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔒</div>
+        <h3>代码不出你的机器</h3>
+        <p>项目源码、API 密钥、对话记录全部本地存储，AES-256-GCM 加密。不经过第三方服务器，公司项目放心用。</p>
+      </div>
+      <div class="card">
+        <div class="icon">📦</div>
+        <h3>封装你的常用操作</h3>
+        <p>"一键部署到我的服务器"、"按团队规范格式化代码"——把重复工作写成 Skill，几行 Python，一次封装反复调用。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🖥</div>
+        <h3>桌面打开即用</h3>
+        <p>Windows / macOS / Linux 原生应用，不用配 Python 环境、不用开终端、不用记命令，和你日常用的桌面软件一样。</p>
+      </div>
+      <div class="card">
+        <div class="icon">🧠</div>
+        <h3>长对话自动瘦身，省 token</h3>
+        <p>历史膨胀，token 消耗攀升。Agix 自动把早期讨论压缩为结构化摘要，只保留关键上下文，可配置滑动窗口 + 智能压缩让长会话始终流畅。</p>
       </div>
     </div>
   </section>

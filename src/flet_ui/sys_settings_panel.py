@@ -1,6 +1,7 @@
 """系统设置面板 UI 组件"""
 
 import subprocess
+import sys
 import flet as ft
 
 
@@ -27,10 +28,11 @@ class SystemSettingsPanel:
 
     TF_DEFAULTS: dict = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300}
 
-    def __init__(self, page: ft.Page, config, system: str = "linux"):
+    def __init__(self, page: ft.Page, config, system: str = "linux", eqm=None):
         self.page = page
         self.config = config
         self._system = system
+        self._eqm = eqm
         self._build()
 
     @property
@@ -111,30 +113,62 @@ class SystemSettingsPanel:
     # ── 目录选择 ──
 
     def _pick_dir(self):
-        if self._system == "windows":
-            import ctypes
-            from ctypes import wintypes
-            BIF_RETURNONLYFSDIRS = 0x00000001
-            pidl = ctypes.windll.shell32.SHBrowseForFolderW(
-                ctypes.byref(wintypes.HWND()), None, BIF_RETURNONLYFSDIRS,
-            )
-            if pidl:
-                buf = ctypes.create_unicode_buffer(260)
-                ctypes.windll.shell32.SHGetPathFromIDListW(pidl, buf)
-                ctypes.windll.ole32.CoTaskMemFree(pidl)
-                path = buf.value
+        if self.config.system == "windows":
+            import subprocess as _sp
+            try:
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$o=New-Object System.Windows.Forms.Form; "
+                    "$o.TopMost=$true; $o.ShowInTaskbar=$false; "
+                    "$o.WindowState='Minimized'; $o.Show(); "
+                    "$d=New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$d.Description='选择工作目录'; "
+                    "$r=($d.ShowDialog($o) -eq 'OK'); "
+                    "$o.Close(); "
+                    "if($r){$d.SelectedPath}"
+                )
+                r = _sp.run(
+                    ["powershell", "-NoProfile", "-Command", ps_script],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+                )
+                path = r.stdout.strip()
                 if path:
                     self._sys_work_dir.value = path
                     self.page.update()
+            except Exception as e:
+                if self._eqm:
+                    self._eqm.send_display(f"[WARN] 选择目录失败: {e}", style="task")
+                else:
+                    import sys
+                    print(f"[WARN] 选择目录失败: {e}", file=sys.stderr)
         else:
-            r = subprocess.run(
-                ["zenity", "--file-selection", "--directory", "--title=选择工作目录"],
-                capture_output=True, text=True,
-            )
-            path = r.stdout.strip()
-            if path:
-                self._sys_work_dir.value = path
-                self.page.update()
+            if self.config.system == "darwin":
+                try:
+                    r = subprocess.run(
+                        ["osascript", "-e", 'POSIX path of (choose folder with prompt "选择工作目录")'],
+                        capture_output=True, text=True,
+                        encoding='utf-8', errors='replace',
+                    )
+                    path = r.stdout.strip()
+                    if path:
+                        self._sys_work_dir.value = path
+                        self.page.update()
+                except Exception as e:
+                    error_handler(e)
+            else:
+                try:
+                    r = subprocess.run(
+                        ["zenity", "--file-selection", "--directory", "--title=选择工作目录"],
+                        capture_output=True, text=True,
+                        encoding='utf-8', errors='replace',
+                    )
+                    path = r.stdout.strip()
+                    if path:
+                        self._sys_work_dir.value = path
+                        self.page.update()
+                except Exception as e:
+                    error_handler(e)
+                    print(f"[WARN] zenity 选择目录失败: {e}", file=sys.stderr)
 
     # ── 保存 ──
 
@@ -154,6 +188,6 @@ class SystemSettingsPanel:
             cfg.save()
             self.close()
         except Exception as ex:
-            self.page.show_dialog(ft.AlertDialog(shape=ft.RoundedRectangleBorder(radius=3), content_padding=ft.Padding(20, 20, 20, 20),
+            self.page.show_dialog(ft.AlertDialog(bgcolor=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=6), content_padding=ft.Padding(16, 16, 16, 16),
                 title=ft.Text(self.SAVE_FAIL_TITLE), content=ft.Text(str(ex)),
             ))

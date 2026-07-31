@@ -23,12 +23,12 @@ class Executor:
         3. 管理执行生命周期：_init_subtask_prj → _run_loop（project_path 由 Planner 在规划阶段赋值）
     """
 
-    def __init__(self, agent, task_dir: str, eqm=None):
+    def __init__(self, agent, task_dir: str):
         self.agent = agent
         self.task_dir = task_dir
         self.llm = LLMClient(agent.config.llm, logger=agent.logger,
-                             log_history=agent.config.log.history,user="executor")
-        self.eqm = eqm
+                             log_history=agent.config.log.history, user="executor",
+                             eqm=agent.eqm)
         self.prompts = Prompts(agent.config.paths.task_config_file_path)
         self._stopped = threading.Event()
         self._thread = None
@@ -101,8 +101,8 @@ class Executor:
         task_manager.save()
 
         sub_detail = sub.sub_task_detail or sub.sub_task_name or "后台任务"
-        if self.eqm:
-            self.eqm.send_display(f"🚀 开始执行: {sub_detail}", mode="task")
+        if self.agent.eqm:
+            self.agent.eqm.send_display(f"🚀 开始执行: {sub_detail}", mode="task")
 
         self.llm.history.clear()
         self.llm.init_task_counters()
@@ -112,17 +112,17 @@ class Executor:
             task_manager.set_subtask_result("false", "子任务初始化失败")
             task_manager.set_subtask_status(SubTaskStatus.FAILED)
             task_manager.save()
-            if self.eqm:
-                self.eqm.send_user_input(f"❌ 初始化失败: {sub_detail}\n\n这是任务模式的任务执行结果，进行总结分析展示给用户，等待用户下一步指示", mode="chat")
+            if self.agent.eqm:
+                self.agent.eqm.send_user_input(f"❌ 初始化失败: {sub_detail}\n\n这是任务模式的任务执行结果，进行总结分析展示给用户，等待用户下一步指示", mode="chat")
             return
 
         result = self._run_loop(task_manager, base_prompt=system_prompt)
 
         judge = result.get(TaskField.JUDGE, "false")
         content = result.get("content", "")
-        if self.eqm:
+        if self.agent.eqm:
             icon = "✅" if judge == "true" else "❌"
-            self.eqm.send_user_input(f"{icon} 执行完成: {sub_detail}\n{content}\n\n这是任务模式的任务执行结果，进行总结分析展示给用户，等待用户下一步指示", mode="chat")
+            self.agent.eqm.send_user_input(f"{icon} 执行完成: {sub_detail}\n{content}\n\n这是任务模式的任务执行结果，进行总结分析展示给用户，等待用户下一步指示", mode="chat")
 
         task_manager.save_plan_steps(task_manager._stage_progress)
         task_manager.set_subtask_result(
@@ -206,7 +206,7 @@ class Executor:
         self.llm.set_memory_file(fpath)
         os.makedirs(os.path.dirname(fpath), exist_ok=True)
         if not os.path.exists(fpath):
-            with open(fpath, "w") as _:
+            with open(fpath, "w", encoding='utf-8') as _:
                 pass
         task_manager.set_subtask_llm_context_info("memory.jsonl")
         if task_manager._save_path:
@@ -269,10 +269,10 @@ class Executor:
 
             drained = ""
             control_action = None
-            if self.eqm:
+            if self.agent.eqm:
                 try:
                     while True:
-                        m = self.eqm.to_task_queue.get_nowait()
+                        m = self.agent.eqm.to_task_queue.get_nowait()
                         if m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
                             task_manager.add_conversation_entry("user", m.get(MsgField.CONTENT, ""))
@@ -283,16 +283,16 @@ class Executor:
                 except queue.Empty:
                     pass
                 if control_action == "end":
-                    self.eqm.send_display("⏹ 已结束", mode="task")
+                    self.agent.eqm.send_display("⏹ 已结束", mode="task")
                     return TaskField.RET_JSON_FALSE("用户结束任务")
                 if control_action == "stop":
-                    self.eqm.send_display("⏸ 已暂停", mode="task")
+                    self.agent.eqm.send_display("⏸ 已暂停", mode="task")
                     while True:
-                        m = self.eqm.to_task_queue.get()
+                        m = self.agent.eqm.to_task_queue.get()
                         if m.get(MsgField.TYPE) == MsgType.CONTROL:
                             a = m.get(MsgField.CONTENT, "")
                             if a == "end":
-                                self.eqm.send_display("⏹ 已结束", mode="task")
+                                self.agent.eqm.send_display("⏹ 已结束", mode="task")
                                 return TaskField.RET_JSON_FALSE("用户结束任务")
                         elif m.get(MsgField.TYPE) == MsgType.USER_INPUT:
                             drained += m.get(MsgField.CONTENT, "") + "\n"
@@ -307,12 +307,12 @@ class Executor:
             thinking_enabled = self.agent.config.execution.thinking
             if reasoning and thinking_enabled:
                 print(f"[debug] model={self.agent.config.llm.model}, reasoning={len(reasoning)} chars")
-                if self.eqm:
+                if self.agent.eqm:
                     sentences = reasoning.split("。")
                     for s in sentences:
                         s = s.strip()
                         if s:
-                            self.eqm.send_display(s, mode="task", style=MsgStyle.THINKING)
+                            self.agent.eqm.send_display(s, mode="task", style=MsgStyle.THINKING)
 
             content_text = result.get("content", "")
             if content_text:

@@ -61,6 +61,7 @@ class LLMClient:
 
         self.provider = provider
         self._api_key = api_key
+        self.eqm = eqm
 
         self.model = model
         self.temperature = temperature
@@ -72,9 +73,8 @@ class LLMClient:
             "balance_url": "",
         })
         if not api_key:
-            print(f"\n❌ 未配置 {provider_info['name']} 的 API Key")
-            print(f"   请设置环境变量后重试，或删除 config.json 重新运行配置向导\n")
-            print("（可在设置中配置密钥后重试）")
+            if self.eqm:
+                self.eqm.send_error(f"未配置 {provider_info['name']} 的 API Key，请在设置中配置密钥后重试", mode="chat")
 
         # 按供应商构建不同的 OpenAI 客户端
         if provider == "openai":
@@ -90,7 +90,10 @@ class LLMClient:
             if default_headers:
                 client_kwargs["default_headers"] = default_headers+user
 
-        self.client = OpenAI(**client_kwargs)
+        if api_key:
+            self.client = OpenAI(**client_kwargs)
+        else:
+            self.client = None
         self.provider_name = provider_info["name"]
 
         # 会话记忆
@@ -111,8 +114,61 @@ class LLMClient:
         self.logger = logger
         self.log_history = log_history
         self.last_system_prompt = ""  # 最近一次系统提示词
-        self.eqm=eqm
         self.user = user
+
+    def reconfigure(self, config):
+        """用新配置更新 model/api_key/base_url 并重建 OpenAI client，保留 history 等运行时状态"""
+        if hasattr(config, "provider"):
+            provider = config.provider
+            api_key = config.api_key
+            base_url = config.base_url
+            model = config.model
+            temperature = config.temperature
+            max_tokens = config.max_tokens
+            organization = getattr(config, "organization", "")
+            project = getattr(config, "project", "")
+            default_headers = getattr(config, "default_headers", {})
+        else:
+            provider = config.get("provider", "deepseek")
+            api_key = config.get("api_key", "")
+            base_url = config.get("base_url", "")
+            model = config.get("model", "")
+            temperature = config.get("temperature", 0.7)
+            max_tokens = config.get("max_tokens", 10240)
+            organization = config.get("organization", "")
+            project = config.get("project", "")
+            default_headers = config.get("default_headers", {})
+
+        self.provider = provider
+        self._api_key = api_key
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+        provider_info = PROVIDERS.get(provider, {
+            "name": provider,
+            "base_url": "",
+            "balance_url": "",
+        })
+        self.provider_name = provider_info["name"]
+
+        if provider == "openai":
+            client_kwargs: dict = {"api_key": api_key}
+            if organization:
+                client_kwargs["organization"] = organization
+            if project:
+                client_kwargs["project"] = project + self.user
+        elif provider == "deepseek":
+            client_kwargs = {"api_key": api_key, "base_url": base_url}
+        else:
+            client_kwargs = {"api_key": api_key, "base_url": base_url}
+            if default_headers:
+                client_kwargs["default_headers"] = default_headers + self.user
+
+        if api_key:
+            self.client = OpenAI(**client_kwargs)
+        else:
+            self.client = None
 
     # ---- 核心聊天 ----
 
@@ -278,15 +334,24 @@ class LLMClient:
             kwargs["user"] = self.user
 
         max_retries = 3
-        for attempt in range(max_retries):
-            response = self.client.chat.completions.create(**kwargs)
-            content_ = response.choices[0].message.content or ""
-            if content_.strip():
-                break
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # 1s, 2s, 4s 退避
-        content = content_
-        self.last_raw_response = content
+        if self.client is None:
+            return ""
+        try:
+            for attempt in range(max_retries):
+                response = self.client.chat.completions.create(**kwargs)
+                content_ = response.choices[0].message.content or ""
+                if content_.strip():
+                    break
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+            content = content_
+            self.last_raw_response = content
+        except Exception as e:
+            self.logger.log(f"❌ API调用失败: {e}")
+            if self.eqm:
+                self.eqm.send_error(f"LLM API错误: {e}", mode="chat")
+            return ""
+
         self.call_count += 1
         self._track_usage(getattr(response, 'usage', None))
 
@@ -369,6 +434,8 @@ class LLMClient:
         if self.user:
             kwargs["user"] = self.user
         self.last_system_prompt = prompt
+        if self.client is None:
+            return {"type": "error", "message": "未配置 API Key，请在设置中配置后重试"}
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:
@@ -505,6 +572,8 @@ class LLMClient:
         })
 
         msgs = self._clean_orphan_tools(msgs)
+        if self.client is None:
+            return ""
         try:
             resp = self.client.chat.completions.create(
                 model=self.model, messages=msgs, user=self.user,

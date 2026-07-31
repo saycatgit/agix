@@ -1,5 +1,6 @@
 """任务状态侧边栏 —— 展示当前任务（state 文件）和计划任务（task_{ts}.json）"""
 
+import sys
 import json, os, subprocess, platform
 from datetime import datetime
 import flet as ft
@@ -12,7 +13,7 @@ class StatusSidebar:
 
     WIDTH: int = 260
     BGCOLOR = ft.Colors.GREY_50
-    TITLE_BGCOLOR = ft.Colors.BLUE_GREY_50
+    TITLE_BGCOLOR = ft.Colors.GREY_100
     DIALOG_BGCOLOR = ft.Colors.WHITE
     EMPTY_TEXT: str = "暂无任务"
 
@@ -33,8 +34,9 @@ class StatusSidebar:
 
     }
 
-    def __init__(self, page: ft.Page, task_dir: str, token_file: str = "", visible: bool = True, extra_controls: list = None, on_chat_select=None, config=None):
+    def __init__(self, page: ft.Page, task_dir: str, token_file: str = "", visible: bool = True, extra_controls: list = None, on_chat_select=None, config=None, eqm=None):
         self.page = page
+        self._eqm = eqm
         self.task_dir = task_dir
         self.token_file = token_file
         self._config = config
@@ -155,6 +157,9 @@ class StatusSidebar:
                 pass
             self.page.run_task(self.page.window.destroy)
         dialog = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("确认退出"),
             content=ft.Text("确定要退出吗？"),
             actions=[ft.TextButton("取消", on_click=lambda e: self.page.pop_dialog()),
@@ -341,20 +346,6 @@ class StatusSidebar:
         dlg.open = False
         dlg.update()
     
-    def _pick_folder(self, field):
-        """zenity 选择文件夹，结果写入 field.value"""
-        import subprocess
-        try:
-            r = subprocess.run(
-                ["zenity", "--file-selection", "--directory", "--title=选择文件夹"],
-                capture_output=True, text=True, timeout=30,
-            )
-            path = r.stdout.strip()
-            if path:
-                field.value = path
-                field.update()
-        except Exception:
-            pass
 
     def _remove_overlay(self, control):
         try:
@@ -362,6 +353,70 @@ class StatusSidebar:
             self.page.update()
         except (ValueError, AssertionError):
             pass
+
+    def _pick_folder(self, field):
+        """选择文件夹，结果写入 field.value"""
+        import subprocess as _sp
+        if self._config.system == "windows":
+            try:
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$o=New-Object System.Windows.Forms.Form; "
+                    "$o.TopMost=$true; $o.ShowInTaskbar=$false; "
+                    "$o.WindowState='Minimized'; $o.Show(); "
+                    "$d=New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$d.Description='选择项目文件夹'; "
+                    "$r=($d.ShowDialog($o) -eq 'OK'); "
+                    "$o.Close(); "
+                    "if($r){$d.SelectedPath}"
+                )
+                r = _sp.run(
+                    ["powershell", "-NoProfile", "-Command", ps_script],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+                )
+                path = r.stdout.strip()
+                if path:
+                    field.value = path
+                    field.update()
+            except Exception as e:
+                if self._eqm:
+                    self._eqm.send_display(f"[WARN] 选择文件夹失败: {e}", style="task")
+                else:
+                    import sys
+                    print(f"[WARN] 选择文件夹失败: {e}", file=sys.stderr)
+        else:
+            if self._config.system == "darwin":
+                try:
+                    r = _sp.run(
+                        ["osascript", "-e", 'POSIX path of (choose folder with prompt "选择文件夹")'],
+                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+                    )
+                    path = r.stdout.strip()
+                    if path:
+                        field.value = path
+                        field.update()
+                except Exception as e:
+                    if self._eqm:
+                        self._eqm.send_display(f"[WARN] 选择文件夹失败: {e}", style="task")
+                    else:
+                        import sys
+                        print(f"[WARN] 选择文件夹失败: {e}", file=sys.stderr)
+            else:
+                try:
+                    r = _sp.run(
+                        ["zenity", "--file-selection", "--directory", "--title=选择文件夹"],
+                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+                    )
+                    path = r.stdout.strip()
+                    if path:
+                        field.value = path
+                        field.update()
+                except Exception as e:
+                    if self._eqm:
+                        self._eqm.send_display(f"[WARN] zenity 选择文件夹失败: {e}", style="task")
+                    else:
+                        import sys
+                        print(f"[WARN] zenity 选择文件夹失败: {e}", file=sys.stderr)
 
     def _save_new_task(self, data: dict):
         """创建新任务文件并保存"""
@@ -575,8 +630,8 @@ class StatusSidebar:
 
         dlg = ft.AlertDialog(
             bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),
-            content_padding=ft.Padding(20, 10, 20, 4),
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             actions_padding=ft.Padding(20, 0, 20, 10),
             title=ft.Row([
                 ft.Icon(title_icon, size=20),
@@ -615,6 +670,9 @@ class StatusSidebar:
     def _on_dlg_pick_time(self, e):
         ds = self._ds
         td = ft.AlertDialog(
+            bgcolor=self.DIALOG_BGCOLOR,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("选择执行时间"),
             content=ft.Container(
                 content=ft.CupertinoDatePicker(
@@ -647,6 +705,7 @@ class StatusSidebar:
         self.page.update()
 
     def _on_dlg_pick_path(self, e):
+        """选择文件夹"""
         self._pick_folder(self._ds["path_field"])
 
     def _on_dlg_periodic_change(self, e):
@@ -720,7 +779,8 @@ class StatusSidebar:
 
         dlg = ft.AlertDialog(
             bgcolor=self.DIALOG_BGCOLOR,
-            shape=ft.RoundedRectangleBorder(radius=3),
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确认删除任务「{name}」？此操作不可撤销。", size=13),
             actions=[
@@ -758,7 +818,7 @@ class StatusSidebar:
         if not pp:
             return
         try:
-            if os.name == "nt":
+            if self._config.system == "windows":
                 os.startfile(pp)
             elif platform.system() == "Darwin":
                 subprocess.Popen(["open", pp])

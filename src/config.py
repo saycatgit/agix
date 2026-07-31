@@ -214,7 +214,9 @@ class AppConfig:
         effective_root = str(AppConfig._init_user_home())
         self.paths = PathConfig(root=effective_root)
         self._init_dirs()
-        if not self.execution.config_work_dir:
+        if self.execution.config_work_dir and not os.path.isdir(self.execution.config_work_dir):
+            print(f"[ERROR] 配置的工作目录无效，已回退为当前目录: {self.execution.config_work_dir}", file=sys.stderr)
+        if not os.path.isdir(self.execution.config_work_dir):
             self.execution.config_work_dir = os.getcwd()
         self.paths.current_work_dir = self.execution.config_work_dir
         self._init_api_key()
@@ -275,8 +277,9 @@ class AppConfig:
         if p.exists():
             user = json.loads(open(p, encoding="utf-8").read())
             cfg._merge(user)
-            # _merge 后同步 current_work_dir
-            if not cfg.execution.config_work_dir:
+            if cfg.execution.config_work_dir and not os.path.isdir(cfg.execution.config_work_dir):
+                print(f"[ERROR] 配置的工作目录无效，已回退为当前目录: {cfg.execution.config_work_dir}", file=sys.stderr)
+            if not os.path.isdir(cfg.execution.config_work_dir):
                 cfg.execution.config_work_dir = os.getcwd()
             cfg.paths.current_work_dir = cfg.execution.config_work_dir
             if "llm_list" in user and user["llm_list"]:

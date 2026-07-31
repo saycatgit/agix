@@ -75,7 +75,9 @@ class ModelSettingsPanel:
             self._dirty = False
             self._do_close()
         dlg = ft.AlertDialog(
-            shape=ft.RoundedRectangleBorder(radius=3),
+            bgcolor=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("未保存的修改"),
             content=ft.Text("当前有未保存的修改，关闭将丢失这些更改。确定要放弃修改吗？"),
             actions=[
@@ -275,7 +277,9 @@ class ModelSettingsPanel:
 
         name_field = ft.TextField(label="供应商名称", hint_text="输入新供应商名称", dense=True)
         dlg = ft.AlertDialog(
-            shape=ft.RoundedRectangleBorder(radius=3),
+            bgcolor=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("添加供应商"),
             content=name_field,
             actions=[
@@ -372,7 +376,7 @@ class ModelSettingsPanel:
             if self._on_saved:
                 self._on_saved()
         except Exception as ex:
-            self.page.show_dialog(ft.AlertDialog(shape=ft.RoundedRectangleBorder(radius=3), content_padding=ft.Padding(20, 20, 20, 20),
+            self.page.show_dialog(ft.AlertDialog(bgcolor=ft.Colors.WHITE, shape=ft.RoundedRectangleBorder(radius=6), content_padding=ft.Padding(16, 16, 16, 16),
                 title=ft.Text(self.SAVE_FAIL_TITLE), content=ft.Text(str(ex)),
             ))
 
@@ -400,7 +404,9 @@ class ModelSettingsPanel:
             self._mark_dirty()
 
         dlg = ft.AlertDialog(
-            shape=ft.RoundedRectangleBorder(radius=3),
+            bgcolor=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("确认删除"),
             content=ft.Text(f"确定要删除供应商「{provider}」的所有配置吗？此操作不可撤销。"),
             actions=[

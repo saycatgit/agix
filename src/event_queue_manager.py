@@ -48,9 +48,9 @@ class EventQueueManager:
     @staticmethod
     def make_msg(content: str, msg_type, msg_id: str = "",
                  style: MsgStyle | None = None) -> dict:
-        msg = {MsgField.CONTENT: content, MsgField.TYPE: str(msg_type)}
+        msg = {MsgField.CONTENT: content, MsgField.TYPE: msg_type}
         if style is not None:
-            msg[MsgField.STYLE] = str(style)
+            msg[MsgField.STYLE] = style
         msg[MsgField.ID] = msg_id or str(uuid.uuid4())
         return msg
 

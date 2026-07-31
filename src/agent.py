@@ -33,7 +33,7 @@ class Agent:
 
         self.skills_dir = config.paths.skills_dir
         self.chater = Chater(agent=self, config=self.config, logger=self.logger, eqm=self.eqm)
-        self.executor = Executor(self, self.config.paths.task_dir, eqm=self.eqm)
+        self.executor = Executor(self, self.config.paths.task_dir)
 
         if self.eqm:
             self.executor.start()

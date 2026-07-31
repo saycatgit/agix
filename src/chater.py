@@ -73,7 +73,7 @@ class Chater:
         llm.set_memory_file(fpath)
         os.makedirs(os.path.dirname(fpath), exist_ok=True)
         if not os.path.exists(fpath):
-            with open(fpath, "w") as _:
+            with open(fpath, "w", encoding='utf-8') as _:
                 pass
         task_manager.set_subtask_llm_context_info("memory.jsonl")
         task_manager.save()

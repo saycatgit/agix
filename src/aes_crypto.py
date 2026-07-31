@@ -9,6 +9,7 @@ import hashlib
 import base64
 import subprocess
 import secrets
+import sys
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
@@ -42,31 +43,34 @@ def _get_disk_serial_linux() -> str:
     try:
         result = subprocess.run(
             ['lsblk', '-o', 'SERIAL', '-n', '-d'],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=5,
+            encoding='utf-8', errors='replace'
         )
         lines = [l.strip() for l in result.stdout.split('\n') if l.strip()]
         if lines:
             return lines[0]
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[WARN] aes_crypto: lsblk failed: {e}", file=sys.stderr)
 
     # 2. /sys 文件系统
     for dev in ['sda', 'vda', 'nvme0n1', 'hda', 'xvda']:
         path = f'/sys/block/{dev}/device/serial'
         try:
-            with open(path) as f:
+            with open(path, encoding='utf-8') as f:
                 serial = f.read().strip()
                 if serial:
                     return serial
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] aes_crypto: /sys/block/{dev}/serial read failed: {e}", file=sys.stderr)
             continue
 
     # 3. /etc/machine-id
     try:
-        with open('/etc/machine-id') as f:
+        with open('/etc/machine-id', encoding='utf-8') as f:
             return f.read().strip()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] aes_crypto: /etc/machine-id read failed: {e}", file=sys.stderr)
 
     # 兜底
     import socket
@@ -80,26 +84,30 @@ def _get_disk_serial_windows() -> str:
         result = subprocess.run(
             ['powershell', '-Command',
              'Get-PhysicalDisk | Select-Object -ExpandProperty SerialNumber'],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            encoding='utf-8', errors='replace'
         )
         serial = result.stdout.strip()
         if serial:
             return serial
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[WARN] aes_crypto: Get-PhysicalDisk failed: {e}", file=sys.stderr)
 
     # 2. wmic diskdrive
     try:
         result = subprocess.run(
             ['wmic', 'diskdrive', 'get', 'serialnumber'],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            encoding='utf-8', errors='replace'
         )
         lines = [l.strip() for l in result.stdout.split('\n') if l.strip()
                  and l.strip().lower() != 'serialnumber']
         if lines:
             return lines[0]
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[WARN] aes_crypto: wmic diskdrive failed: {e}", file=sys.stderr)
 
     # 兜底
     import socket
@@ -112,29 +120,33 @@ def _get_disk_serial_macos() -> str:
     try:
         result = subprocess.run(
             ['system_profiler', 'SPHardwareDataType'],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            encoding='utf-8', errors='replace'
         )
         for line in result.stdout.split('\n'):
             if 'Hardware UUID' in line:
                 uuid_val = line.split(':')[-1].strip()
                 if uuid_val:
                     return uuid_val
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[WARN] aes_crypto: system_profiler failed: {e}", file=sys.stderr)
 
     # 2. ioreg（获取 IOPlatformUUID）
     try:
         result = subprocess.run(
             ['ioreg', '-d2', '-c', 'IOPlatformExpertDevice'],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            encoding='utf-8', errors='replace'
         )
         for line in result.stdout.split('\n'):
             if 'IOPlatformUUID' in line:
                 uuid_val = line.split('"')[-2] if '"' in line else ''
                 if uuid_val:
                     return uuid_val
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[WARN] aes_crypto: ioreg failed: {e}", file=sys.stderr)
 
     # 兜底
     import socket

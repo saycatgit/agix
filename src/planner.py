@@ -22,7 +22,7 @@ class Planner:
     def __init__(self, config, logger=None, eqm=None):
         self.config = config
         self.llm = LLMClient(config.llm, logger=logger,
-                             log_history=config.log.history)
+                             log_history=config.log.history, eqm=eqm)
         self._eqm = eqm
         self.prompts = Prompts(config.paths.task_config_file_path)
 

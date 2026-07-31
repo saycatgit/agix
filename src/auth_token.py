@@ -15,7 +15,7 @@ class AuthToken:
         """持久化 token 到本地文件。"""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {"token": token, "phone": phone, "expires_at": expires_at}
-        with open(self._path, "w") as f:
+        with open(self._path, "w", encoding='utf-8') as f:
             json.dump(data, f)
 
     def load(self) -> str | None:
@@ -23,7 +23,7 @@ class AuthToken:
         if not self._path.exists():
             return None
         try:
-            with open(self._path) as f:
+            with open(self._path, encoding='utf-8') as f:
                 data = json.load(f)
             token = data.get("token")
             expires_at = data.get("expires_at", 0)

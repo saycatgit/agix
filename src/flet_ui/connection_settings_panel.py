@@ -66,11 +66,35 @@ class ConnectionSettingsPanel:
         return files
 
     async def _on_import_key(self, e):
-        """zenity 选择文件 → 复制到 keys 目录"""
-        proc = await asyncio.create_subprocess_exec(
-            "zenity", "--file-selection", "--title=选择 SSH 密钥文件",
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
+        """文件选择 → 复制到 keys 目录"""
+        if self.config.system == "windows":
+            ps_script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$o=New-Object System.Windows.Forms.Form; "
+                "$o.TopMost=$true; $o.ShowInTaskbar=$false; "
+                "$o.WindowState='Minimized'; $o.Show(); "
+                "$d=New-Object System.Windows.Forms.OpenFileDialog; "
+                "$d.Title='选择 SSH 密钥文件'; "
+                "$d.Filter='所有文件 (*.*)|*.*'; "
+                "$r=($d.ShowDialog($o) -eq 'OK'); "
+                "$o.Close(); "
+                "if($r){$d.FileName}"
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-NoProfile", "-Command", ps_script,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+        else:
+            if self.config.system == "darwin":
+                proc = await asyncio.create_subprocess_exec(
+                    "osascript", "-e", 'POSIX path of (choose file with prompt "选择 SSH 密钥文件")',
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    "zenity", "--file-selection", "--title=选择 SSH 密钥文件",
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
         stdout, _stderr = await proc.communicate()
         if proc.returncode != 0:
             return
@@ -109,7 +133,9 @@ class ConnectionSettingsPanel:
             self.page.pop_dialog()
 
         dlg = ft.AlertDialog(
-            shape=ft.RoundedRectangleBorder(radius=3),
+            bgcolor=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("粘贴密钥内容", size=14),
             content=ft.Column([
                 tf_name,
@@ -118,7 +144,7 @@ class ConnectionSettingsPanel:
             actions=[
                 ft.TextButton(content="取消", on_click=lambda e: self.page.pop_dialog()),
                 ft.ElevatedButton("保存", on_click=do_paste,
-                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=3))),
+                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6))),
             ],
         )
         self.page.show_dialog(dlg)
@@ -268,13 +294,15 @@ class ConnectionSettingsPanel:
     def _on_delete_key_click(self, e):
         filename = e.control.data
         dlg = ft.AlertDialog(
-            shape=ft.RoundedRectangleBorder(radius=3),
+            bgcolor=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=6),
+            content_padding=ft.Padding(16, 16, 16, 16),
             title=ft.Text("确认删除", size=14),
             content=ft.Text(f"确定删除密钥文件「{filename}」？此操作不可撤销。", size=13),
             actions=[
                 ft.TextButton(content="取消", on_click=lambda e: self.page.pop_dialog()),
                 ft.ElevatedButton("删除",
-                                  style=ft.ButtonStyle(color=ft.Colors.RED_400, shape=ft.RoundedRectangleBorder(radius=3)),
+                                  style=ft.ButtonStyle(color=ft.Colors.RED_400, shape=ft.RoundedRectangleBorder(radius=6)),
                                   on_click=lambda e, fn=filename: self._do_delete_key(fn)),
             ],
         )

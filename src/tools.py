@@ -411,6 +411,7 @@ class ToolExecutor:
                 cwd=cwd,
                 capture_output=True,
                 text=True,
+                encoding='utf-8', errors='replace',
                 input=(sudo_password + '\n') if sudo_password else None,
                 timeout=timeout,
             )
@@ -425,6 +426,11 @@ class ToolExecutor:
             return "\n".join(parts)
         except subprocess.TimeoutExpired:
             return "命令超时"
+        except Exception as e:
+            eqm = getattr(self, "eqm", None)
+            if eqm is not None:
+                eqm.send_display(f"命令执行异常: {e}", mode=getattr(self, "mode", "chat"), style=MsgStyle.STATUS)
+            return f"命令执行异常: {e}"
 
     def _resolve_sudo_password(self, command: str, note: str = ""):
         """获取 sudo 密码：先查内存缓存，有则确认，无则输入。"""

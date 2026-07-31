@@ -1,0 +1,159 @@
+name: Build Portable (多平台)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cython:
+        description: '启用 Cython 编译'
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Linux
+            runner: ubuntu-latest
+            artifact: agix_linux
+          - name: macOS
+            runner: macos-latest
+            artifact: agix_macos
+          - name: Windows
+            runner: windows-latest
+            artifact: agix_win.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装构建依赖
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller==6.21.0 cython==3.0.12
+
+      - name: 安装项目依赖
+        shell: bash
+        run: |
+          python3 -m pip install \
+            flet==0.85.3 \
+            flet_desktop==0.85.3 \
+            openai \
+            cryptography \
+            requests \
+            paramiko \
+            pydantic \
+            httpx \
+            anyio \
+            sniffio \
+            h11 \
+            httpcore \
+            certifi \
+            idna \
+            urllib3 \
+            charset-normalizer \
+            cffi \
+            pycparser \
+            bcrypt \
+            pynacl \
+            typing-extensions \
+            typing-inspection \
+            tqdm \
+            distro \
+            invoke \
+            oauthlib \
+            repath \
+            jiter \
+            pydantic-core \
+            annotated-types \
+            msgpack \
+            markdown-it-py \
+            prompt-toolkit \
+            debugpy
+
+      - name: 验证 C 编译器
+        shell: bash
+        run: |
+          set -e
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "检查 MSVC cl.exe ..."
+            # GitHub windows runner 自带 VS，用 vswhere 定位
+            VSWHERE=$(find "C:/Program Files/Microsoft Visual Studio" -name vswhere.exe 2>/dev/null | head -1)
+            if [ -n "$VSWHERE" ]; then
+              VC_PATH=$("$VSWHERE" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
+              if [ -n "$VC_PATH" ]; then
+                echo "VC 路径: $VC_PATH"
+                echo "$VC_PATH/VC/Tools/MSVC"/*/bin/Hostx64/x64 >> $GITHUB_PATH || true
+              fi
+            fi
+            cl.exe 2>&1 | head -1 || echo "⚠ MSVC 未在 PATH 中，让 setuptools 自行查找"
+          else
+            echo "C 编译器: $(cc --version 2>&1 | head -1 || clang --version 2>&1 | head -1 || gcc --version 2>&1 | head -1)"
+          fi
+
+      - name: 构建 (${{ matrix.platform.name }})
+        shell: bash
+        run: |
+          set -e
+          # workflow_dispatch 可手动关闭；push tag 默认启用
+          USE_CYTHON="${{ github.event.inputs.cython }}"
+          USE_CYTHON="${USE_CYTHON:-true}"
+          CYTHON_FLAG="--cython"
+          [ "$USE_CYTHON" = "false" ] && CYTHON_FLAG=""
+          python3 src/build_portable_flet.py --clean $CYTHON_FLAG
+
+      - name: 重命名产物
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform.name }}" == "Windows" ]]; then
+            cp release/agix.exe "${{ matrix.platform.artifact }}"
+          else
+            cp release/agix "${{ matrix.platform.artifact }}"
+          fi
+          ls -lh "${{ matrix.platform.artifact }}"
+          if [[ "${{ matrix.platform.name }}" != "Windows" ]]; then
+            chmod +x "${{ matrix.platform.artifact }}"
+          fi
+
+      - name: 上传 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.artifact }}
+          path: ${{ matrix.platform.artifact }}
+          retention-days: 30
+
+      - name: 上传到阿里云
+        if: success()
+        shell: bash
+        run: |
+          # 安装 sshpass 并通过 rsync/scp 上传
+          # 需要预先配置 Secrets: ALIYUN_HOST, ALIYUN_USER, ALIYUN_SSH_KEY
+          if [ -n "${{ secrets.ALIYUN_HOST }}" ]; then
+            mkdir -p ~/.ssh
+            echo "${{ secrets.ALIYUN_SSH_KEY }}" > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            ssh-keyscan -H "${{ secrets.ALIYUN_HOST }}" >> ~/.ssh/known_hosts
+            scp "${{ matrix.platform.artifact }}" \
+                "${{ secrets.ALIYUN_USER }}@${{ secrets.ALIYUN_HOST }}:/usr/share/nginx/html/agix/${{ matrix.platform.artifact }}"
+            ssh "${{ secrets.ALIYUN_USER }}@${{ secrets.ALIYUN_HOST }}" \
+                "chmod 644 /usr/share/nginx/html/agix/${{ matrix.platform.artifact }}"
+            echo "✅ 已上传: https://www.agix.cc/agix/${{ matrix.platform.artifact }}"
+          else
+            echo "⏭ 跳过上传（未配置 ALIYUN_HOST secret）"
+          fi

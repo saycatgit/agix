@@ -59,7 +59,7 @@ class AgixUI:
         )
         self.page.on_keyboard_event = self._global_keyboard
         self.model_settings_panel = ModelSettingsPanel(page, agent.config, PROVIDERS)
-        self.sys_settings_panel = SystemSettingsPanel(page, agent.config)
+        self.sys_settings_panel = SystemSettingsPanel(page, agent.config, eqm=self.eqm)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
         self.connection_panel = ConnectionSettingsPanel(page, agent.config)
         self.about_panel = AboutPanel(page)
@@ -67,7 +67,8 @@ class AgixUI:
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir, agent.config.paths.token_file,
                                             extra_controls=[self.task_switch],
                                             on_chat_select=lambda p, s="": self._on_sidebar_select(p, s),
-                                            config=agent.config)
+                                            config=agent.config,
+                                            eqm=self.eqm)
 
         # 创建 Chat 模式的 task_manager 并初始化 Chater
         self._chat_task_manager = TaskManager()

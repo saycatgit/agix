@@ -28,7 +28,7 @@ class ChatPanel:
     INPUT_BORDER_RADIUS: int = 16
     INPUT_HINT: str = "输入消息..."
 
-    ASK_COLOR = ft.Colors.ORANGE
+    ASK_COLOR = ft.Colors.INDIGO
     STATUS_BAR_BGCOLOR = ft.Colors.WHITE
     STATUS_BAR_HEIGHT: int = 32
     MODEL_LABEL_COLOR = ft.Colors.GREY_500
@@ -37,7 +37,7 @@ class ChatPanel:
     NO_KEY_SUFFIX: str = " (未配置)"
     WORK_DIR_PREFIX: str = "当前工作目录："
 
-    INLINE_DIALOG_BGCOLOR = ft.Colors.ORANGE_50
+    INLINE_DIALOG_BGCOLOR = ft.Colors.INDIGO_50
 
     GREETING_TEXT: str = "你好！我是 Agix，你的 AI 开发助手。\n我可以帮你写代码、管理任务、回答问题。"
     STOPPING_TEXT: str = "正在停止..."
@@ -75,7 +75,19 @@ class ChatPanel:
         self._paused = False
 
     async def _launch_url(self, url: str):
-        await self.page.launch_url(url)
+        # 本地文件路径用系统默认程序打开，远程 URL 走 page.launch_url
+        if url.startswith("http://") or url.startswith("https://"):
+            await self.page.launch_url(url)
+        else:
+            if url.startswith("file://"):
+                url = url[7:]
+            if self.agent.config.system == "windows":
+                os.startfile(url)
+            else:
+                if self.agent.config.system == "darwin":
+                    subprocess.Popen(["open", url])
+                else:
+                    subprocess.Popen(["xdg-open", url])
 
     # ── 对外接口 ──
 
@@ -136,7 +148,11 @@ class ChatPanel:
         self._inline_dialog.content = ft.Column([
             ft.Row([
                 ft.Text("⚠️", size=16),
-                ft.Text(question, size=14, expand=True),
+                ft.Container(
+                    content=ft.Column([ft.Text(question, size=14)], scroll=ft.ScrollMode.AUTO),
+                    expand=True,
+                    height=200,
+                ),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
                 ft.OutlinedButton("否", on_click=_no, autofocus=True),
@@ -172,7 +188,11 @@ class ChatPanel:
         self._inline_dialog.content = ft.Column([
             ft.Row([
                 ft.Text("⚠️", size=16),
-                ft.Text(question, size=14, expand=True),
+                ft.Container(
+                    content=ft.Column([ft.Text(question, size=14)], scroll=ft.ScrollMode.AUTO),
+                    expand=True,
+                    height=200,
+                ),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
                 ft.OutlinedButton("拒绝", on_click=_deny),
@@ -340,8 +360,7 @@ class ChatPanel:
     def _switch_to_model(self, idx: int):
         self.agent.config.switch_llm(idx)
         self.agent.config.save()
-        self.agent.chat_llm.model = self.agent.config.llm.model
-        self.agent.chat_llm.api_key = self.agent.config.llm.api_key
+        self.agent.chater.chat_llm.reconfigure(self.agent.config.llm)
         self._model_label.value = self._get_active_label()
         self.page.update()
 
@@ -359,7 +378,10 @@ class ChatPanel:
         if self.agent.config.system == "windows":
             os.startfile(wd)
         else:
-            subprocess.Popen(["xdg-open", wd])
+            if self.agent.config.system == "darwin":
+                subprocess.Popen(["open", wd])
+            else:
+                subprocess.Popen(["xdg-open", wd])
 
     # ── 消息渲染辅助 ──
 

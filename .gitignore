@@ -17,7 +17,15 @@ inner_space/ssh/.keys/
 .cython_build/
 .pyinstaller_build/
 release/
-*.bak
+*.bak*
 whisper/models/
 .memory/
 datetime_check.log
+inner_space/auth_token.json
+inner_space/ssh/ssh.json
+inner_space/task/task_*_state.json
+server/.memory/
+agix/
+agix_win.exe
+agix_slim/
+agix_slim.tar.gz
