@@ -268,9 +268,9 @@ class ToolExecutor:
             param_str = f"stage={args.get('stage', '?')}"
 
         if note and param_str:
-            return f"{note}  [{name}] {param_str}"
+            return f"{note}\n\n [{name}] {param_str}"
         elif note:
-            return f"{note}  [{name}]"
+            return f"{note}\n\n [{name}]"
         else:
             return f"[{name}] {param_str}" if param_str else f"[{name}]"
 
@@ -361,7 +361,7 @@ class ToolExecutor:
         timeout = args.get("timeout", 30)
 
         # 检测 sudo 命令，智能获取密码
-        needs_sudo = bool(re.search(r'\bsudo\b', command))
+        needs_sudo = bool(re.search(r'(?:^\s*|[;&|]\s*)sudo\b', command))
         sudo_password = None
         if needs_sudo:
             if os.name == 'nt':
@@ -371,38 +371,38 @@ class ToolExecutor:
                 return "用户取消 sudo 密码输入，命令未执行"
             command = re.sub(r'(^|\s)sudo\b', r'\1sudo -S', command)
 
-        # 危险命令检查 (auth.py AuthHandler)
-        auth_handler = getattr(self.agent, "auth", None) if self.agent else None
-        if auth_handler:
-            is_danger, matched_descs = auth_handler.check_dangerous(command)
+            # sudo 命令已通过密码验证，跳过危险命令检查
         else:
-            is_danger, matched_descs = False, []
-        if is_danger:
-            action = auth_handler.extract_action(command)
-            session_result = auth_handler.check_session(command)
-            if session_result == "allow":
-                pass  # 会话级别放行，直接执行
-            elif session_result == "deny":
-                return f"⚠️ 危险命令已拦截（本次会话禁止）: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
+            auth_handler = getattr(self.agent, "auth", None) if self.agent else None
+            if auth_handler:
+                is_danger, matched_descs = auth_handler.check_dangerous(command)
             else:
-                eqm = getattr(self, "eqm", None)
-                agent = getattr(self, "agent", None)
-                if agent and not agent.config.execution.interactive:
-                    return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
-                if eqm is not None:
-                    answer = eqm.ask_for_auth_confirmation(
-                        f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否执行？",
-                        mode=getattr(self, "mode", "chat"),
-                    )
-                    if answer == "allow_session":
-                        auth_handler.add_session_allow(action)
-                    elif answer == "deny_session":
-                        auth_handler.add_session_deny(action)
-                    elif answer != "allow":
-                        return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                is_danger, matched_descs = False, []
+            if is_danger:
+                action = auth_handler.extract_action(command)
+                session_result = auth_handler.check_session(command)
+                if session_result == "allow":
+                    pass
+                elif session_result == "deny":
+                    return f"⚠️ 危险命令已拦截（本次会话禁止）: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
                 else:
-                    # 无 eqm 时直接拒绝
-                    return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                    eqm = getattr(self, "eqm", None)
+                    agent = getattr(self, "agent", None)
+                    if agent and not agent.config.execution.interactive:
+                        return f"⚠️ 危险命令已拦截: {'; '.join(matched_descs)}\n命令: {command}\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                    if eqm is not None:
+                        answer = eqm.ask_for_auth_confirmation(
+                            f"⚠️ 检测到危险命令:\n{command}\n\n匹配模式: {'; '.join(matched_descs)}\n\n是否执行？",
+                            mode=getattr(self, "mode", "chat"),
+                        )
+                        if answer == "allow_session":
+                            auth_handler.add_session_allow(action)
+                        elif answer == "deny_session":
+                            auth_handler.add_session_deny(action)
+                        elif answer != "allow":
+                            return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
+                    else:
+                        return "用户取消执行危险命令。\n\n用户已禁止当前操作，请不要再做类似尝试。"
 
         try:
             r = subprocess.run(
@@ -415,6 +415,31 @@ class ToolExecutor:
                 input=(sudo_password + '\n') if sudo_password else None,
                 timeout=timeout,
             )
+
+            # sudo 密码错误：清除缓存，重新获取密码，重试一次
+            if needs_sudo and sudo_password and r.returncode != 0:
+                err_lower = (r.stderr or '').lower()
+                if any(kw in err_lower for kw in ('incorrect', 'try again', 'sorry',
+                       'authentication failure', '验证失败', '抱歉', '对不起')):
+                    agent = getattr(self, "agent", None)
+                    if agent and agent.config:
+                        agent.config.sudo_password = None
+                    # 重新获取密码（缓存已清除，直接弹密码输入框）
+                    sudo_password = self._resolve_sudo_password(command, note=args.get("note"))
+                    if sudo_password is None:
+                        return "sudo 密码错误，且用户取消重新输入"
+                    command = re.sub(r'(^|\s)sudo\b', r'\1sudo -S', command)
+                    r = subprocess.run(
+                        command,
+                        shell=True,
+                        cwd=cwd,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8', errors='replace',
+                        input=(sudo_password + '\n'),
+                        timeout=timeout,
+                    )
+
             out = r.stdout.strip()
             err = r.stderr.strip()
             parts = []
@@ -453,7 +478,7 @@ class ToolExecutor:
                 )
                 if answer.strip() in ("是", "yes", "y", "1"):
                     return config.sudo_password
-            # 用户选了"否"，继续要求输入
+            return None  # 用户选了"否"，拒绝当前命令
 
         eqm = getattr(self, "eqm", None)
         if eqm is not None:

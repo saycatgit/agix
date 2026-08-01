@@ -128,7 +128,7 @@ class LLMConfig:
     organization: str = ""
     project: str = ""
     default_headers: dict = field(default_factory=dict)
-    context_window: int = 40
+    context_window: int = 80
     label: str = ""
     active: bool = True
 
@@ -137,7 +137,7 @@ class LLMConfig:
 class ExecutionConfig:
     timeout: int = 60
     enable_history_task_association: bool = True
-    max_rounds: int = 40
+    max_rounds: int = 60
     memory_enabled: bool = True  # chat 模式持久记忆
     interactive: bool = True
     thinking: bool = True

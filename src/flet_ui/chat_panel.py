@@ -114,37 +114,52 @@ class ChatPanel:
             autofocus=True, expand=True, text_size=14,
         )
 
-        def _submit(e):
+        async def _submit(e):
             self.eqm.respond_to_ask(pwd_field.value or "", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
-        def _cancel(e):
+        async def _cancel(e):
             self.eqm.respond_to_ask("", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
         pwd_field.on_submit = _submit
-        self._inline_dialog.content = ft.Row([
-            ft.Text(question + "：", size=14),
-            pwd_field,
-            ft.TextButton(self.CANCEL_LABEL, on_click=_cancel),
-            ft.ElevatedButton(self.CONFIRM_LABEL, on_click=_submit),
-        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self._inline_dialog.content = ft.Column([
+            ft.Container(
+                content=ft.Column([ft.Text(question, size=14, weight=ft.FontWeight.W_500)], scroll=ft.ScrollMode.AUTO),
+                expand=True,
+                height=200,
+            ),
+            ft.Row([
+                pwd_field,
+                ft.TextButton(self.CANCEL_LABEL, on_click=_cancel),
+                ft.ElevatedButton(self.CONFIRM_LABEL, on_click=_submit),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=8)
         self._inline_dialog.visible = True
         self.page.update()
 
     def show_confirm_dialog(self, question: str, msg_id: str, mode: str):
-        def _yes(e):
+        async def _yes(e):
             self.eqm.respond_to_ask("是", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
-        def _no(e):
+        async def _no(e):
             self.eqm.respond_to_ask("否", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
+        _deny_btn_ref = ft.Ref[ft.OutlinedButton]()
         self._inline_dialog.content = ft.Column([
             ft.Row([
                 ft.Text("⚠️", size=16),
@@ -165,26 +180,35 @@ class ChatPanel:
     def show_auth_confirm_dialog(self, question: str, msg_id: str, mode: str):
         """4按钮敏感命令确认弹窗：允许 / 本次会话允许 / 拒绝 / 本次会话拒绝"""
 
-        def _allow(e):
+        async def _allow(e):
             self.eqm.respond_to_ask("allow", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
-        def _allow_session(e):
+        async def _allow_session(e):
             self.eqm.respond_to_ask("allow_session", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
-        def _deny(e):
+        async def _deny(e):
             self.eqm.respond_to_ask("deny", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
-        def _deny_session(e):
+        async def _deny_session(e):
             self.eqm.respond_to_ask("deny_session", msg_id=msg_id, mode=mode)
             self._inline_dialog.visible = False
             self.page.update()
+            await asyncio.sleep(0.1)
+            await self._input_field.focus()
 
+        _deny_btn_ref = ft.Ref[ft.OutlinedButton]()
         self._inline_dialog.content = ft.Column([
             ft.Row([
                 ft.Text("⚠️", size=16),
@@ -195,16 +219,22 @@ class ChatPanel:
                 ),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
-                ft.OutlinedButton("拒绝", on_click=_deny),
-                ft.OutlinedButton("本次会话拒绝", on_click=_deny_session),
-            ], spacing=6),
+                ft.OutlinedButton("拒绝", ref=_deny_btn_ref, on_click=_deny, expand=True),
+                ft.OutlinedButton("本次会话拒绝", on_click=_deny_session, expand=True),
+            ], spacing=6, alignment=ft.MainAxisAlignment.START),
             ft.Row([
-                ft.ElevatedButton("允许", on_click=_allow),
-                ft.FilledTonalButton("本次会话允许", on_click=_allow_session),
-            ], spacing=6, alignment=ft.MainAxisAlignment.END),
+                ft.ElevatedButton("允许", on_click=_allow, expand=True),
+                ft.FilledTonalButton("本次会话允许", on_click=_allow_session, expand=True),
+            ], spacing=6, alignment=ft.MainAxisAlignment.START),
         ], spacing=10)
         self._inline_dialog.visible = True
         self.page.update()
+
+        async def _focus_deny():
+            await _deny_btn_ref.current.focus()
+            self.page.update()
+
+        self.page.run_task(_focus_deny)
 
 
     def add_greeting(self):
@@ -215,7 +245,7 @@ class ChatPanel:
     def _build(self):
         self._cl = ft.ListView(expand=True, spacing=8, padding=15, auto_scroll=True)
         self._ca = ft.Text("", size=12, color=self.ASK_COLOR, visible=False)
-        self._ci = ft.TextField(
+        self._input_field = ft.TextField(
             hint_text=self.INPUT_HINT, border=ft.InputBorder.OUTLINE,
             border_color=self.INPUT_BORDER_COLOR,
             focused_border_color=self.INPUT_FOCUSED_BORDER_COLOR,
@@ -226,7 +256,7 @@ class ChatPanel:
             on_blur=lambda e: (setattr(self, '_input_focused', False), self._toggle_action_btn()),
             on_change=lambda e: self._toggle_action_btn(),
         )
-        self._ci.on_submit = lambda e: self._send()
+        self._input_field.on_submit = lambda e: self._send()
 
 
         self._model_label = ft.Text(self._get_active_label(), size=13, color=self.MODEL_LABEL_COLOR)
@@ -276,7 +306,7 @@ class ChatPanel:
             self._inline_dialog,
             ft.Row([self._ca], alignment=ft.MainAxisAlignment.START),
             ft.Container(content=ft.Row([
-                self._ci,
+                self._input_field,
                 self._action_btn,
             ]), padding=ft.Padding(left=10, right=10, top=6, bottom=4)),
             sb_ctrl,
@@ -290,7 +320,7 @@ class ChatPanel:
             self._action_btn.on_click = lambda e: self._stop()
             self._action_btn.update()
             return
-        if self._ci.value.strip():
+        if self._input_field.value.strip():
             self._action_btn.icon = ft.Icons.SEND
             self._action_btn.tooltip = self.SEND_TOOLTIP
             self._action_btn.on_click = lambda e: self._send()
@@ -299,12 +329,12 @@ class ChatPanel:
             self._action_btn.tooltip = self.STOP_TOOLTIP
             self._action_btn.on_click = lambda e: self._stop()
         self._action_btn.update()
-        self._ci.update()
+        self._input_field.update()
 
     # ── 发送 / 停止 ──
 
     def _send(self):
-        t = self._ci.value.strip()
+        t = self._input_field.value.strip()
         if not t:
             return
         self._paused = False
@@ -314,15 +344,15 @@ class ChatPanel:
         else:
             self.eqm.send_display(t, mode="chat", style=self._MsgStyle.USER)
             self.eqm.send_user_input(t, mode="chat")
-        self._ci.value = ""
-        self._ci.update()
+        self._input_field.value = ""
+        self._input_field.update()
         self._toggle_action_btn()
 
         async def _refocus():
             await asyncio.sleep(0.1)
-            await self._ci.focus()
-            self._ci.value = ""
-            self._ci.update()
+            await self._input_field.focus()
+            self._input_field.value = ""
+            self._input_field.update()
             self._toggle_action_btn()
         self.page.run_task(_refocus)
 
@@ -334,8 +364,8 @@ class ChatPanel:
             self._send()
         elif e.key == "Enter" and e.ctrl:
             # Ctrl+Enter → 插入换行
-            self._ci.value += "\n"
-            self._ci.update()
+            self._input_field.value += "\n"
+            self._input_field.update()
 
 
     def _stop(self):

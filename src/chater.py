@@ -115,6 +115,7 @@ class Chater:
         prompt = (self.prompts.chat_prompt + pretask
                   + f"当前工作目录: {self.frontend_task_manager.subtask.project_path}\n所有文件操作请在此目录下进行。\n")
         # self.eqm.send_debug(f"chater prompt 中工作目录{self.frontend_task_manager.subtask.project_path}")
+        self._log(f"prompt len :{len(prompt)}")
         msg = user_message
         rounds = 0
         while True:
