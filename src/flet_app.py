@@ -253,8 +253,8 @@ def build_login_view(page: ft.Page, on_login_success, server_url="http://127.0.0
         try:
             login_btn.disabled = True; login_btn.text = "等待浏览器登录..."; st.value = "正在打开登录页..."; page.update()
             sid = uuid.uuid4().hex[:12]
-            import platform
-            client_system = platform.system()
+            from config import AppConfig
+            client_system = AppConfig().system
             webbrowser.open(f"{server_url}/login?session_id={sid}&client_system={client_system}")
             st.value = "已打开浏览器"; page.update()
             import urllib.request as _ur

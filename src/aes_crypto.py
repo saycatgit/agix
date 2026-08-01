@@ -23,14 +23,14 @@ def _get_disk_serial() -> str:
       Windows: Get-PhysicalDisk → wmic → hostname
       macOS:   system_profiler SPHardwareDataType → hostname
     """
-    import platform as _platform
-    system = _platform.system()
+    from config import AppConfig
+    system = AppConfig().system
 
-    if system == 'Linux':
+    if system == 'linux':
         return _get_disk_serial_linux()
-    elif system == 'Windows':
+    elif system == 'windows':
         return _get_disk_serial_windows()
-    elif system == 'Darwin':
+    elif system == 'darwin':
         return _get_disk_serial_macos()
     else:
         import socket

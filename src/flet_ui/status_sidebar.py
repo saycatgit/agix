@@ -1,7 +1,7 @@
 """任务状态侧边栏 —— 展示当前任务（state 文件）和计划任务（task_{ts}.json）"""
 
 import sys
-import json, os, subprocess, platform
+import json, os, subprocess
 from datetime import datetime
 import flet as ft
 from task_attribute_manager import TaskAttributeManager
@@ -544,7 +544,6 @@ class StatusSidebar:
             label="周期间隔", hint_text="如 1d / 12h / 30m",
             value=_period, dense=True, visible=_periodic,
         )
-        interactive_switch = ft.Switch(label="交互模式", value=_interactive)
         status_dd = ft.Dropdown(
             label="任务状态",
             options=[ft.dropdown.Option(key=SubTaskStatus.SKIPPED.value, text="已跳过"),
@@ -566,7 +565,6 @@ class StatusSidebar:
             "path_field": path_field, "path_error": path_error,
             "periodic_switch": periodic_switch,
             "period_field": period_field,
-            "interactive_switch": interactive_switch,
             "status_dd": status_dd,
             "form": {
                 "task_type": current_cat,
@@ -622,8 +620,9 @@ class StatusSidebar:
         content_sections.append(ft.Column([
             ft.Text("任务设置", size=12, color=ft.Colors.GREY_500,
                     weight=ft.FontWeight.BOLD),
-            periodic_switch, period_field, interactive_switch, status_dd,
-        ], spacing=10))
+            periodic_switch,
+            ft.Column([period_field, status_dd], spacing=10),
+        ], spacing=16))
 
         title_text = "编辑任务" if is_edit else "添加任务"
         title_icon = ft.Icons.EDIT_NOTE if is_edit else ft.Icons.ADD_TASK
@@ -734,7 +733,6 @@ class StatusSidebar:
         ds["form"]["project_path"] = ds["path_field"].value or ""
         ds["form"]["period"] = ds["period_field"].value or "1d"
         ds["form"]["status"] = ds["status_dd"].value
-        ds["form"]["is_interactive"] = ds["interactive_switch"].value
 
         self._close_dialog(ds["dlg"])
 
@@ -820,7 +818,7 @@ class StatusSidebar:
         try:
             if self._config.system == "windows":
                 os.startfile(pp)
-            elif platform.system() == "Darwin":
+            elif self._config.system == "darwin":
                 subprocess.Popen(["open", pp])
             else:
                 subprocess.Popen(["xdg-open", pp])

@@ -1,7 +1,8 @@
 """通用工具类：系统提示音、加解密等"""
 
-import os, platform
+import os
 import subprocess
+from config import AppConfig
 
 
 class Utils:
@@ -11,11 +12,11 @@ class Utils:
     def play_notification():
         """播放系统提示音（跨平台）。"""
         try:
-            system = platform.system()
-            if system == 'Windows':
+            system = AppConfig().system
+            if system == 'windows':
                 import winsound
                 winsound.MessageBeep()
-            elif system == 'Darwin':
+            elif system == 'darwin':
                 subprocess.run(['afplay', '/System/Library/Sounds/Ping.aiff'],
                                capture_output=True, timeout=2)
             else:

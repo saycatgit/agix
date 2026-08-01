@@ -235,15 +235,15 @@ class ModelSettingsPanel:
             self._s_base_url.value = found.get("base_url", "") or info.get("base_url", "")
             self._s_apikey.value = self._provider_keys.get(k, found.get("api_key", ""))
             self._s_temp.value = str(found.get("temperature", 0.7))
-            self._s_max_tok.value = str(found.get("max_tokens", 4096))
-            self._s_mem_size.value = str(found.get("context_window", 20))
+            self._s_max_tok.value = str(found.get("max_tokens", 10240))
+            self._s_mem_size.value = str(found.get("context_window", 80))
         else:
             self._s_custom_model.value = ""
             self._s_base_url.value = info.get("base_url", "")
             self._s_apikey.value = self._provider_keys.get(k, "")
             self._s_temp.value = "0.7"
-            self._s_max_tok.value = "4096"
-            self._s_mem_size.value = "20"
+            self._s_max_tok.value = "10240"
+            self._s_mem_size.value = "80"
         self._refresh_provider_btns()
         self._refresh_model_chips(k)
         self._mark_dirty()
@@ -268,8 +268,8 @@ class ModelSettingsPanel:
             self._s_base_url.value = info.get("base_url", "")
             self._s_apikey.value = self._provider_keys.get(name, "")
             self._s_temp.value = "0.7"
-            self._s_max_tok.value = "4096"
-            self._s_mem_size.value = "20"
+            self._s_max_tok.value = "10240"
+            self._s_mem_size.value = "80"
             self._refresh_provider_btns()
             self._refresh_model_chips(name)
             self._mark_dirty()
@@ -447,8 +447,8 @@ class ModelSettingsPanel:
         self._s_base_url.value = entry.get("base_url", "")
         self._s_apikey.value = entry.get("api_key", "")
         self._s_temp.value = str(entry.get("temperature", 0.7))
-        self._s_max_tok.value = str(entry.get("max_tokens", 4096))
-        self._s_mem_size.value = str(entry.get("context_window", 20))
+        self._s_max_tok.value = str(entry.get("max_tokens", 10240))
+        self._s_mem_size.value = str(entry.get("context_window", 80))
         self._model_val = entry.get("model", "")
         self._refresh_model_chips(provider)
         prov_keys = {e["provider"]: e.get("api_key", "") for e in self.config.llm_list if e.get("api_key")}

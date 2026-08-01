@@ -1,3 +1,4 @@
+from config import AppConfig
 from meta import MsgStyle
 from utils import Utils
 """工具注册表: OpenAI function calling 格式的工具定义 + 系统提示词"""
@@ -257,13 +258,13 @@ class ToolExecutor:
             if isinstance(inp, str):
                 try: inp = json.loads(inp)
                 except Exception: inp = {}
-            param_str = f"{inp.get('type', '?')}: {_trunc(str(inp.get('content', '')), 60)}"
+            param_str = f"{inp.get('type', '?')}: {_trunc(str(inp.get('content', '')), 80)}"
         elif name == "task_management":
             task = args.get("task", {})
             if isinstance(task, str):
                 try: task = json.loads(task)
                 except Exception: task = {}
-            param_str = f"{task.get('type', '?')}: {_trunc(str(task.get('content', '')), 60)}"
+            param_str = f"{task.get('type', '?')}: {_trunc(str(task.get('content', '')), 80)}"
         elif name == "update_plan":
             param_str = f"stage={args.get('stage', '?')}"
 
@@ -364,7 +365,7 @@ class ToolExecutor:
         needs_sudo = bool(re.search(r'(?:^\s*|[;&|]\s*)sudo\b', command))
         sudo_password = None
         if needs_sudo:
-            if os.name == 'nt':
+            if AppConfig().system == 'windows':
                 return "Windows 不支持 sudo 提权。如需管理员权限，请以管理员身份运行终端（右键 → 以管理员身份运行）。"
             sudo_password = self._resolve_sudo_password(command,note=args.get("note"))
             if sudo_password is None:

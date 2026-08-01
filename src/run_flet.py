@@ -110,8 +110,8 @@ def _ensure_dependencies():
     if not missing:
         return
 
-    system = platform.system()
-    plat_map = {"Linux": "linux_x86_64", "Windows": "win_amd64", "Darwin": "macosx_arm64"}
+    system = AppConfig().system
+    plat_map = {"linux": "linux_x86_64", "windows": "win_amd64", "darwin": "macosx_arm64"}
     plat_dir = plat_map.get(system)
     if not plat_dir:
         print(f"⚠ 未知平台 {system}，跳过依赖安装")
@@ -151,10 +151,10 @@ def _get_flet_artifact_name() -> str:
         return get_artifact_filename()
     except Exception:
         # 兜底：按 flet 官方命名规则 fallback
-        system = platform.system()
-        if system == "Windows":
+        system = AppConfig().system
+        if system == "windows":
             return "flet-windows.zip"
-        if system == "Darwin":
+        if system == "darwin":
             return "flet-macos.tar.gz"
         # Linux fallback: 使用 flet 官方 arch 映射
         machine = platform.machine()
