@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """跨平台 portable 打包脚本 — 内置 Flet 客户端，免首次下载
 
-产物命名: agix-{version}-{platform}.zip（三平台统一 zip 格式）
+产物命名: agix-{version}-{platform}（裸二进制，不打 zip）
 与 build_portable.py 的区别：
   - 将 Flet 桌面客户端 tar.gz/zip 通过 --add-data 注入 flet_desktop/app/
   - 运行时 ensure_client_cached() 自动从内置归档解压，跳过网络下载
@@ -21,7 +21,6 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
-import zipfile
 from pathlib import Path
 
 # 确保能 import 同目录的 build_portable
@@ -175,16 +174,13 @@ def build_flet(clean=False, use_cython=False):
     size_mb = product.stat().st_size / (1024 * 1024)
     print(f"\n✅ 打包完成: {product} ({size_mb:.1f} MB)")
 
-    # 打包为带版本号的 zip（三平台统一 zip 格式）
-    zip_name = f"agix-{APP_VERSION}-{PLATFORM_TAG}.zip"
-    zip_path = RELEASE_DIR / zip_name
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(product, arcname=product.name)
-    print(f"📦 ZIP 产物: {zip_path}")
-
-    # 清理裸二进制，保留 zip 作为最终产物
-    product.unlink()
-    print(f"✅ 最终产物: {zip_path}")
+    # 重命名为带版本号的产物（不打 zip，避免 artifact 下载时双 zip）
+    final_name = f"agix-{APP_VERSION}-{PLATFORM_TAG}{exe_suffix}"
+    final_path = RELEASE_DIR / final_name
+    if final_path.exists():
+        final_path.unlink()
+    product.rename(final_path)
+    print(f"✅ 最终产物: {final_path}")
 
 
 if __name__ == "__main__":

@@ -140,8 +140,8 @@ jobs:
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agix-${{ matrix.platform.name }}-zip
-          path: release/*.zip
+          name: agix-${{ matrix.platform.name }}
+          path: release/agix-*
           retention-days: 30
 
   generate-latest:
@@ -177,19 +177,19 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
 
-          # 查找各平台 zip 文件名
-          LINUX_ZIP=$(find artifacts/ -name "agix-${VERSION}-linux-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
-          MACOS_ZIP=$(find artifacts/ -name "agix-${VERSION}-macos-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
-          WIN_ZIP=$(find artifacts/ -name "agix-${VERSION}-win-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
+          # 查找各平台产物文件名
+          LINUX_BIN=$(find artifacts/ -name "agix-${VERSION}-linux-*" -type f | head -1 | xargs basename 2>/dev/null || echo "")
+          MACOS_BIN=$(find artifacts/ -name "agix-${VERSION}-macos-*" -type f | head -1 | xargs basename 2>/dev/null || echo "")
+          WIN_BIN=$(find artifacts/ -name "agix-${VERSION}-win-*" -type f | head -1 | xargs basename 2>/dev/null || echo "")
 
           # 计算 SHA256
           calc_sha() {
-            local f=$(find artifacts/ -name "$1" | head -1)
+            local f=$(find artifacts/ -name "$1" -type f | head -1)
             if [ -n "$f" ]; then sha256sum "$f" | awk '{print $1}'; else echo ""; fi
           }
-          LINUX_SHA=$(calc_sha "$LINUX_ZIP")
-          MACOS_SHA=$(calc_sha "$MACOS_ZIP")
-          WIN_SHA=$(calc_sha "$WIN_ZIP")
+          LINUX_SHA=$(calc_sha "$LINUX_BIN")
+          MACOS_SHA=$(calc_sha "$MACOS_BIN")
+          WIN_SHA=$(calc_sha "$WIN_BIN")
 
           BASE_URL="https://www.agix.cc/agix"
 
@@ -201,15 +201,15 @@ jobs:
             "force_update": false,
             "downloads": {
               "linux": {
-                "url": "${BASE_URL}/${LINUX_ZIP}",
+                "url": "${BASE_URL}/${LINUX_BIN}",
                 "sha256": "${LINUX_SHA}"
               },
               "macos": {
-                "url": "${BASE_URL}/${MACOS_ZIP}",
+                "url": "${BASE_URL}/${MACOS_BIN}",
                 "sha256": "${MACOS_SHA}"
               },
               "windows": {
-                "url": "${BASE_URL}/${WIN_ZIP}",
+                "url": "${BASE_URL}/${WIN_BIN}",
                 "sha256": "${WIN_SHA}"
               }
             }
