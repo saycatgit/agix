@@ -1,0 +1,77 @@
+{
+  "execution": {
+    "timeout": 30,
+    "enable_history_task_association": true,
+    "max_rounds": 50,
+    "memory_enabled": true,
+    "interactive": true,
+    "thinking": false,
+    "config_work_dir": "/home/agent_native"
+  },
+  "log": {
+    "enabled": true,
+    "history": true
+  },
+  "auth": {
+    "sensitive_command_check": true
+  },
+  "llm_list": [
+    {
+      "provider": "deepseek",
+      "api_key": "enc:aes:vw0f3tXeVbYIjthAE9Ao5qbPQbtGE5-dOupGNis2SUN1GZEpHamOI5oNcY-Pb_VQUuxwUPC1hwMOe9trxniL",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-pro",
+      "temperature": 0.7,
+      "max_tokens": 10240,
+      "context_window": 80,
+      "label": "",
+      "active": false
+    },
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "api_key": "enc:aes:vw0f3tXeVbYIjthAE9Ao5qbPQbtGE5-dOupGNis2SUN1GZEpHamOI5oNcY-Pb_VQUuxwUPC1hwMOe9trxniL",
+      "base_url": "https://api.deepseek.com/v1",
+      "temperature": 0.7,
+      "max_tokens": 10240,
+      "context_window": 80,
+      "active": false,
+      "label": ""
+    },
+    {
+      "provider": "qianwen",
+      "model": "qwen3.8-max-preview",
+      "api_key": "enc:aes:qeTcsr-uO5c0PtwcjB6bcIWjImZIp0NKx_pgtCLSWZXyc4w6oYUkcQyNb3VkVNZAIV1x6ochID7lf3P6p2nqFLA_b31N2XlqlDQYs7k3mM6Qek92UjqOuaXui_ESMK5n3QX21kfMurZ97q2xKHmpTvi3NI_B5hpl7YOfv1Wmu8_0lbpO_x4Td52B6Gmp",
+      "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "context_window": 60,
+      "active": false,
+      "label": "",
+      "supports_vision": true
+    },
+    {
+      "provider": "qianwen",
+      "model": "qwen3.7-plus",
+      "api_key": "enc:aes:qeTcsr-uO5c0PtwcjB6bcIWjImZIp0NKx_pgtCLSWZXyc4w6oYUkcQyNb3VkVNZAIV1x6ochID7lf3P6p2nqFLA_b31N2XlqlDQYs7k3mM6Qek92UjqOuaXui_ESMK5n3QX21kfMurZ97q2xKHmpTvi3NI_B5hpl7YOfv1Wmu8_0lbpO_x4Td52B6Gmp",
+      "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "context_window": 60,
+      "active": false,
+      "label": ""
+    },
+    {
+      "provider": "qianwen",
+      "model": "qwen3.8-max",
+      "api_key": "enc:aes:wuGi9Vp6ybNbPVDSc-to8irXBPAIat80hBkl3Rjmuh8QSUjajmfjg2dLWqVKiBOCWVxWyw_stCdrA5r5e3Rjzd1HKK6oUtTqwre1bqHf99BbF3dO0ScZxCUzMdyRdtKxh-jT_Otsuyn5v78c42HdtFQ7THxYoh1elWyDgeJVWrK3b0A_yZ5uqMaohZN8yg==",
+      "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "context_window": 80,
+      "active": true,
+      "label": "",
+      "supports_vision": true
+    }
+  ]
+}

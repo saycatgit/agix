@@ -1,0 +1,23 @@
+{
+  "key_path": "",
+  "connections": [
+    {
+      "name": "aliyun-ecs",
+      "host": "8.130.188.188",
+      "port": 22,
+      "username": "root",
+      "auth_type": "key",
+      "key_path": ".keys/aliyun_8_130",
+      "password": ""
+    },
+    {
+      "name": "hp-win",
+      "host": "192.168.31.29",
+      "port": 22,
+      "username": "hp",
+      "auth_type": "password",
+      "password": "lihui",
+      "key_path": ""
+    }
+  ]
+}

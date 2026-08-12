@@ -1,0 +1,20 @@
+[
+  {
+    "name": "prompt_task_summary",
+    "description": "prompt_task_summary.md",
+    "path": "/home/agent_native/inner_space/spc/prompt_task_summary.md",
+    "source": "spc"
+  },
+  {
+    "name": "prompt_user_behavioural",
+    "description": "角色：用户行为与对话连续性档案专家",
+    "path": "/home/agent_native/inner_space/spc/prompt_user_behavioural.md",
+    "source": "spc"
+  },
+  {
+    "name": "skill",
+    "description": "skill相关",
+    "path": "/home/agent_native/inner_space/spc/skill.md",
+    "source": "spc"
+  }
+]

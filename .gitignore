@@ -8,10 +8,8 @@ log/
 .idea/
 .env
 venv/
-inner_space/config.json
 workspace/
 git-server/
-spc/
 .agent_permissions.json
 inner_space/ssh/.keys/
 .cython_build/
@@ -21,9 +19,6 @@ release/
 whisper/models/
 .memory/
 datetime_check.log
-inner_space/auth_token.json
-inner_space/ssh/ssh.json
-inner_space/task/task_*_state.json
 server/.memory/
 agix/
 agix_win.exe
