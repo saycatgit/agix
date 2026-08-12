@@ -182,14 +182,17 @@ jobs:
           MACOS_BIN=$(find artifacts/ -name "agix-${VERSION}-macos-*" -type f | head -1 | xargs basename 2>/dev/null || echo "")
           WIN_BIN=$(find artifacts/ -name "agix-${VERSION}-win-*" -type f | head -1 | xargs basename 2>/dev/null || echo "")
 
-          # 计算 SHA256
-          calc_sha() {
+          # 打包为 zip 并计算 SHA256
+          zip_and_sha() {
             local f=$(find artifacts/ -name "$1" -type f | head -1)
-            if [ -n "$f" ]; then sha256sum "$f" | awk '{print $1}'; else echo ""; fi
+            if [ -z "$f" ]; then echo ""; return; fi
+            local zipname="${1}.zip"
+            cp "$f" "${zipname}"
+            sha256sum "${zipname}" | awk '{print $1}'
           }
-          LINUX_SHA=$(calc_sha "$LINUX_BIN")
-          MACOS_SHA=$(calc_sha "$MACOS_BIN")
-          WIN_SHA=$(calc_sha "$WIN_BIN")
+          LINUX_SHA=$(zip_and_sha "$LINUX_BIN")
+          MACOS_SHA=$(zip_and_sha "$MACOS_BIN")
+          WIN_SHA=$(zip_and_sha "$WIN_BIN")
 
           BASE_URL="https://www.agix.cc/agix"
 
@@ -201,15 +204,15 @@ jobs:
             "force_update": false,
             "downloads": {
               "linux": {
-                "url": "${BASE_URL}/${LINUX_BIN}",
+                "url": "${BASE_URL}/${LINUX_BIN}.zip",
                 "sha256": "${LINUX_SHA}"
               },
               "macos": {
-                "url": "${BASE_URL}/${MACOS_BIN}",
+                "url": "${BASE_URL}/${MACOS_BIN}.zip",
                 "sha256": "${MACOS_SHA}"
               },
               "windows": {
-                "url": "${BASE_URL}/${WIN_BIN}",
+                "url": "${BASE_URL}/${WIN_BIN}.zip",
                 "sha256": "${WIN_SHA}"
               }
             }

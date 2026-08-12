@@ -18,14 +18,15 @@
   "llm_list": [
     {
       "provider": "deepseek",
-      "api_key": "enc:aes:vw0f3tXeVbYIjthAE9Ao5qbPQbtGE5-dOupGNis2SUN1GZEpHamOI5oNcY-Pb_VQUuxwUPC1hwMOe9trxniL",
+      "api_key": "enc:aes:IuZMwTz5xwKJlzScsQSyNTN2zCg4sqbOzn4tFboJn3ZTCkcCwsBDz_B7xeswKAwSrfwdUFEkErRlMEm-rMm4",
       "base_url": "https://api.deepseek.com/v1",
       "model": "deepseek-v4-pro",
       "temperature": 0.7,
       "max_tokens": 10240,
       "context_window": 80,
       "label": "",
-      "active": false
+      "active": true,
+      "supports_vision": false
     },
     {
       "provider": "deepseek",
@@ -69,7 +70,7 @@
       "temperature": 0.7,
       "max_tokens": 4096,
       "context_window": 80,
-      "active": true,
+      "active": false,
       "label": "",
       "supports_vision": true
     }
