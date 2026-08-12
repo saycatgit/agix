@@ -11,6 +11,8 @@ venv/
 workspace/
 git-server/
 .agent_permissions.json
+inner_space/auth_token.json
+inner_space/task/task_*_state.json
 inner_space/ssh/.keys/
 .cython_build/
 .pyinstaller_build/
