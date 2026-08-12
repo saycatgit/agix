@@ -46,6 +46,7 @@ def build_web(clean=False):
     cmd = [
         "flet", "build", "web",
         str(SRC_DIR),
+        "--no-prompt",
         "--module-name", "run_web",
         "--base-url", BASE_URL,
     ]
