@@ -1,14 +1,21 @@
 {
   "servers": {
     "amap": {
-      "command": "node",
-      "args": [
-        "/home/lihui/.npm-global/lib/node_modules/@amap/amap-maps-mcp-server/build/index.js"
-      ],
-      "desc": "高德地图：地理编码、逆地理编码、IP定位、天气、POI搜索、驾车/步行/公交/骑行路径规划、距离测量",
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "@amap/amap-maps-mcp-server"],
       "env": {
-        "AMAP_MAPS_API_KEY": "6d5e5cf229672e32a310f85b65cef8a7"
-      }
+        "AMAP_MAPS_API_KEY": "6d5e5cf229672e32a310f85b65cef8a7",
+        "PATH": "C:\\Program Files\\nodejs;C:\\Windows\\System32;C:\\Windows"
+      },
+      "desc": "高德地图：地理编码、逆地理编码、IP定位、天气、POI搜索、驾车/步行/公交/骑行路径规划、距离测量"
+    },
+    "bing-search": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "bing-cn-mcp"],
+      "env": {
+        "PATH": "C:\\Program Files\\nodejs;C:\\Windows\\System32;C:\\Windows"
+      },
+      "desc": "Bing搜索"
     }
   }
 }

@@ -50,7 +50,8 @@ class MCPClient:
             stderr=subprocess.PIPE,
             env=merged_env,
             cwd=self.cwd,
-            text=True,
+            text=True, 
+            encoding="utf-8",
             bufsize=1,
         )
         # 启动后台线程读取 stderr
@@ -268,7 +269,7 @@ if __name__ == "__main__":
             if len(sys.argv) >= 4:
                 tool_args = json.loads(sys.argv[3])
             result = client.call_tool(tool_name, tool_args)
-            print(result)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             # 默认列出工具
             tools = client.list_tools()

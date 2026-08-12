@@ -131,6 +131,7 @@ class LLMConfig:
     context_window: int = 80
     label: str = ""
     active: bool = True
+    supports_vision: bool = False
 
 
 @dataclass
@@ -298,7 +299,7 @@ class AppConfig:
                 if not e.get("api_key"):
                     e["active"] = False
             active_entry = next((e for e in cfg.llm_list if e.get("active") and e.get("api_key")), cfg.llm_list[0])
-            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window"):
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window", "supports_vision"):
                 if k in active_entry:
                     setattr(cfg.llm, k, active_entry[k])
             if "llm_max_allowed_rounds" in active_entry:
@@ -317,7 +318,7 @@ class AppConfig:
             for i, e in enumerate(self.llm_list):
                 e["active"] = (i == index)
             active = self.llm_list[index]
-            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window"):
+            for k in ("provider", "model", "api_key", "base_url", "temperature", "max_tokens", "context_window", "supports_vision"):
                 if k in active:
                     setattr(self.llm, k, active[k])
             if "llm_max_allowed_rounds" in active:

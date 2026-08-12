@@ -61,7 +61,7 @@ class AgixUI:
         self.model_settings_panel = ModelSettingsPanel(page, agent.config, PROVIDERS)
         self.sys_settings_panel = SystemSettingsPanel(page, agent.config, eqm=self.eqm)
         self.task_config_panel = TaskConfigPanel(page, agent.config)
-        self.connection_panel = ConnectionSettingsPanel(page, agent.config)
+        self.connection_panel = ConnectionSettingsPanel(page, agent)
         self.about_panel = AboutPanel(page)
         self.unified_settings = UnifiedSettingsPanel(page, self.model_settings_panel, self.sys_settings_panel, self.task_config_panel, self.connection_panel, self.about_panel)
         self.status_sidebar = StatusSidebar(page, agent.config.paths.task_dir, agent.config.paths.token_file,

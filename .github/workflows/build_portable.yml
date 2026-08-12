@@ -7,6 +7,10 @@ on:
         description: '启用 Cython 编译'
         type: boolean
         default: true
+      version:
+        description: '版本号（如 1.2.3，留空则用 0.0.0-dev）'
+        type: string
+        default: ''
   push:
     tags:
       - 'v*'
@@ -27,13 +31,10 @@ jobs:
         platform:
           - name: Linux
             runner: ubuntu-latest
-            artifact: agix_linux
           - name: macOS
             runner: macos-latest
-            artifact: agix_macos
           - name: Windows
             runner: windows-latest
-            artifact: agix_win
 
     steps:
       - name: Checkout
@@ -43,6 +44,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: 提取版本号并写入 version.py
+        shell: bash
+        run: |
+          set -e
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # 从 tag 提取: v1.2.3 → 1.2.3
+            VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "APP_VERSION = \"${VERSION}\"" > src/version.py
+          echo "APP_NAME = \"Agix\"" >> src/version.py
+          echo "✅ 版本号: ${VERSION}"
+          cat src/version.py
 
       - name: 安装构建依赖
         shell: bash
@@ -95,7 +113,6 @@ jobs:
           set -e
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             echo "检查 MSVC cl.exe ..."
-            # GitHub windows runner 自带 VS，用 vswhere 定位
             VSWHERE=$(find "C:/Program Files/Microsoft Visual Studio" -name vswhere.exe 2>/dev/null | head -1)
             if [ -n "$VSWHERE" ]; then
               VC_PATH=$("$VSWHERE" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
@@ -114,29 +131,135 @@ jobs:
         run: |
           set -e
           export PYTHONIOENCODING=utf-8
-          # workflow_dispatch 可手动关闭；push tag 默认启用
           USE_CYTHON="${{ github.event.inputs.cython }}"
           USE_CYTHON="${USE_CYTHON:-true}"
           CYTHON_FLAG="--cython"
           [ "$USE_CYTHON" = "false" ] && CYTHON_FLAG=""
           python3 src/build_portable_flet.py --clean $CYTHON_FLAG
 
-      - name: 重命名产物
+      - name: 上传 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agix-${{ matrix.platform.name }}-zip
+          path: release/*.zip
+          retention-days: 30
+
+  generate-latest:
+    name: 生成 latest.json
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 提取版本号
+        id: ver
         shell: bash
         run: |
-          if [[ "${{ matrix.platform.name }}" == "Windows" ]]; then
-            cp release/agix.exe "${{ matrix.platform.artifact }}"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
           else
-            cp release/agix "${{ matrix.platform.artifact }}"
+            VERSION="0.0.0-dev"
           fi
-          ls -lh "${{ matrix.platform.artifact }}"
-          if [[ "${{ matrix.platform.name }}" != "Windows" ]]; then
-            chmod +x "${{ matrix.platform.artifact }}"
-          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: 下载所有平台产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 生成 latest.json
+        shell: bash
+        run: |
+          set -e
+          VERSION="${{ steps.ver.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # 查找各平台 zip 文件名
+          LINUX_ZIP=$(find artifacts/ -name "agix-${VERSION}-linux-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
+          MACOS_ZIP=$(find artifacts/ -name "agix-${VERSION}-macos-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
+          WIN_ZIP=$(find artifacts/ -name "agix-${VERSION}-win-*.zip" | head -1 | xargs basename 2>/dev/null || echo "")
+
+          # 计算 SHA256
+          calc_sha() {
+            local f=$(find artifacts/ -name "$1" | head -1)
+            if [ -n "$f" ]; then sha256sum "$f" | awk '{print $1}'; else echo ""; fi
+          }
+          LINUX_SHA=$(calc_sha "$LINUX_ZIP")
+          MACOS_SHA=$(calc_sha "$MACOS_ZIP")
+          WIN_SHA=$(calc_sha "$WIN_ZIP")
+
+          BASE_URL="https://www.agix.cc/agix"
+
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "release_date": "${DATE}",
+            "notes": "",
+            "force_update": false,
+            "downloads": {
+              "linux": {
+                "url": "${BASE_URL}/${LINUX_ZIP}",
+                "sha256": "${LINUX_SHA}"
+              },
+              "macos": {
+                "url": "${BASE_URL}/${MACOS_ZIP}",
+                "sha256": "${MACOS_SHA}"
+              },
+              "windows": {
+                "url": "${BASE_URL}/${WIN_ZIP}",
+                "sha256": "${WIN_SHA}"
+              }
+            }
+          }
+          EOF
+
+          echo "✅ latest.json 生成完成:"
+          cat latest.json
+
+      - name: 上传 latest.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-json
+          path: latest.json
+          retention-days: 30
+
+  build-web:
+    name: Web
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装项目依赖
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install \
+            flet==0.85.3 \
+            openai \
+            cryptography \
+            requests \
+            paramiko
+
+      - name: 构建 Web
+        shell: bash
+        run: |
+          set -e
+          python3 src/build_web.py --clean
 
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform.artifact }}
-          path: ${{ matrix.platform.artifact }}
+          name: agix_web
+          path: release/agix_web.zip
           retention-days: 30

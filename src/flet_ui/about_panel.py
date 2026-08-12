@@ -2,6 +2,11 @@
 
 import flet as ft
 
+try:
+    from version import APP_VERSION
+except ImportError:
+    APP_VERSION = "0.0.0"
+
 
 class AboutPanel:
     """关于面板 —— 展示 Agix 基本信息"""
@@ -23,7 +28,7 @@ class AboutPanel:
                     size=13, color=ft.Colors.GREY_700),
             ft.Divider(height=24, color=ft.Colors.GREY_300),
             ft.Text("版本号", size=14, weight=ft.FontWeight.W_600),
-            ft.Text("v0.1.2", size=13, color=ft.Colors.GREY_700),
+            ft.Text(f"v{APP_VERSION}", size=13, color=ft.Colors.GREY_700),
             ft.Divider(height=24, color=ft.Colors.GREY_300),
             ft.Text("联系我们", size=14, weight=ft.FontWeight.W_600),
             ft.Text("如有问题或建议，欢迎通过以下方式反馈：", size=13, color=ft.Colors.GREY_500),

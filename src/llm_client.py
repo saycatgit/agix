@@ -46,6 +46,7 @@ class LLMClient:
             organization = getattr(config, "organization", "")
             project = getattr(config, "project", "")
             default_headers = getattr(config, "default_headers", {})
+            supports_vision = getattr(config, "supports_vision", False)
         else:
             # dict (兼容)
             provider = config.get("provider", "deepseek")
@@ -58,6 +59,7 @@ class LLMClient:
             organization = config.get("organization", "")
             project = config.get("project", "")
             default_headers = config.get("default_headers", {})
+            supports_vision = config.get("supports_vision", False)
 
         self.provider = provider
         self._api_key = api_key
@@ -66,6 +68,7 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.supports_vision = supports_vision
 
         provider_info = PROVIDERS.get(provider, {
             "name": provider,
@@ -128,6 +131,7 @@ class LLMClient:
             organization = getattr(config, "organization", "")
             project = getattr(config, "project", "")
             default_headers = getattr(config, "default_headers", {})
+            supports_vision = getattr(config, "supports_vision", False)
         else:
             provider = config.get("provider", "deepseek")
             api_key = config.get("api_key", "")
@@ -138,12 +142,14 @@ class LLMClient:
             organization = config.get("organization", "")
             project = config.get("project", "")
             default_headers = config.get("default_headers", {})
+            supports_vision = config.get("supports_vision", False)
 
         self.provider = provider
         self._api_key = api_key
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.supports_vision = supports_vision
 
         provider_info = PROVIDERS.get(provider, {
             "name": provider,

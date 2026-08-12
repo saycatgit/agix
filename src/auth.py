@@ -38,6 +38,26 @@ ACTION_PATTERNS = [
     (r'\bicacls\b', 'icacls'),
     (r'\bbcdedit\b', 'bcdedit'),
     (r'\bwmic\b', 'wmic'),
+    # PowerShell 危险命令
+    (r'\bRemove-Item\b.*-[rR]ecurse.*-[fF]orce', 'Remove-Item -Recurse -Force'),
+    (r'\bRemove-Item\b.*-[fF]orce.*-[rR]ecurse', 'Remove-Item -Recurse -Force'),
+    (r'\bSet-ExecutionPolicy\b', 'Set-ExecutionPolicy'),
+    (r'\bInvoke-Expression\b|\biex\s', 'Invoke-Expression'),
+    (r'\bStop-Computer\b|\bRestart-Computer\b', 'Stop/Restart-Computer'),
+    (r'\bStop-Process\b', 'Stop-Process'),
+    (r'\bAdd-Type\b', 'Add-Type'),
+    (r'\bClear-EventLog\b|\bwevtutil\s+cl\b', 'Clear-EventLog'),
+    (r'\bSet-MpPreference\b|\bAdd-MpPreference\b', 'MpPreference'),
+    (r'\bvssadmin\s+delete\s+shadows\b', 'vssadmin delete shadows'),
+    (r'\bSet-ItemProperty\b.*\bHK(LM|CU|CR|U)\b', 'Set-ItemProperty Registry'),
+    (r'\bNew-ItemProperty\b.*\bHK(LM|CU|CR|U)\b', 'Set-ItemProperty Registry'),
+    (r'\bRemove-ItemProperty\b.*\bHK(LM|CU|CR|U)\b', 'Set-ItemProperty Registry'),
+    (r'\bDisable-ComputerRestore\b', 'Disable-ComputerRestore'),
+    (r'\bSet-Service\b|\bNew-Service\b|\bStop-Service\b', 'Set/New/Stop-Service'),
+    (r'\bschtasks\s+/create\b', 'schtasks /create'),
+    (r'\bSet-Acl\b', 'Set-Acl'),
+    (r'\bUnblock-File\b', 'Unblock-File'),
+    (r'\bpowershell\b|\bpwsh\b', 'powershell'),
     # macOS 危险命令
     (r'\bdiskutil\b', 'diskutil'),
     (r'\blaunchctl\s+(unload|remove)', 'launchctl'),
@@ -66,6 +86,12 @@ SENSITIVE_ACTIONS = {
     'del /f', 'format', 'reg', 'diskpart', 'net user/group',
     'shutdown', 'takeown', 'icacls', 'bcdedit', 'wmic',
     # macOS
+    # PowerShell
+    'Remove-Item -Recurse -Force', 'Set-ExecutionPolicy', 'Invoke-Expression',
+    'Stop/Restart-Computer', 'Stop-Process', 'Add-Type', 'Clear-EventLog',
+    'MpPreference', 'vssadmin delete shadows', 'Set-ItemProperty Registry',
+    'Disable-ComputerRestore', 'Set/New/Stop-Service', 'schtasks /create',
+    'Set-Acl', 'Unblock-File', 'powershell',
     'diskutil', 'launchctl', 'softwareupdate', 'csrutil', 'nvram',
 }
 
@@ -90,6 +116,15 @@ ACTION_DESCRIPTIONS = {
     'takeown': '获取文件所有权', 'icacls': '修改ACL权限',
     'bcdedit': '启动配置编辑', 'wmic': 'WMI管理操作',
     # macOS
+    # PowerShell
+    'Remove-Item -Recurse -Force': '递归强制删除(PS)', 'Set-ExecutionPolicy': '修改执行策略',
+    'Invoke-Expression': '动态代码执行', 'Stop/Restart-Computer': '关机/重启',
+    'Stop-Process': '终止进程', 'Add-Type': '加载.NET代码',
+    'Clear-EventLog': '清除事件日志', 'MpPreference': 'Defender策略修改',
+    'vssadmin delete shadows': '删除卷影副本', 'Set-ItemProperty Registry': '注册表写入',
+    'Disable-ComputerRestore': '禁用系统还原', 'Set/New/Stop-Service': '服务管理',
+    'schtasks /create': '创建计划任务', 'Set-Acl': '修改ACL权限',
+    'Unblock-File': '移除文件安全标记', 'powershell': 'PowerShell执行',
     'diskutil': '磁盘工具操作', 'launchctl': '系统服务管理',
     'softwareupdate': '系统更新', 'csrutil': 'SIP完整性保护配置',
     'nvram': 'NVRAM固件变量',

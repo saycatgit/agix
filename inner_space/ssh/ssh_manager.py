@@ -28,6 +28,14 @@ def load_json_config():
         return json.load(f)
 
 
+def load_connections():
+    """兼容 ssh.json 顶层为列表或 {"connections": [...]} 字典两种格式"""
+    data = load_json_config()
+    if isinstance(data, list):
+        return data
+    return data.get("connections", [])
+
+
 def save_json_config(config):
     with open(JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
@@ -130,8 +138,7 @@ def cmd_add(config_json):
         entry["password"] = ""
 
     # 更新 ssh.json
-    json_config = load_json_config()
-    connections = json_config.get("connections", [])
+    connections = load_connections()
     # 检查是否已存在同名SSH
     existing_idx = None
     for i, conn in enumerate(connections):
@@ -143,8 +150,7 @@ def cmd_add(config_json):
         connections[existing_idx] = entry
     else:
         connections.append(entry)
-    json_config["connections"] = connections
-    save_json_config(json_config)
+    save_json_config(connections)
     print(f"[ssh.json] 已添加SSH: {name}")
 
     # 更新 ssh.md
@@ -155,14 +161,12 @@ def cmd_add(config_json):
 
 def cmd_del(name):
     # 更新 ssh.json
-    json_config = load_json_config()
-    connections = json_config.get("connections", [])
+    connections = load_connections()
     new_connections = [c for c in connections if c.get("name") != name]
     if len(new_connections) == len(connections):
         print(f"警告: SSH {name} 在 ssh.json 中不存在")
     else:
-        json_config["connections"] = new_connections
-        save_json_config(json_config)
+        save_json_config(new_connections)
         print(f"[ssh.json] 已删除SSH: {name}")
 
     # 更新 ssh.md
@@ -172,8 +176,7 @@ def cmd_del(name):
 
 
 def cmd_list():
-    json_config = load_json_config()
-    connections = json_config.get("connections", [])
+    connections = load_connections()
     if not connections:
         print("(无SSH)")
         return

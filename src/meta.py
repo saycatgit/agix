@@ -7,6 +7,7 @@ class MsgField:
     CONTENT = "content"
     ID = "message_id"
     STYLE = "style"
+    IMAGES = "images"
 
     
 

@@ -24,7 +24,7 @@ class ModelSettingsPanel:
     CLOSE_TOOLTIP: str = "关闭"
 
     TF_DEFAULTS: dict = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300}
-    _UNSAVED: str = "● 未保存"
+    _UNSAVED: str = "● 未保存(保存后重启生效)"
 
     def __init__(self, page: ft.Page, config, providers: dict, on_saved=None):
         self._dirty = False
@@ -127,6 +127,11 @@ class ModelSettingsPanel:
         self._s_temp = ft.TextField(label="Temperature", value=str(cfg.llm.temperature), on_change=lambda e: self._mark_dirty(), **tf)
         self._s_max_tok = ft.TextField(label="Max Tokens", value=str(cfg.llm.max_tokens), on_change=lambda e: self._mark_dirty(), **tf)
         self._s_mem_size = ft.TextField(label="上下文窗口", value=str(cfg.llm.context_window), on_change=lambda e: self._mark_dirty(), **tf)
+        self._s_vision = ft.Switch(
+            label="支持图片输入（多模态）",
+            value=bool(cfg.llm.supports_vision),
+            on_change=lambda e: self._mark_dirty(),
+        )
         self._model_chips = ft.Row([], wrap=True, spacing=4)
 
         self._plist = ft.Column([], spacing=1, scroll=ft.ScrollMode.AUTO)
@@ -140,6 +145,7 @@ class ModelSettingsPanel:
             self._s_base_url,
             self._s_apikey,
             self._s_temp, self._s_max_tok, self._s_mem_size,
+            self._s_vision,
         ], spacing=20)
 
         self._content_body = ft.Row([
@@ -237,6 +243,7 @@ class ModelSettingsPanel:
             self._s_temp.value = str(found.get("temperature", 0.7))
             self._s_max_tok.value = str(found.get("max_tokens", 10240))
             self._s_mem_size.value = str(found.get("context_window", 80))
+            self._s_vision.value = bool(found.get("supports_vision", False))
         else:
             self._s_custom_model.value = ""
             self._s_base_url.value = info.get("base_url", "")
@@ -244,6 +251,7 @@ class ModelSettingsPanel:
             self._s_temp.value = "0.7"
             self._s_max_tok.value = "10240"
             self._s_mem_size.value = "80"
+            self._s_vision.value = False
         self._refresh_provider_btns()
         self._refresh_model_chips(k)
         self._mark_dirty()
@@ -270,6 +278,7 @@ class ModelSettingsPanel:
             self._s_temp.value = "0.7"
             self._s_max_tok.value = "10240"
             self._s_mem_size.value = "80"
+            self._s_vision.value = False
             self._refresh_provider_btns()
             self._refresh_model_chips(name)
             self._mark_dirty()
@@ -343,6 +352,7 @@ class ModelSettingsPanel:
             cfg.llm.temperature = float(self._s_temp.value)
             cfg.llm.max_tokens = int(self._s_max_tok.value)
             cfg.llm.context_window = int(self._s_mem_size.value)
+            cfg.llm.supports_vision = self._s_vision.value
 
             existing = next(
                 (e for e in cfg.llm_list if e.get("provider") == self._provider_val and e.get("model") == cfg.llm.model),
@@ -353,6 +363,7 @@ class ModelSettingsPanel:
                     "api_key": cfg.llm.api_key, "base_url": cfg.llm.base_url,
                     "temperature": cfg.llm.temperature, "max_tokens": cfg.llm.max_tokens,
                     "context_window": cfg.llm.context_window,
+                    "supports_vision": cfg.llm.supports_vision,
                 })
             else:
                 cfg.llm_list.append({
@@ -360,6 +371,7 @@ class ModelSettingsPanel:
                     "api_key": cfg.llm.api_key, "base_url": cfg.llm.base_url,
                     "temperature": cfg.llm.temperature, "max_tokens": cfg.llm.max_tokens,
                     "context_window": cfg.llm.context_window, "active": True, "label": "",
+                    "supports_vision": cfg.llm.supports_vision,
                 })
             for e in cfg.llm_list:
                 e["active"] = False
@@ -449,6 +461,7 @@ class ModelSettingsPanel:
         self._s_temp.value = str(entry.get("temperature", 0.7))
         self._s_max_tok.value = str(entry.get("max_tokens", 10240))
         self._s_mem_size.value = str(entry.get("context_window", 80))
+        self._s_vision.value = bool(entry.get("supports_vision", False))
         self._model_val = entry.get("model", "")
         self._refresh_model_chips(provider)
         prov_keys = {e["provider"]: e.get("api_key", "") for e in self.config.llm_list if e.get("api_key")}

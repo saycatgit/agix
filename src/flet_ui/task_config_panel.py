@@ -31,7 +31,7 @@ class TaskConfigPanel:
     PLACEHOLDER_PROMPT: str = "填写子任务对应的系统提示词 prompt 行"
     PLACEHOLDER_PHASE: str = "填写子任务必须的阶段 phase 名称"
     COMMON_MARKER: str = "..."
-    _UNSAVED: str = "● 未保存"
+    _UNSAVED: str = "● 未保存(保存后重启生效)"
 
     TF_DEFAULTS: dict = {"dense": True, "text_size": 13}
     PROMPT_BORDER = ft.Colors.TEAL_200

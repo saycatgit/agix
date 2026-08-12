@@ -58,10 +58,13 @@ class EventQueueManager:
 
     def send_display(self, content: str, *, mode: str = "chat",
                      style: MsgStyle | None = None,
-                     msg_type: MsgType | None = None):
+                     msg_type: MsgType | None = None,
+                     images: list | None = None):
         """工作线程 -> UI 线程: 发送展示内容"""
         actual_style = style or MsgStyle.ASSISTANT
         msg = self.make_msg(content, msg_type or MsgType.DISPLAY, style=actual_style)
+        if images:
+            msg[MsgField.IMAGES] = images
         if mode == "chat":
             self.chat_display_queue.put(msg)
         else:
@@ -93,9 +96,12 @@ class EventQueueManager:
 
     # ---------- user_input 消息 ----------
 
-    def send_user_input(self, content: str, *, mode: str = "chat"):
-        """各种需求 -> chater 线程: 发送消息给 chater 处理"""
+    def send_user_input(self, content: str, *, mode: str = "chat",
+                        images: list | None = None):
+        """各种需求 -> chater 线程: 发送消息给 chater 处理。images 为 base64 图片列表。"""
         msg = self.make_msg(content, MsgType.USER_INPUT)
+        if images:
+            msg[MsgField.IMAGES] = images
         if mode == "chat":
             self.to_chat_queue.put(msg)
         else:

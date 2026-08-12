@@ -1,55 +1,306 @@
-"""连接管理面板 UI 组件 —— SSH管理 + MCP 服务器"""
+"""连接管理面板 UI 组件 —— 左侧分类导航(SSH/MCP/Skill/Keys) + 右侧详情区"""
 
-import asyncio, json, os, shutil, subprocess
+import asyncio, glob, os, shutil, subprocess
 import flet as ft
 
 
 class ConnectionSettingsPanel:
-    """连接管理面板：SSH密钥管理 + 当前SSH列表 + MCP 可用服务器"""
+    """连接管理面板：SSH / MCP / Skill / Keys 四分类展示"""
 
     PANEL_BGCOLOR = ft.Colors.WHITE
     LABEL_COLOR = ft.Colors.GREY_700
     TITLE_TEXT: str = "🔗 连接管理"
+    NAV_WIDTH: int = 90
+
+    CATEGORIES = [
+        ("SSH", ft.Icons.TERMINAL),
+        ("MCP", ft.Icons.HUB),
+        ("Skill", ft.Icons.AUTO_AWESOME),
+        ("Keys", ft.Icons.KEY),
+    ]
 
     TF_DEFAULTS: dict = {"dense": True, "text_size": 13, "border_color": ft.Colors.GREY_300, "border_radius": 3}
 
-    def __init__(self, page: ft.Page, config):
+    def __init__(self, page: ft.Page, agent):
         self.page = page
-        self.config = config
-        self._file_path = config.paths.ssh_config_path
-        self._ssh_dir = config.paths.ssh_dir
+        self.agent = agent
+        self.config = agent.config
+        self._ssh_dir = agent.config.paths.ssh_dir
         self._keys_dir = os.path.join(self._ssh_dir, ".keys")
-        self._mcp_dir = config.paths.mcp_dir
-        self._data = self._load()
-        self._mcp_servers = self._parse_mcp_table()
+        self._skills_dir = agent.config.paths.skills_dir
+        self._mcp_dir = agent.config.paths.mcp_dir
+        self._active_cat = "SSH"
         self._build()
 
     @property
     def content_body(self) -> ft.Column:
         return self._content_body
 
-    # ── MCP 表格解析 ──
+    # ── 数据加载 ──
 
-    def _parse_mcp_table(self) -> list[dict]:
-        """从 mcp.json 读取服务器列表，返回 [{'name': ..., 'desc': ...}, ...]"""
-        mcp_json = self.config.mcp_config_path
-        if not mcp_json or not os.path.isfile(mcp_json):
+    def _load_ssh_list(self) -> list[dict]:
+        """从 ssh.md 解析 '## 当前SSH' 下的 markdown 表格"""
+        ssh_md = os.path.join(self._ssh_dir, "ssh.md")
+        if not os.path.isfile(ssh_md):
             return []
-
         try:
-            with open(mcp_json, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            with open(ssh_md, "r", encoding="utf-8") as f:
+                content = f.read()
         except Exception:
             return []
 
-        servers_config = config.get("servers", {})
-        if not servers_config:
+        marker = "## 当前SSH"
+        idx = content.find(marker)
+        if idx == -1:
             return []
 
-        return [
-            {"name": name, "desc": cfg.get("desc", "")}
-            for name, cfg in servers_config.items()
-        ]
+        section = content[idx + len(marker):]
+        rows = []
+        for line in section.strip().splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip().strip("`") for c in line.split("|")[1:-1]]
+            if len(cells) < 5:
+                continue
+            if cells[0] in ("名称", "------", "---") or set(cells[0]) <= {"-"}:
+                continue
+            rows.append({
+                "name": cells[0],
+                "host": cells[1],
+                "port": cells[2],
+                "username": cells[3],
+                "auth_type": cells[4],
+            })
+        return rows
+
+    def _load_mcp_list(self) -> list[dict]:
+        """从 mcp.md 解析 '## MCP可用服务器' 下的 markdown 表格"""
+        mcp_md = os.path.join(self._mcp_dir, "mcp.md")
+        if not os.path.isfile(mcp_md):
+            return []
+        try:
+            with open(mcp_md, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            return []
+
+        marker = "## MCP可用服务器"
+        idx = content.find(marker)
+        if idx == -1:
+            return []
+
+        section = content[idx + len(marker):]
+        rows = []
+        for line in section.strip().splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip().strip("`") for c in line.split("|")[1:-1]]
+            if len(cells) < 2:
+                continue
+            if cells[0] in ("服务器", "------", "---") or set(cells[0]) <= {"-"}:
+                continue
+            rows.append({"name": cells[0], "desc": cells[1]})
+        return rows
+
+    def _load_skill_list(self) -> list[dict]:
+        """扫描 skills_dir，提取名称和描述"""
+        if not self._skills_dir or not os.path.isdir(self._skills_dir):
+            return []
+        skills = []
+        for skill_dir in sorted(glob.glob(os.path.join(self._skills_dir, "*"))):
+            if not os.path.isdir(skill_dir):
+                continue
+            name = os.path.basename(skill_dir)
+            desc = ""
+            md = os.path.join(skill_dir, "SKILL.md")
+            if os.path.isfile(md):
+                try:
+                    with open(md, "r", encoding="utf-8") as f:
+                        f.readline()
+                        for line in f:
+                            stripped = line.strip()
+                            if stripped:
+                                desc = stripped
+                                break
+                except Exception:
+                    pass
+            skills.append({"name": name, "desc": desc or name})
+        return skills
+
+    # ── 构建 UI ──
+
+    def _build(self):
+        self._nav_btns = []
+        for name, icon in self.CATEGORIES:
+            btn = ft.Container(
+                content=ft.Column([
+                    ft.Icon(icon, size=20),
+                    ft.Text(name, size=11),
+                ], spacing=2, alignment=ft.MainAxisAlignment.CENTER,
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding(4, 10, 4, 10),
+                border_radius=6,
+                data=name,
+                on_click=lambda e, n=name: self._switch_category(n),
+                ink=True,
+            )
+            self._nav_btns.append(btn)
+
+        nav_col = ft.Column(self._nav_btns, spacing=4, alignment=ft.MainAxisAlignment.START)
+        self._detail_area = ft.Container(expand=True, padding=ft.Padding(12, 8, 8, 8))
+
+        self._key_files_col = ft.Column([], spacing=4)
+        self._import_btn = ft.IconButton(
+            icon=ft.Icons.FILE_OPEN, tooltip="导入密钥文件", icon_size=18,
+            on_click=self._on_import_key,
+        )
+        self._paste_btn = ft.IconButton(
+            icon=ft.Icons.CONTENT_PASTE, tooltip="粘贴密钥内容", icon_size=18,
+            on_click=self._on_paste_key,
+        )
+
+        self._content_body = ft.Column([
+            ft.Row([
+                ft.Container(content=nav_col, width=self.NAV_WIDTH,
+                             bgcolor=ft.Colors.GREY_50, border_radius=6,
+                             padding=ft.Padding(4, 8, 4, 8)),
+                ft.VerticalDivider(width=1, color=ft.Colors.GREY_300),
+                self._detail_area,
+            ], spacing=0, expand=True),
+        ], expand=True, spacing=0)
+
+        self._switch_category("SSH")
+
+    def _switch_category(self, name: str):
+        self._active_cat = name
+        for btn in self._nav_btns:
+            is_active = btn.data == name
+            btn.bgcolor = ft.Colors.BLUE_50 if is_active else None
+            col = btn.content
+            if isinstance(col, ft.Column):
+                for ctrl in col.controls:
+                    if isinstance(ctrl, ft.Icon):
+                        ctrl.color = ft.Colors.BLUE if is_active else ft.Colors.GREY_600
+                    elif isinstance(ctrl, ft.Text):
+                        ctrl.color = ft.Colors.BLUE if is_active else ft.Colors.GREY_700
+
+        if name == "SSH":
+            self._detail_area.content = self._build_ssh_detail()
+        elif name == "MCP":
+            self._detail_area.content = self._build_mcp_detail()
+        elif name == "Skill":
+            self._detail_area.content = self._build_skill_detail()
+        elif name == "Keys":
+            self._detail_area.content = self._build_keys_detail()
+
+        try:
+            self.page.update()
+        except RuntimeError:
+            pass
+
+    # ── SSH 详情 ──
+
+    def _build_ssh_detail(self) -> ft.Column:
+        conns = self._load_ssh_list()
+        if not conns:
+            return ft.Column([
+                ft.Text("SSH 连接", size=14, weight=ft.FontWeight.W_600),
+                ft.Text("暂无连接配置", size=12, color=ft.Colors.GREY_400, italic=True),
+                ft.Text("💡 添加/删除 SSH 请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+            ], spacing=8)
+
+        rows = []
+        for c in conns:
+            auth_label = "🔑 密钥" if c["auth_type"] == "key" else "🔒 密码"
+            rows.append(ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(c["name"], size=12, weight=ft.FontWeight.W_500),
+                        ft.Text(f"{c['username']}@{c['host']}:{c['port']}", size=11, color=ft.Colors.GREY_500),
+                    ], spacing=2, expand=True),
+                    ft.Text(auth_label, size=11, color=ft.Colors.GREY_600),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                padding=ft.Padding(8, 6, 8, 6),
+                bgcolor=ft.Colors.GREY_50, border_radius=4,
+            ))
+
+        return ft.Column([
+            ft.Text("SSH 连接", size=14, weight=ft.FontWeight.W_600),
+            ft.Text(f"共 {len(conns)} 个连接", size=11, color=ft.Colors.GREY_500),
+            ft.Column(rows, spacing=4),
+            ft.Text("💡 添加/删除 SSH 请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+        ], spacing=8)
+
+    # ── MCP 详情 ──
+
+    def _build_mcp_detail(self) -> ft.Column:
+        servers = self._load_mcp_list()
+        if not servers:
+            return ft.Column([
+                ft.Text("MCP 服务器", size=14, weight=ft.FontWeight.W_600),
+                ft.Text("暂无 MCP 服务器配置", size=12, color=ft.Colors.GREY_400, italic=True),
+                ft.Text("💡 添加/删除 MCP 服务请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+            ], spacing=8)
+
+        rows = []
+        for s in servers:
+            rows.append(ft.Container(
+                content=ft.Column([
+                    ft.Text(s["name"], size=12, weight=ft.FontWeight.W_500),
+                    ft.Text(s["desc"], size=11, color=ft.Colors.GREY_500),
+                ], spacing=2),
+                padding=ft.Padding(8, 6, 8, 6),
+                bgcolor=ft.Colors.GREY_50, border_radius=4,
+            ))
+
+        return ft.Column([
+            ft.Text("MCP 服务器", size=14, weight=ft.FontWeight.W_600),
+            ft.Text(f"共 {len(servers)} 个服务", size=11, color=ft.Colors.GREY_500),
+            ft.Column(rows, spacing=4),
+            ft.Text("💡 添加/删除 MCP 服务请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+        ], spacing=8)
+
+    # ── Skill 详情 ──
+
+    def _build_skill_detail(self) -> ft.Column:
+        skills = self._load_skill_list()
+        if not skills:
+            return ft.Column([
+                ft.Text("可用技能", size=14, weight=ft.FontWeight.W_600),
+                ft.Text("暂无技能", size=12, color=ft.Colors.GREY_400, italic=True),
+                ft.Text("💡 添加/删除技能请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+            ], spacing=8)
+
+        rows = []
+        for s in skills:
+            rows.append(ft.Container(
+                content=ft.Column([
+                    ft.Text(s["name"], size=12, weight=ft.FontWeight.W_500),
+                    ft.Text(s["desc"], size=11, color=ft.Colors.GREY_500),
+                ], spacing=2),
+                padding=ft.Padding(8, 6, 8, 6),
+                bgcolor=ft.Colors.GREY_50, border_radius=4,
+            ))
+
+        return ft.Column([
+            ft.Text("可用技能", size=14, weight=ft.FontWeight.W_600),
+            ft.Text(f"共 {len(skills)} 个技能", size=11, color=ft.Colors.GREY_500),
+            ft.Column(rows, spacing=4),
+            ft.Text("💡 添加/删除技能请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
+        ], spacing=8)
+
+    # ── Keys 详情 ──
+
+    def _build_keys_detail(self) -> ft.Column:
+        self._refresh_key_files_list()
+        return ft.Column([
+            ft.Text("密钥文件", size=14, weight=ft.FontWeight.W_600),
+            self._key_files_col,
+            ft.Row([self._import_btn, self._paste_btn], spacing=4,
+                   alignment=ft.MainAxisAlignment.END),
+        ], spacing=8)
 
     # ── 密钥文件管理 ──
 
@@ -64,6 +315,33 @@ class ConnectionSettingsPanel:
             pass
         files.sort()
         return files
+
+    def _build_key_file_rows(self) -> list[ft.Row]:
+        rows = []
+        for f in self._list_key_files():
+            del_btn = ft.IconButton(
+                icon=ft.Icons.REMOVE, icon_size=16,
+                icon_color=ft.Colors.RED_400, tooltip=f"删除 {f}",
+                data=f, on_click=self._on_delete_key_click,
+            )
+            rows.append(ft.Row([
+                ft.Text(f, size=12, expand=True),
+                del_btn,
+            ], spacing=4))
+        return rows
+
+    def _refresh_key_files_list(self):
+        rows = self._build_key_file_rows()
+        if rows:
+            self._key_files_col.controls = rows
+        else:
+            self._key_files_col.controls = [
+                ft.Text("  暂无密钥文件", size=11, color=ft.Colors.GREY_400, italic=True)
+            ]
+        try:
+            self._key_files_col.update()
+        except RuntimeError:
+            pass
 
     async def _on_import_key(self, e):
         """文件选择 → 复制到 keys 目录"""
@@ -84,17 +362,16 @@ class ConnectionSettingsPanel:
                 "powershell", "-NoProfile", "-Command", ps_script,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
+        elif self.config.system == "darwin":
+            proc = await asyncio.create_subprocess_exec(
+                "osascript", "-e", 'POSIX path of (choose file with prompt "选择 SSH 密钥文件")',
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
         else:
-            if self.config.system == "darwin":
-                proc = await asyncio.create_subprocess_exec(
-                    "osascript", "-e", 'POSIX path of (choose file with prompt "选择 SSH 密钥文件")',
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                )
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    "zenity", "--file-selection", "--title=选择 SSH 密钥文件",
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                )
+            proc = await asyncio.create_subprocess_exec(
+                "zenity", "--file-selection", "--title=选择 SSH 密钥文件",
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
         stdout, _stderr = await proc.communicate()
         if proc.returncode != 0:
             return
@@ -119,6 +396,7 @@ class ConnectionSettingsPanel:
             min_lines=6, max_lines=14,
             text_size=11, border_color=ft.Colors.GREY_300,
         )
+
         def do_paste(e):
             name = (tf_name.value or "").strip()
             raw = (tf_content.value or "").strip()
@@ -149,148 +427,6 @@ class ConnectionSettingsPanel:
         )
         self.page.show_dialog(dlg)
 
-    # ── 构建 UI ──
-
-    def _build(self):
-        # ── SSH管理区块 ──
-        self._conn_col = ft.Column([], spacing=4)
-        self._refresh_conn_list()
-
-        self._key_files_col = ft.Column([], spacing=4)
-        self._refresh_key_files_list()
-
-        self._import_btn = ft.IconButton(
-            icon=ft.Icons.FILE_OPEN,
-            tooltip="导入密钥文件",
-            icon_size=18,
-            on_click=self._on_import_key,
-        )
-        self._paste_btn = ft.IconButton(
-            icon=ft.Icons.CONTENT_PASTE,
-            tooltip="粘贴密钥内容",
-            icon_size=18,
-            on_click=self._on_paste_key,
-        )
-
-        conn_section = ft.Column([
-            ft.Divider(height=1, color=ft.Colors.GREY_300),
-            ft.Text("📋 当前SSH", size=14, weight=ft.FontWeight.W_600),
-            ft.Text("💡 添加/删除SSH请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
-            self._conn_col,
-            ft.Text("🔑 密钥文件", size=14, weight=ft.FontWeight.W_600),
-            self._key_files_col,
-            ft.Row([self._import_btn, self._paste_btn], spacing=4,
-                   alignment=ft.MainAxisAlignment.END),
-        ], spacing=8)
-
-        # ── MCP 服务器区块 ──
-        self._mcp_col = ft.Column([], spacing=4)
-        self._refresh_mcp_list()
-
-        mcp_section = ft.Column([
-            ft.Divider(height=1, color=ft.Colors.GREY_300),
-            ft.Text("🔌 MCP 可用服务器", size=14, weight=ft.FontWeight.W_600),
-            ft.Text("💡 添加/删除 MCP 服务请通过对话操作", size=11, color=ft.Colors.INDIGO_400),
-            self._mcp_col,
-        ], spacing=8)
-
-        self._content_body = ft.Column([
-            conn_section,
-            mcp_section,
-        ], expand=True, spacing=10)
-
-    # ── SSH列表 ──
-
-    def _build_conn_rows(self) -> list[ft.Row]:
-        """构建连接行列表，仅展示信息，添加/删除通过 LLM 对话操作"""
-        rows = []
-        for c in self._data.get("connections", []):
-            info_parts = [
-                f"{c.get('username', '?')}@{c.get('host', '?')}:{c.get('port', 22)}",
-            ]
-            if c.get("auth_type") == "key":
-                info_parts.append(f"🔑{c.get('key_path', '')}")
-            else:
-                info_parts.append("🔒密码")
-            rows.append(ft.Row([
-                ft.Column([
-                    ft.Text(f"▸ {c.get('name', '?')}", size=12, weight=ft.FontWeight.W_500),
-                    ft.Text(" | ".join(info_parts), size=11, color=ft.Colors.GREY_500),
-                ], spacing=2, expand=True),
-            ], spacing=4, alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
-        return rows
-
-    def _refresh_conn_list(self):
-        rows = self._build_conn_rows()
-        if rows:
-            self._conn_col.controls = rows
-        else:
-            self._conn_col.controls = [
-                ft.Text("  暂无连接配置", size=11, color=ft.Colors.GREY_400, italic=True)
-            ]
-        try:
-            self._conn_col.update()
-        except RuntimeError:
-            pass
-    # ── 密钥文件行 ──
-
-    def _build_key_file_rows(self) -> list[ft.Row]:
-        rows = []
-        for f in self._list_key_files():
-            del_btn = ft.IconButton(
-                icon=ft.Icons.REMOVE,
-                icon_size=16,
-                icon_color=ft.Colors.RED_400,
-                tooltip=f"删除 {f}",
-                data=f,
-                on_click=self._on_delete_key_click,
-            )
-            rows.append(ft.Row([
-                ft.Text(f, size=12, expand=True),
-                del_btn,
-            ], spacing=4))
-        return rows
-
-    def _refresh_key_files_list(self):
-        self._key_files_col.controls = self._build_key_file_rows()
-        try:
-            self._key_files_col.update()
-        except RuntimeError:
-            pass
-
-    # ── MCP 服务器列表 ──
-
-    def _build_mcp_rows(self) -> list:
-        rows = []
-        for s in self._mcp_servers:
-            name = s["name"]
-            desc = s["desc"]
-            rows.append(ft.Column([
-                ft.Text(f"▸ `{name}`", size=12, weight=ft.FontWeight.W_500),
-                ft.Text(desc, size=11, color=ft.Colors.GREY_500),
-            ], spacing=2))
-        return rows
-
-    def _refresh_mcp_list(self):
-        rows = self._build_mcp_rows()
-        if rows:
-            self._mcp_col.controls = rows
-        else:
-            self._mcp_col.controls = [
-                ft.Text("  暂无 MCP 服务器配置", size=11, color=ft.Colors.GREY_400, italic=True)
-            ]
-        try:
-            self._mcp_col.update()
-        except RuntimeError:
-            pass
-
-    # ── 删除操作 ──
-
-    def _save(self):
-        os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
-        with open(self._file_path, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, indent=2, ensure_ascii=False)
-
     def _on_delete_key_click(self, e):
         filename = e.control.data
         dlg = ft.AlertDialog(
@@ -314,37 +450,3 @@ class ConnectionSettingsPanel:
             os.remove(path)
         self.page.pop_dialog()
         self._refresh_key_files_list()
-
-    # ── 数据 I/O ──
-
-    def _load(self) -> dict:
-        if os.path.exists(self._file_path):
-            with open(self._file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            result = {"key_path": "", "connections": []}
-            if "key_path" in data:
-                result["key_path"] = data["key_path"]
-            if "connections" in data:
-                result["connections"] = data["connections"]
-                if not result["key_path"] and result["connections"]:
-                    result["key_path"] = result["connections"][0].get("key_path", "")
-                return result
-            if "hosts" in data:
-                # 迁移旧格式：hosts → connections
-                migrated = []
-                for h in data["hosts"]:
-                    migrated.append({
-                        "name": h.get("name", ""),
-                        "host": h.get("ip", h.get("hostname", "")),
-                        "port": h.get("port", 22),
-                        "username": h.get("user", h.get("username", "")),
-                        "auth_type": h.get("auth_type", "password"),
-                        "password": h.get("password", ""),
-                        "key_path": h.get("key_path", ""),
-                    })
-                result["connections"] = migrated
-                if not result["key_path"]:
-                    result["key_path"] = migrated[0].get("key_path", "") if migrated else ""
-                return result
-            return result
-        return {"key_path": "", "connections": []}
