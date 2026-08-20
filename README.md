@@ -1,4 +1,14 @@
+<p align="center">
+  <img src="inner_space/logo.png" width="128" alt="Agix Logo">
+</p>
+
 # Agix
+
+<p align="center">
+  <a href="https://github.com/saycatgit/agix/actions/workflows/build_portable.yml">
+    <img src="https://github.com/saycatgit/agix/actions/workflows/build_portable.yml/badge.svg" alt="Build">
+  </a>
+</p>
 
 > 本地优先的 AI 个人助理 —— 多模型对话 + 智能任务规划 + 后台定时执行，安全可控。
 
@@ -25,6 +35,11 @@ Agix 是一款跨平台桌面应用，把「日常对话」和「任务自动化
 | CI/CD | GitHub Actions 多平台矩阵 |
 
 ## 🚀 快速开始
+
+### 环境要求
+
+- **桌面端**：Windows 10+ / macOS 11+ / Linux（主流发行版），无需预装 Python。
+- **认证服务**（自建时）：Ubuntu / Debian + Python 3.10+，需可访问的公网域名与 80/443 端口。
 
 ### 下载安装
 
@@ -94,6 +109,30 @@ git push github v0.1.4
 - **技能系统**：`skill-creator`（创建技能）、`skill-finder`（搜索技能），可按需扩展 Agent 能力。
 - **MCP 服务**：`amap`（高德地图 12 个工具）、`bing-search`（Bing 搜索 + 网页抓取）。
 - **SSH 站点**：管理远程主机，Agent 可直接操作远端环境。
+
+## 🖥️ 认证服务自建
+
+客户端登录依赖认证服务（短信验证码 / 账号）。仓库 `deploy/` 提供一键部署脚本（Ubuntu / Debian）：
+
+```bash
+cd deploy
+./deploy.sh
+```
+
+脚本自动完成：安装依赖 → 建目录 → 复制代码 → 创建 venv → 配置 systemd → 配置 Nginx 反代 → 开放防火墙。
+
+部署前需通过环境变量注入配置（写入 `agix-auth.service` 或系统环境变量）：
+
+| 变量 | 说明 |
+|------|------|
+| `AGIX_SECRET_KEY` | Flask 会话密钥，生产环境必须设置 |
+| `AGIX_ADMIN_PASSWORD` | 管理后台登录密码 |
+| `AGIX_TOKEN_EXPIRE_SECONDS` | 登录令牌有效期（秒），默认 30 天 |
+| `AGIX_DB_PATH` | SQLite 数据库路径 |
+| `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET` | 阿里云短信验证码凭证（可选） |
+| `ALIYUN_SMS_SIGN_NAME` / `ALIYUN_SMS_TEMPLATE_CODE` | 短信签名与模板（可选） |
+
+服务默认通过 Gunicorn（4 workers，绑定 127.0.0.1:8000）+ Nginx 反向代理对外提供 HTTP，systemd 托管并崩溃自动拉起。客户端通过 `AGIX_AUTH_SERVER` 指向自建服务地址。
 
 ## 📄 License
 
